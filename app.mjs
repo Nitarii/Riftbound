@@ -192,23 +192,65 @@ $("card-search").oninput=renderCatalog;$("card-type").onchange=renderCatalog;
 $("refresh-cards").onclick=async()=>{try{catalog=await loadCatalog(true);renderCatalog();notify("Catalogue actualisé")}catch(e){notify(e.message,true)}};
 $("import-cards").onchange=async e=>{try{catalog=importCatalog(JSON.parse(await e.target.files[0].text()));renderCatalog();notify(catalog.length+" cartes chargées.");}catch(err){notify(err.message,true)}e.target.value="";};
 const signalStatus=t=>{$("connection").textContent=t;};
-function disconnect(){if(sse)sse.close();sse=null;relay=null;signalStatus("● Mode navigateur");notify("Relais déconnecté.");}
+let sseRetry=null;
+function disconnect(){
+ if(sse)sse.close();
+ if(sseRetry)clearTimeout(sseRetry);
+ sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
+ notify("Relais déconnecté.");
+}
+async function syncRelaySnapshot(session){
+ if(relay!==session)return;
+ try{
+  const res=await fetch(session.url+"/api/state",{headers:{Authorization:"Bearer "+session.token}});
+  if(!res.ok)return;
+  const fresh=(await res.json()).state;
+  if(fresh&&fresh.revision>=lastSync){state=fresh;lastSync=fresh.revision;render();}
+ }catch{}
+}
+async function attachLiveEvents(session){
+ if(relay!==session)return;
+ try{
+  const stream=await fetch(session.url+"/api/events-ticket",{method:"POST",
+    headers:{Authorization:"Bearer "+session.token}});
+  if(!stream.ok)throw Error("Flux HTTP "+stream.status);
+  const {ticket}=await stream.json();
+  if(relay!==session)return;
+  if(sse)sse.close();
+  sse=new EventSource(session.url+"/api/events?ticket="+encodeURIComponent(ticket));
+  sse.onmessage=e=>{
+   if(relay!==session)return;
+   const data=JSON.parse(e.data);
+   if(data.state&&data.state.revision>=lastSync){state=data.state;lastSync=state.revision;render();}
+  };
+  sse.onopen=()=>signalStatus("● Relais local connecté");
+  sse.onerror=()=>{
+    if(relay!==session)return;
+    sse.close();sse=null;
+    signalStatus("● Relais : reconnexion…");
+    if(sseRetry)clearTimeout(sseRetry);
+    sseRetry=setTimeout(async()=>{await syncRelaySnapshot(session);attachLiveEvents(session);},2200);
+  };
+ }catch(e){
+  if(relay!==session)return;
+  signalStatus("● Relais temporairement inaccessible");
+  if(sseRetry)clearTimeout(sseRetry);
+  sseRetry=setTimeout(async()=>{await syncRelaySnapshot(session);attachLiveEvents(session);},3000);
+ }
+}
 $("disconnect-relay").onclick=disconnect;
 $("connect-relay").onclick=async()=>{
  const url=$("relay-url").value.trim().replace(/\/$/,""),token=$("relay-token").value.trim();
- if(!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url)){notify("Le panneau n'accepte qu'un relais sur localhost pour éviter d'envoyer le jeton à un serveur tiers.",true);return;}
+ if(!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url)){
+  notify("Seul localhost est accepté pour ne pas transmettre le jeton à un tiers.",true);return;
+ }
  try{
+  if(relay)disconnect();
   const res=await fetch(url+"/api/state",{headers:{Authorization:"Bearer "+token}});
   if(!res.ok)throw Error("Accès refusé au relais");
-  state=(await res.json()).state;relay={url,token};undo=[];render();signalStatus("● Relais local connecté");
-  // EventSource doesn't allow auth headers; use the one-time short-lived SSE session token.
-  const stream=await fetch(url+"/api/events-ticket",{method:"POST",headers:{Authorization:"Bearer "+token}});
-  if(stream.ok){
-    const {ticket}=await stream.json();sse=new EventSource(url+"/api/events?ticket="+encodeURIComponent(ticket));
-    sse.onmessage=e=>{const data=JSON.parse(e.data);if(data.state&&data.state.revision>=lastSync){state=data.state;lastSync=state.revision;render();}};
-    sse.onerror=()=>signalStatus("● Relais : reconnexion…");
-    sse.onopen=()=>signalStatus("● Relais local connecté");
-  }
+  state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
+  signalStatus("● Relais local connecté");
+  attachLiveEvents(relay);
   notify("Relais synchronisé. Ne publie jamais ton jeton.");
  }catch(e){disconnect();notify(e.message,true);}
 };
