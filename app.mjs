@@ -225,6 +225,15 @@ async function syncRelaySnapshot(session){
 }
 async function attachLiveEvents(session){
  if(relay!==session)return;
+ // Cloudflare Quick Tunnels do not support SSE. Poll authenticated snapshots instead.
+ if(/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i.test(session.url)){
+   await syncRelaySnapshot(session);
+   if(relay!==session)return;
+   signalStatus("● Tunnel HTTPS · synchronisation régulière");
+   if(sseRetry)clearTimeout(sseRetry);
+   sseRetry=setTimeout(()=>attachLiveEvents(session),2300);
+   return;
+ }
  try{
   const stream=await fetch(session.url+"/api/events-ticket",{method:"POST",
     headers:{Authorization:"Bearer "+session.token}});
@@ -256,9 +265,12 @@ async function attachLiveEvents(session){
 $("disconnect-relay").onclick=disconnect;
 $("connect-relay").onclick=async()=>{
  const url=$("relay-url").value.trim().replace(/\/$/,""),token=$("relay-token").value.trim();
- if(!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url)){
-  notify("Seul localhost est accepté pour ne pas transmettre le jeton à un tiers.",true);return;
+ const local=/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url);
+ const quickTunnel=/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i.test(url);
+ if(!local&&!quickTunnel){
+  notify("URL autorisée : serveur HTTP sur localhost, ou Cloudflare Quick Tunnel HTTPS.",true);return;
  }
+ if(quickTunnel&&!confirm("Ce tunnel rend l'API accessible par Internet. Le jeton restera nécessaire pour lire et modifier la partie. Continuer ?"))return;
  try{
   if(relay)disconnect();
   const res=await fetch(url+"/api/state",{headers:{Authorization:"Bearer "+token}});
