@@ -5,6 +5,11 @@ const OWNERS = new Set(["human","ai"]);
 export const VERSION = 1;
 export const PHASES = ["Awaken","Beginning","Channel","Draw","Main","Ending"];
 const cp = x => JSON.parse(JSON.stringify(x));
+function shuffle(a) {
+  // Fisher-Yates: the chosen champion is removed before drawing the opening hand.
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:null,runeCount:12,notes:""});
 export function createState() {
   return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",phase:"Setup",started:false,
@@ -74,7 +79,8 @@ export function applyCommand(old, command) {
         if(index<0){if(c.format==="preconstructed")throw Error("Champion absent des 40 cartes");}
         else s.decks.ai.main.splice(index,1);
       }
-      s.decks.ai.runes=c.runes.map(deckCard);
+      shuffle(s.decks.ai.main);
+      s.decks.ai.runes=shuffle(c.runes.map(deckCard));
       s.players.ai.deckName=typeof c.deckName==="string"?c.deckName.slice(0,100):"";
       s.decks.ai.battlefields=Array.isArray(c.battlefields)?c.battlefields.slice(0,3).map(deckCard):[validateCard(c.battlefield)];
       s.cards=s.cards.filter(v=>v.owner!=="ai"||["legend","champion"].includes(v.zone));
