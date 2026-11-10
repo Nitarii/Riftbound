@@ -3,6 +3,9 @@
 
 ## Démarrer avec l'accueil guidé
 
+L'accueil fonctionne désormais comme un **assistant de configuration pas à pas** : une seule étape est affichée à la fois. Le bouton « Valider et continuer » reste désactivé jusqu'à ce que l'étape courante soit validée. « Retour » permet de corriger un choix sans perdre la progression. La position de l'assistant reste conservée dans ce navigateur. L'étape 1 peut être validée après installation du module, ou être contournée explicitement avec « Essayer sans installer (aperçu) ». L'étape 2 demande une connexion réelle ou un choix d'aperçu; l'étape 3 une partie créée; l'étape 4 un prompt copié. Après la dernière validation, « Terminer et ouvrir le plateau » ouvre la partie.
+
+
 **Ouvre : https://nitarii.github.io/Riftbound/**. Un accueil simple apparaît avant le plateau, avec **4 étapes** :
 
 1. **Télécharger le module** : le bouton récupère le ZIP du dépôt. Extraire le ZIP, installer Node.js 20+ si nécessaire, puis lancer **start-local.bat**. C'est un projet source avec lanceur, **pas** encore un exécutable autonome. Cocher « Installé » après l'installation.
