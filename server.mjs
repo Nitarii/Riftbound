@@ -7,12 +7,40 @@ import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
+import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
+import {PRECONS,resolvePrecon} from "./precons.mjs";
 const root=path.dirname(fileURLToPath(import.meta.url)),port=Number(process.env.PORT||8787);
 const host="127.0.0.1";
 const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
 const stateFile=path.join(root,".riftbound-local-state.json");
-const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"").replace(/\/$/,"");
+const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
+const catalogFile=path.join(root,".riftbound-catalog-cache.json");
+let catalogCache=null,catalogTime=0,catalogPending=null;
+async function loadServerCatalog(force=false) {
+  if(!catalogCache)try{
+    const saved=JSON.parse(fs.readFileSync(catalogFile,"utf8"));
+    if(Array.isArray(saved?.cards)&&saved.cards.length>500){catalogCache=saved.cards;catalogTime=saved.updatedAt||0;}
+  }catch{}
+  if(!force&&catalogCache&&Date.now()-catalogTime<24*3600*1000)return catalogCache;
+  if(catalogPending)return catalogPending;
+  catalogPending=(async()=>{
+    for(const source of [CARD_SOURCE,CARD_SOURCE_BACKUP]){
+      try{
+        const response=await fetch(source,{signal:AbortSignal.timeout(12000)});
+        if(!response.ok)throw Error("Catalogue HTTP "+response.status);
+        const cards=decodeCards(await response.json());
+        if(cards.length<500)throw Error("Catalogue incomplet");
+        catalogCache=cards;catalogTime=Date.now();
+        try{fs.writeFileSync(catalogFile,JSON.stringify({cards,updatedAt:catalogTime}));}catch{}
+        return cards;
+      }catch(e){console.warn("Chargement cartes :",e.message);}
+    }
+    if(catalogCache)return catalogCache;
+    throw Error("Catalogue indisponible : vérifie la connexion puis réessaie");
+  })().finally(()=>{catalogPending=null;});
+  return catalogPending;
+}
 let state=createState();
 try{state=JSON.parse(fs.readFileSync(stateFile,"utf8"));}catch{}
 function save(){fs.writeFileSync(stateFile,JSON.stringify(state,null,2));}
@@ -27,6 +55,7 @@ function headers(res,req){
     res.setHeader("Vary","Origin");
     res.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type");
     res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");
+    if(req.headers["access-control-request-private-network"]==="true")res.setHeader("Access-Control-Allow-Private-Network","true");
   }
   res.setHeader("X-Content-Type-Options","nosniff");
   res.setHeader("Referrer-Policy","no-referrer");
@@ -51,14 +80,16 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.1.0",
+ name:"Riftbound Table Companion",version:"0.2.0",
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
- "GET /api/catalog":"Catalog status; cards are managed in the browser, authenticated",
+ "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
+ "GET /api/decks":"Verified printed Fiora/Rumble deck recipe identifiers, authenticated",
  "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
+ "select-precon":{type:"select-precon",id:"random",note:"Valid ids: fiora, rumble. The server draws four physical instances from the resulting shuffled 39-card main deck."},
  "setup-human|setup-ai":{legend:{name:"Shen, Eye of Twilight",type:"Legend"},champion:{name:"Shen",type:"Unit"},battlefield:{name:"Grove of the God-Willow",type:"Battlefield"},main:"required array for setup-ai",runes:"required array for setup-ai"},
  start:{type:"start",player:"human"},
  "next-turn":{type:"next-turn"},
@@ -83,7 +114,7 @@ function serveFile(req,res,url){
   let relative=url.pathname==="/"?"/index.html":url.pathname;
   if(!/^\/[a-z0-9._/-]+$/i.test(relative)||relative.includes("..")||relative.startsWith("/.")){msg(res,404,"Not found",req);return;}
   const file=path.join(root,relative);
-  if(!["index.html","app.mjs","core.mjs","catalog.mjs","style.css"].includes(path.basename(file))){msg(res,404,"Not found",req);return;}
+  if(!["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","style.css"].includes(path.basename(file))||!fs.existsSync(file)){msg(res,404,"Not found",req);return;}
   const ext=path.extname(file);
   const contentType=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":"text/plain";
   try{headers(res,req);res.writeHead(200,{"Content-Type":contentType+"; charset=utf-8"});fs.createReadStream(file).pipe(res);}
@@ -107,7 +138,18 @@ const server=http.createServer(async(req,res)=>{
   if(!authorized(req)){msg(res,401,"Jeton manquant ou incorrect",req);return;}
   if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
-  if(req.method==="GET"&&url.pathname==="/api/catalog"){json(res,200,{source:"browser",message:"The catalog is imported directly into the browser and is not currently synchronized with the relay.",count:null},req);return;}
+  if(req.method==="GET"&&url.pathname==="/api/decks"){
+    json(res,200,{decks:PRECONS.map(p=>({id:p.id,label:p.label,source:p.source,mainSize:p.main.reduce((sum,[,n])=>sum+n,0),runeSize:p.runes.reduce((sum,[,n])=>sum+n,0),battlefields:p.battlefields}))},req);return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/catalog"){
+    try{
+      const cards=await loadServerCatalog(url.searchParams.get("refresh")==="1");
+      const q=url.searchParams.get("q")||"",type=url.searchParams.get("type")||"";
+      const limit=Math.min(2000,Math.max(1,Number(url.searchParams.get("limit")||100)||100));
+      const result=searchCards(cards,q,type,limit);
+      json(res,200,{count:cards.length,returned:result.length,cards:result,source:CARD_SOURCE},req);
+    }catch(e){msg(res,503,e.message,req);}return;
+  }
   if(req.method==="POST"&&url.pathname==="/api/events-ticket"){
     const ticket=crypto.randomBytes(28).toString("hex");tickets.set(ticket,Date.now()+30000);
     if(tickets.size>200){for(const [k,v] of tickets)if(v<Date.now())tickets.delete(k);}
@@ -118,7 +160,15 @@ const server=http.createServer(async(req,res)=>{
       const input=await body(req);
       // Optional optimistic concurrency; client may use state.revision.
       if(Number.isInteger(input.ifRevision)&&input.ifRevision!==state.revision){msg(res,409,"Version obsolète; recharge /api/state",req);return;}
-      const updated=applyCommand(state,input);state=updated;save();broadcast();json(res,200,{ok:true,state},req);
+      let command=input;
+      if(input.type==="select-precon"){
+        const cards=await loadServerCatalog();
+        const deck=resolvePrecon(cards,input.id||"random");
+        command={type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
+          battlefields:deck.battlefields,main:deck.main,runes:deck.runes,
+          mainIncludesChampion:true,format:"preconstructed",deckName:deck.label};
+      }
+      const updated=applyCommand(state,command);state=updated;save();broadcast();json(res,200,{ok:true,state},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }
   msg(res,404,"Endpoint inconnu",req);
