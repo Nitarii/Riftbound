@@ -1,6 +1,24 @@
 # Riftbound Table Companion (prototype v0.2)
 
 
+## Démarrer avec l'accueil guidé
+
+**Ouvre : https://nitarii.github.io/Riftbound/**. Un accueil simple apparaît avant le plateau, avec **4 étapes** :
+
+1. **Télécharger le module** : le bouton récupère le ZIP du dépôt. Extraire le ZIP, installer Node.js 20+ si nécessaire, puis lancer **start-local.bat**. C'est un projet source avec lanceur, **pas** encore un exécutable autonome. Cocher « Installé » après l'installation.
+2. **Connecter le serveur** : saisir l'adresse http://127.0.0.1:8787 et le jeton affiché par le lanceur. Cliquer « Connecter mon serveur » ou « Tester sans serveur » pour un aperçu local. Sans serveur, aucun agent distant ne peut déplacer les cartes sur ton plateau.
+3. **Créer une partie** : sélectionner légende, champion, battlefield et deck de l'IA (Fiora, Rumble ou aléatoire), puis cliquer « Créer et démarrer ma partie ». Le site prépare le plateau et conserve ta main physique secrète. Les suggestions de noms viennent du catalogue.
+4. **Copier le prompt IA** : transmettre le prompt à une IA disposant réellement d'un outil HTTP et d'un accès autorisé au serveur. Le texte copié ne contient jamais le jeton privé.
+
+Les étapes restent mémorisées dans le navigateur. Le bouton « Voir le plateau » donne toujours accès au plateau. Une partie existante peut être reprise sans recréer les decks.
+
+### Objectif et limites
+
+Le but est de jouer **avec de vraies cartes physiques**, face à un agent conversationnel, à la manière d'un ami qui se trouve de l'autre côté de la table. L'interface conserve une **représentation visuelle et un journal** pour suivre le déroulement. Le projet fan est gratuit et non commercial; **ce n'est ni un clone numérique du jeu, ni une plate-forme de parties multijoueurs en ligne**. Les règles ne sont pas automatiquement arbitrées et le prototype n'offre pas encore un adversaire stratégique autonome. L'utilisation des illustrations officielles reste soumise aux règles de Riot; le caractère non commercial ne dispense pas de leurs autorisations.
+
+---
+
+
 ## Accès distant facultatif : Cloudflare Quick Tunnel
 
 Sur Windows, deux fichiers facilitent le démarrage : **start-local.bat** lance le serveur Node.js sur 127.0.0.1:8787; **start-tunnel.bat** crée, si cloudflared est déjà installé, une URL HTTPS temporaire en trycloudflare.com (nécessite deux terminaux). **Ne lance pas de tunnel si tu n'as pas besoin d'accès distant.**
