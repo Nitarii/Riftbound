@@ -114,7 +114,7 @@ function serveFile(req,res,url){
   let relative=url.pathname==="/"?"/index.html":url.pathname;
   if(!/^\/[a-z0-9._/-]+$/i.test(relative)||relative.includes("..")||relative.startsWith("/.")){msg(res,404,"Not found",req);return;}
   const file=path.join(root,relative);
-  if(!["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","style.css"].includes(path.basename(file))||!fs.existsSync(file)){msg(res,404,"Not found",req);return;}
+  if(!["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","style.css"].includes(path.basename(file))||!fs.existsSync(file)){msg(res,404,"Not found",req);return;}
   const ext=path.extname(file);
   const contentType=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":"text/plain";
   try{headers(res,req);res.writeHead(200,{"Content-Type":contentType+"; charset=utf-8"});fs.createReadStream(file).pipe(res);}
