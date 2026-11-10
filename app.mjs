@@ -2,7 +2,7 @@ import {createState,applyCommand,PHASES} from "./core.mjs";
 import {loadCatalog,importCatalog,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 const $=id=>document.getElementById(id);
-const storage="riftbound-companion-state-v2";
+const storage="riftbound-companion-state-v1";
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
 let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
