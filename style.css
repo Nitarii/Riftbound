@@ -93,3 +93,49 @@ body.home-visible .header-actions > :not(.header-home){display:none!important}
 .welcome-step input:focus-visible,.welcome-step select:focus-visible,.welcome-step button:focus-visible{outline:2px solid #e2c789;outline-offset:2px}
 @media(max-width:1020px){.welcome-hero{grid-template-columns:1fr}.welcome-steps{grid-template-columns:1fr}.welcome-step-body{margin-left:48px}}
 @media(max-width:650px){.welcome-screen{padding:12px 10px 24px}.welcome-hero-copy{padding:24px 20px}.welcome-guide{padding:20px}.welcome-step{padding:17px 14px}.welcome-step-header{flex-wrap:wrap}.welcome-step-body{margin-left:0}.welcome-step-header .welcome-step-check,.welcome-step-header .welcome-state{margin-left:auto}.welcome-connect-grid,.welcome-setup-grid{grid-template-columns:1fr}.welcome-setup-grid fieldset{padding:10px}.welcome-hero h1{font-size:40px}}
+
+
+/* v0.3 — A single validated step is shown at a time. */
+.welcome-screen{max-width:980px;margin-inline:auto;padding:25px 20px 45px}
+.wizard-intro{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:25px 28px 20px;margin-bottom:12px;background:linear-gradient(125deg,#172b37,#0f202c);border:1px solid #3c5562;border-radius:12px}
+.wizard-intro-copy{flex:1;min-width:0}
+.wizard-intro h1{margin:9px 0;font:800 clamp(27px,3.6vw,43px)/1.1 'Barlow Condensed',Arial,sans-serif;color:#f1e9d8;letter-spacing:.25px}
+.wizard-intro h1 span{color:#e8cd8c}
+.wizard-intro p{max-width:680px;line-height:1.6;font-size:13px;color:#c2d0d9;margin:8px 0}
+.wizard-intro .wizard-legal{font-size:11px;color:#9caeba}
+.wizard-intro button{flex:0 0 auto}
+.wizard-intro button[hidden]{display:none!important}
+.wizard-progress{margin:0 0 20px;border:1px solid #344a57;border-radius:10px;background:#111f2a;padding:16px 21px}
+.wizard-progress-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.wizard-progress-top strong{font:700 19px 'Barlow Condensed',sans-serif;color:#ead49d}
+.wizard-progress-top span{font-size:12px;color:#afc1cb}
+.wizard-progress progress{display:block;width:100%;height:9px;accent-color:#c4a66a;margin:10px 0}
+.wizard-milestones{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:10px}
+.wizard-milestones span{font-size:11px;color:#778f9c;text-align:center;line-height:1.4;padding:4px}
+.wizard-milestones span.active{color:#e9d29a;font-weight:700}
+.wizard-milestones span.done{color:#a7d8b8}
+.welcome-steps{display:block}
+.welcome-step{width:100%;min-height:235px;padding:25px 28px}
+.welcome-step[hidden]{display:none!important}
+.welcome-step-header h2{font-size:27px;margin-bottom:7px}
+.welcome-step-header p{font-size:13px}
+.welcome-step-body{margin-top:25px}
+.welcome-step-body .welcome-actions{margin-top:15px}
+.welcome-step-body input,.welcome-step-body select{max-width:100%}
+.welcome-step-body .welcome-hint{font-size:12px!important;line-height:1.65!important}
+.wizard-navigation{display:flex;gap:15px;align-items:center;justify-content:space-between;margin-top:14px;padding:12px 0}
+.wizard-navigation button{min-height:44px;padding:10px 17px;white-space:nowrap;font-weight:650}
+.wizard-navigation button:disabled{cursor:not-allowed;opacity:.42}
+.wizard-next-hint{flex:1;min-width:0;text-align:center;margin:0;color:#afc2ca;font-size:12px;line-height:1.5}
+.welcome-feedback{margin-top:6px;padding-top:13px}
+@media(max-width:700px){
+ .wizard-intro{padding:21px 18px;flex-wrap:wrap}
+ .wizard-intro button{width:100%}
+ .wizard-progress{padding:13px}
+ .wizard-milestones span{font-size:10px}
+ .welcome-step{padding:20px 16px;min-height:0}
+ .welcome-step-body{margin-left:0;margin-top:17px}
+ .wizard-navigation{flex-wrap:wrap;gap:8px}
+ .wizard-navigation button{flex:1}
+ .wizard-next-hint{flex:0 0 100%;order:-1;text-align:left}
+}
