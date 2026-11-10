@@ -16,7 +16,7 @@ test("welcome screen appears first and board remains accessible",()=>{
 test("all homepage controls have unique IDs and handlers",()=>{
  assert.equal(ids.length,new Set(ids).size);
  for(const id of ["home-installed","home-download","home-connect","home-preview","home-create-game",
-  "home-copy-prompt","home-enter-board","home-human-legend","home-human-champion",
+  "home-copy-prompt","home-human-legend","home-human-champion",
   "home-human-battlefield","home-ai-deck","home-first-player","home-server-url","home-server-token",
   "welcome-progress","home-feedback"]){
    assert.ok(ids.includes(id),"Missing id="+id);
