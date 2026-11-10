@@ -1,8 +1,8 @@
 // Community-exported metadata from the public Riot card gallery.
 // Displayed card art is requested directly from Riot's CMS CDN when available.
 // Piltover Archive artwork is a last-resort remote fallback only; no art is copied to GitHub.
-export const CARD_SOURCE="https://raw.githubusercontent.com/slimtreble/Riftbound-card-data/main/cards.json";
-export const CARD_SOURCE_BACKUP="https://cdn.jsdelivr.net/gh/slimtreble/Riftbound-card-data@main/cards.json";
+export const CARD_SOURCE="https://huggingface.co/datasets/Wysme/riftbound-cards/resolve/main/cards.json";
+export const CARD_SOURCE_BACKUP="https://raw.githubusercontent.com/slimtreble/Riftbound-card-data/main/cards.json";
 const STORAGE="riftbound-companion-catalog-v2";
 let cache=null;
 export function piltoverImage(code){
@@ -12,8 +12,8 @@ export function piltoverImage(code){
 }
 export function normalizeCard(x){
   if(!x||typeof x!=="object")return null;
-  const code=String(x.code||x.cardCode||x.publicCode||x.id||x.card_code||"").trim();
-  const name=String(x.name||x.fullName||x.title||"").trim();
+  const code=String(x.code||x.cardCode||x.card_code||x.publicCode||x.id||"").trim();
+  const name=String(x.fullName||x.full_name||x.name||x.title||"").trim();
   if(!name||!code)return null;
   const domains=x.domains||x.colors||x.domain||[];
   const domainArray=Array.isArray(domains)?domains:typeof domains==="string"?[domains]:[];
@@ -23,13 +23,13 @@ export function normalizeCard(x){
   const image=riotUrl||(/^(https:\/\/)/i.test(officialImage)?officialImage:"")||piltoverImage(code);
   const imageFallback=riotUrl?piltoverImage(code):"";
   const subtitle=String(x.subtitle||"").trim();
-  return {code,name,type:String(x.cardType||x.type||x.card_type||"Unit"),image,imageFallback,
-    domains:domainArray.map(String),text:String(x.abilityEffective||x.ability||x.cardText||x.text||""),
+  return {code,name,type:String(x.cardType||x.card_type||x.type||"Unit"),image,imageFallback,
+    domains:domainArray.map(String),text:String(x.abilityEffective||x.ability_effective||x.ability_corrected||x.ability||x.cardText||x.text||""),
     energy:x.energy??x.cost??null,power:x.power??null,might:x.might??null,
     tags:Array.isArray(x.tags)?x.tags.map(String):[],
-    set:String(x.cardSet||x.setName||x.set||""),subtitle,
-    isVariant:Boolean(x.isVariant||x.isAltArt||x.isSigned),rarity:String(x.rarity||""),
-    sourceUrl:String(x.sourceUrl||"")};
+    set:String(x.cardSet||x.card_set||x.setName||x.set||""),subtitle,
+    isVariant:Boolean(x.isVariant||x.is_variant||x.isAltArt||x.is_alt_art||x.isSigned||x.is_signed),rarity:String(x.rarity||""),
+    sourceUrl:String(x.sourceUrl||x.source_url||"")};
 }
 export function decodeCards(data){
   const list=Array.isArray(data)?data:Array.isArray(data?.cards)?data.cards:
