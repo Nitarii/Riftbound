@@ -17,7 +17,11 @@ export const PRECONS = Object.freeze([
     runes:[["OGN-089",6],["OGN-007",6]]}
 ]);
 export function canonicalCode(code) {
-  return String(code??"").toUpperCase().replace(/\/\d+.*$/,"").replace(/[^A-Z0-9-]/g,"");
+  const text=String(code??"").toUpperCase().split("/")[0].replace(/[^A-Z0-9-]/g,"");
+  const parts=text.split("-");
+  // Riot's gallery API appends the printed denominator, e.g. "sfd-110-221".
+  if(parts.length>=3&&/^\d{3}$/.test(parts.at(-1)))parts.pop();
+  return parts.join("-");
 }
 export function preconById(id,rng=Math.random) {
   if(id==="random"||!id)return PRECONS[Math.floor(rng()*PRECONS.length)];
