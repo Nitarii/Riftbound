@@ -1,0 +1,4 @@
+.riftbound-local-state.json
+.env
+node_modules/
+.DS_Store
