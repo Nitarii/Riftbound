@@ -3,49 +3,46 @@
 <header><div class="brand"><div class="sigil">✦</div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
 <section id="welcome-screen" class="welcome-screen" aria-labelledby="welcome-heading">
-  <div class="welcome-hero">
-    <div class="welcome-hero-copy">
+
+  <div class="wizard-intro">
+    <div class="wizard-intro-copy">
       <span class="welcome-eyebrow">RIFTBOUND · COMPAGNON DE TABLE NON OFFICIEL</span>
-      <h1 id="welcome-heading">Tes vraies cartes.<br><span>Un adversaire IA.</span></h1>
-      <p>Joue à <strong>Riftbound avec ton deck physique</strong>, comme avec un ami à la maison. L'agent IA annonce ses actions et utilise le site pour représenter son plateau, suivre les tours et garder le contexte de votre partie.</p>
-      <div class="welcome-purpose">
-        <span>✓ Cartes physiques</span><span>✓ Plateau visuel</span><span>✓ Suivi de partie</span>
-      </div>
-      <p class="welcome-disclaimer">Projet fan gratuit et non commercial, sans affiliation à Riot Games. Ce n'est ni une copie jouable en ligne de Riftbound, ni un jeu multijoueur. L'IA et le joueur restent responsables des règles et de leurs actions.</p>
-      <div class="welcome-links">
-        <button type="button" id="home-resume" class="primary">Voir le plateau</button>
-        <a href="https://github.com/Nitarii/Riftbound" target="_blank" rel="noopener noreferrer">Code source sur GitHub</a>
-      </div>
+      <h1 id="welcome-heading">Tes vraies cartes. <span>Un adversaire IA.</span></h1>
+      <p>Joue physiquement à Riftbound contre une IA, comme contre un ami. Ce site sert à afficher et suivre le plateau ; ce n'est pas un jeu en ligne ni une copie numérique autonome.</p>
+      <p class="wizard-legal">Projet fan gratuit, non commercial et non affilié à Riot Games. Les joueurs et l'agent restent responsables des règles.</p>
     </div>
-    <div class="welcome-guide">
-      <div class="welcome-guide-heading"><span>CONFIGURATION GUIDÉE</span><b id="welcome-progress-label">0 / 4 étapes</b></div>
-      <progress id="welcome-progress" max="4" value="0" aria-label="Étapes validées"></progress>
-      <p>Avance à ton rythme. Les étapes sont conservées dans ce navigateur.</p>
-      <ol class="welcome-guide-list">
-        <li id="welcome-progress-1">Installer le module local</li>
-        <li id="welcome-progress-2">Connecter le serveur ou tester le plateau</li>
-        <li id="welcome-progress-3">Préparer ta partie physique</li>
-        <li id="welcome-progress-4">Copier les instructions pour l'IA</li>
-      </ol>
+    <button type="button" id="home-resume" class="primary" hidden>Reprendre ma partie</button>
+  </div>
+  <div class="wizard-progress" aria-label="Progression de la configuration">
+    <div class="wizard-progress-top">
+      <strong id="wizard-current-label">Étape 1 sur 4</strong>
+      <span id="welcome-progress-label">0 / 4 validées</span>
+    </div>
+    <progress id="welcome-progress" max="4" value="0" aria-label="Étapes terminées"></progress>
+    <div class="wizard-milestones">
+      <span id="welcome-progress-1">1. Installation</span>
+      <span id="welcome-progress-2">2. Connexion</span>
+      <span id="welcome-progress-3">3. Partie</span>
+      <span id="welcome-progress-4">4. Agent IA</span>
     </div>
   </div>
-
   <div class="welcome-steps">
-    <section class="welcome-step" aria-labelledby="welcome-step-one">
+    <section class="welcome-step" data-wizard-step="1" aria-labelledby="welcome-step-one">
       <div class="welcome-step-header">
         <span class="welcome-step-index">01</span>
         <div><h2 id="welcome-step-one">Télécharger le module serveur</h2>
           <p>Un petit serveur local permet à un agent doté d'outils HTTP de consulter et modifier le plateau.</p></div>
-        <label class="welcome-step-check"><input type="checkbox" id="home-installed"><span>Installé</span></label>
+        <label class="welcome-step-check"><input type="checkbox" id="home-installed"><span>Module installé et lancé</span></label>
       </div>
       <div class="welcome-step-body">
         <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/archive/refs/heads/main.zip" target="_blank" rel="noopener noreferrer">Télécharger le module (.zip)</a>
         <a href="https://nodejs.org/fr/download" target="_blank" rel="noopener noreferrer">Installer Node.js si nécessaire</a>
+        <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu)</button></div>
         <p class="welcome-hint">Le ZIP contient le serveur et <code>start-local.bat</code> : décompresse le dossier et double-clique sur ce fichier. <strong>Node.js 20+ est requis</strong>. Ce n'est pas encore un exécutable autonome.</p>
       </div>
     </section>
 
-    <section class="welcome-step" aria-labelledby="welcome-step-two">
+    <section class="welcome-step" data-wizard-step="2" aria-labelledby="welcome-step-two" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">02</span>
         <div><h2 id="welcome-step-two">Connecter le serveur</h2><p>Récupère le jeton privé affiché par la fenêtre de <code>start-local.bat</code>.</p></div>
         <span id="home-relay-status" class="welcome-state">Non connecté</span></div>
@@ -62,7 +59,7 @@
       </div>
     </section>
 
-    <section class="welcome-step" aria-labelledby="welcome-step-three">
+    <section class="welcome-step" data-wizard-step="3" aria-labelledby="welcome-step-three" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">03</span>
         <div><h2 id="welcome-step-three">Créer une partie</h2><p>Tu gardes tes cartes en main secrètes. L'IA reçoit un deck préconstruit de démonstration.</p></div>
         <span class="welcome-state" id="home-game-status">À préparer</span></div>
@@ -88,7 +85,7 @@
       </div>
     </section>
 
-    <section class="welcome-step" aria-labelledby="welcome-step-four">
+    <section class="welcome-step" data-wizard-step="4" aria-labelledby="welcome-step-four" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">04</span>
         <div><h2 id="welcome-step-four">Donner les instructions à l'IA</h2>
           <p>Copie un prompt pour expliquer ton jeu physique, le suivi des cartes et l'API du plateau.</p></div>
@@ -96,12 +93,17 @@
       <div class="welcome-step-body">
         <div class="welcome-actions">
           <button id="home-copy-prompt" type="button" class="primary">Copier le prompt IA</button>
-          <button id="home-enter-board" type="button">Ouvrir le plateau</button>
+          <button id="home-enter-board" type="button" disabled>Ouvrir le plateau</button>
         </div>
         <p class="welcome-hint">Le prompt ne contient jamais ton jeton secret. Il ne donne pas automatiquement un accès réseau à n'importe quel chat IA : l'agent doit pouvoir appeler l'API.</p>
       </div>
     </section>
   </div>
+  <nav class="wizard-navigation" aria-label="Navigation entre les étapes">
+    <button id="home-back" type="button" disabled>← Retour</button>
+    <p id="wizard-next-hint" class="wizard-next-hint" role="status">Valide l'installation ou choisis l'aperçu.</p>
+    <button id="home-next" type="button" class="primary" disabled>Valider et continuer →</button>
+  </nav>
   <p id="home-feedback" class="welcome-feedback" role="status" aria-live="polite">Les modifications de partie seront visibles sur le plateau.</p>
 </section>
 <main id="game-app"><section class="topbar"><div class="turn-label" id="turn">PARTIE NON COMMENCÉE</div><div class="phases" id="phases"></div><button id="next-turn" class="primary">Tour suivant →</button></section>
