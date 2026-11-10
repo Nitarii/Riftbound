@@ -1,0 +1,20 @@
+name: Validate
+on:
+  push:
+  pull_request:
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify JavaScript syntax
+        run: |
+          node --check core.mjs
+          node --check catalog.mjs
+          node --check app.mjs
+          node --check server.mjs
+      - name: Run reducer tests
+        run: node --test tests/core.test.mjs
