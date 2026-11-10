@@ -1,6 +1,7 @@
 import {createState,applyCommand,PHASES} from "./core.mjs";
 import {loadCatalog,importCatalog,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
+import {parseNarration} from "./narration.mjs";
 const $=id=>document.getElementById(id);
 const storage="riftbound-companion-state-v1";
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
@@ -117,6 +118,18 @@ $("score-minus").onclick=()=>dispatch({type:"score",player:$("who").value,value:
 $("draw").onclick=()=>dispatch({type:"draw",player:$("who").value,count:1});
 $("channel").onclick=()=>dispatch({type:"channel",player:$("who").value,count:1});
 $("send-note").onclick=()=>{if($("notes").value.trim())dispatch({type:"note",text:$("notes").value.trim()});$("notes").value="";};
+function interpretNote(auto=false){
+ const transcript=$("notes").value.trim();
+ if(!transcript)return notify("Écris ou dicte d'abord ton action.",true);
+ const parsed=parseNarration(transcript,catalog,state);
+ if(!parsed)return notify("Action non reconnue. Utilise Ajouter au journal ou précise la carte et sa zone.",true);
+ if(parsed.error)return notify(parsed.error,true);
+ if(!auto&&!confirm("Confirmer la modification du plateau ?\n"+parsed.label))return;
+ $("notes").value="";
+ dispatch(parsed.command);
+}
+$("interpret-note").onclick=()=>interpretNote(false);
+
 const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(!SpeechAPI){$("voice-note").disabled=true;$("voice-note").title="Reconnaissance vocale non disponible sur ce navigateur";}
 else {
@@ -124,7 +137,7 @@ else {
  $("voice-note").onclick=()=>{
    if(recording&&recognizer){recognizer.stop();return;}
    recognizer=new SpeechAPI();recognizer.lang="fr-FR";recognizer.interimResults=false;recognizer.continuous=false;
-   recognizer.onresult=e=>{const transcript=Array.from(e.results).map(r=>r[0]?.transcript||"").join(" ").trim();$("notes").value=[$("notes").value.trim(),transcript].filter(Boolean).join(" ");notify("Dictée ajoutée. Vérifie puis clique sur Ajouter au journal.");};
+   recognizer.onresult=e=>{const transcript=Array.from(e.results).map(r=>r[0]?.transcript||"").join(" ").trim();$("notes").value=[$("notes").value.trim(),transcript].filter(Boolean).join(" ");if($("voice-auto").checked)interpretNote(true);else notify("Dictée ajoutée. Vérifie puis clique sur Interpréter & placer.");};
    recognizer.onerror=e=>notify("Dictée indisponible : "+e.error,true);
    recognizer.onend=()=>{recording=false;$("voice-note").textContent="🎙 Dicter une action";};
    try{recognizer.start();recording=true;$("voice-note").textContent="■ Terminer la dictée";}catch(e){notify(e.message,true);}
