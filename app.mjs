@@ -4,6 +4,10 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
 const $=id=>document.getElementById(id);
 const storage="riftbound-companion-state-v1";
+const onboardingStorage="riftbound-onboarding-v1";
+let onboarding;
+try{onboarding=JSON.parse(localStorage.getItem(onboardingStorage))||{};}catch{onboarding={};}
+function saveOnboarding(){try{localStorage.setItem(onboardingStorage,JSON.stringify(onboarding));}catch{}}
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
 let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
@@ -23,7 +27,11 @@ function imageForDisplay(url,large=false){
   return u.toString();
  }catch{return url;}
 }
-function notify(message,bad=false){$("notice").textContent=message;$("notice").style.color=bad?"#f5a8a3":"#a7d9bd";}
+function notify(message,bad=false){
+ $("notice").textContent=message;$("notice").style.color=bad?"#f5a8a3":"#a7d9bd";
+ const home=$("home-feedback");
+ if(home){home.textContent=message;home.classList.toggle("error",bad);}
+}
 function cardHTML(c,show=true,large=false) {
   if(!c)return '<div class="empty-card">Non défini</div>';
   const title=esc(c.name),img=c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':'<div class="empty-card">'+title+'</div>';
@@ -49,6 +57,7 @@ function render(){
   });
   $("history-log").innerHTML=state.history.map(h=>'<li><small>#'+h.revision+' · '+new Date(h.at).toLocaleTimeString("fr-FR")+'</small> '+esc(h.text)+'</li>').join("");
   save();
+  renderWelcome();
 }
 async function dispatch(command){
   try{
@@ -58,7 +67,8 @@ async function dispatch(command){
       state=reply.state;lastSync=state.revision;render();
     }else{undo.push(structuredClone(state));undo=undo.slice(-50);state=applyCommand(state,command);render();}
     notify(state.message);
-  }catch(e){notify(e.message,true);}
+    return true;
+  }catch(e){notify(e.message,true);return false;}
 }
 const guess=(query,type)=>{
   const q=query.toLowerCase().trim();
@@ -106,10 +116,16 @@ $("card-dialog").addEventListener("click",e=>{
   const action=e.target.dataset.action;if(!action||!selected?.uid)return;
   $("card-dialog").close();dispatch({type:action,uid:selected.uid,...(action==="damage"?{value:1}:{})});
 });
-for(const tab of document.querySelectorAll(".tab")){
-  tab.onclick=()=>{document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t===tab));
-    document.querySelectorAll(".tabcontent").forEach(t=>t.classList.toggle("hidden",t.id!=="tab-"+tab.dataset.tab));};
+function setActiveTab(name){
+ const target=$("tab-"+name);
+ if(!target)return;
+ document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
+ document.querySelectorAll(".tabcontent").forEach(t=>t.classList.toggle("hidden",t!==target));
 }
+function showHome(){document.body.classList.add("home-visible");renderWelcome();window.scrollTo({top:0,behavior:"smooth"});}
+function showGame(tab="setup"){setActiveTab(tab);document.body.classList.remove("home-visible");window.scrollTo({top:0,behavior:"smooth"});}
+$("go-home").onclick=showHome;
+for(const tab of document.querySelectorAll(".tab"))tab.onclick=()=>setActiveTab(tab.dataset.tab);
 $("setup-human").onclick=()=>{
   const legend=cardFromInput("human-legend-input","legend"),champion=cardFromInput("human-champion-input","unit"),battlefield=cardFromInput("human-battlefield-input","battlefield");
   if(!legend||!champion||!battlefield){notify("Légende, champion et champ de bataille nécessaires.",true);return;}
@@ -160,7 +176,7 @@ else {
 }
 
 $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value))}catch(e){notify(e.message,true)}};
-$("copy-agent-prompt").onclick=async()=>{
+async function copyAgentPrompt(){
  const base=relay?.url||"http://127.0.0.1:8787";
  const prompt=[
    "Tu es mon adversaire dans une partie physique de Riftbound. Je manipule mes cartes physiques.",
@@ -175,12 +191,25 @@ $("copy-agent-prompt").onclick=async()=>{
    "Si tu n'as pas d'outil HTTP capable d'accéder au relais, donne-moi simplement les commandes JSON à coller dans l'onglet Agent IA.",
    "Utilise le jeu comme compagnon de table, pas comme un logiciel d'arbitrage automatique."
  ].join("\n");
- try{await navigator.clipboard.writeText(prompt);notify("Instructions de l'agent copiées. Aucun jeton inclus.");}
- catch(e){notify("Copie impossible : "+e.message,true);}
-};
+ try{
+  if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(prompt);
+  else{
+   const helper=document.createElement("textarea");helper.value=prompt;helper.setAttribute("readonly","");
+   helper.style.position="fixed";helper.style.left="-10000px";document.body.appendChild(helper);
+   helper.select();const ok=document.execCommand("copy");helper.remove();
+   if(!ok)throw Error("Le navigateur a refusé la copie");
+  }
+  onboarding.prompt=true;saveOnboarding();renderWelcome();
+  notify("Prompt IA copié, sans jeton privé.");return true;
+ }catch(e){notify("Copie impossible : "+e.message,true);return false;}
+}
+$("copy-agent-prompt").onclick=copyAgentPrompt;
 
 $("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
-$("reset").onclick=()=>{if(confirm("Effacer la partie en cours ?"))dispatch({type:"reset"});};
+$("reset").onclick=async()=>{
+ if(!confirm("Effacer la partie en cours ?"))return;
+ if(await dispatch({type:"reset"}))showHome();
+};
 $("export").onclick=()=>{
  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob);
  const a=document.createElement("a");a.href=url;a.download="riftbound-partie-"+new Date().toISOString().slice(0,10)+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
@@ -212,7 +241,7 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
- notify("Relais déconnecté.");
+ notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
  if(relay!==session)return;
@@ -263,7 +292,7 @@ async function attachLiveEvents(session){
  }
 }
 $("disconnect-relay").onclick=disconnect;
-$("connect-relay").onclick=async()=>{
+async function connectRelay(){
  const url=$("relay-url").value.trim().replace(/\/$/,""),token=$("relay-token").value.trim();
  const local=/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url);
  const quickTunnel=/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i.test(url);
@@ -278,8 +307,105 @@ $("connect-relay").onclick=async()=>{
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
-  notify("Relais synchronisé. Ne publie jamais ton jeton.");
- }catch(e){disconnect();notify(e.message,true);}
+  notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();return true;
+ }catch(e){disconnect();notify(e.message,true);return false;}
+}
+$("connect-relay").onclick=connectRelay;
+
+function renderWelcome(){
+ if(!$("welcome-progress"))return;
+ const steps=[Boolean(onboarding.installed),Boolean(relay||onboarding.preview),
+  Boolean(state.players?.human?.legend&&state.players?.ai?.legend&&state.started),Boolean(onboarding.prompt)];
+ const total=steps.filter(Boolean).length;
+ $("welcome-progress").value=total;
+ $("welcome-progress-label").textContent=total+" / 4 étapes";
+ for(let i=0;i<4;i++){
+  $("welcome-progress-"+(i+1)).classList.toggle("done",steps[i]);
+  const step=document.querySelectorAll(".welcome-step")[i];
+  if(step)step.classList.toggle("complete",steps[i]);
+ }
+ $("home-installed").checked=Boolean(onboarding.installed);
+ const status=$("home-relay-status");
+ status.textContent=relay?"● Connecté":onboarding.preview?"Mode aperçu":"Non connecté";
+ status.classList.toggle("complete",steps[1]);
+ $("home-game-status").textContent=steps[2]?"● Partie prête":"À préparer";
+ $("home-game-status").classList.toggle("complete",steps[2]);
+ $("home-prompt-status").textContent=steps[3]?"✓ Prompt copié":"À copier";
+ $("home-prompt-status").classList.toggle("complete",steps[3]);
+ $("home-resume").textContent=steps[2]?"Reprendre le plateau":"Voir le plateau";
+ $("home-enter-board").textContent=steps[2]?"Rejoindre ma partie":"Ouvrir le plateau";
+}
+function fillHomeCardSuggestions(){
+ const lists=[
+  ["home-legends",catalog.filter(c=>c.type.toLowerCase()==="legend")],
+  ["home-champions",catalog.filter(c=>c.type.toLowerCase()==="unit")],
+  ["home-battlefields",catalog.filter(c=>c.type.toLowerCase().includes("battlefield"))]
+ ];
+ for(const [id,cards] of lists){
+  const target=$(id);target.textContent="";const fragment=document.createDocumentFragment(),seen=new Set();
+  for(const card of cards){
+   if(card.isVariant||seen.has(card.name))continue;
+   seen.add(card.name);fragment.appendChild(new Option(card.name,card.name));
+  }
+  target.appendChild(fragment);
+ }
+ $("home-catalog-count").textContent=catalog.length?catalog.length+
+  " cartes disponibles. Choisis les noms dans les suggestions pour afficher les visuels.":"Catalogue indisponible : importe un JSON depuis l'onglet Catalogue.";
+}
+function homeCard(id,type){
+ const value=$(id).value.trim();
+ if(!value)throw Error("Complète les trois champs de ton deck physique.");
+ return guess(value,type)||{code:"manual-"+value.toLowerCase().replace(/[^a-z0-9]+/g,"-"),
+  name:value,type:type==="legend"?"Legend":type==="battlefield"?"Battlefield":"Unit",image:""};
+}
+$("home-installed").onchange=e=>{onboarding.installed=e.target.checked;saveOnboarding();renderWelcome();};
+$("home-download").onclick=()=>notify("Le ZIP contient start-local.bat. Coche « Installé » après l'avoir décompressé et lancé.");
+$("home-connect").onclick=async()=>{
+ $("relay-url").value=$("home-server-url").value.trim();
+ $("relay-token").value=$("home-server-token").value.trim();
+ const ok=await connectRelay();
+ if(ok){onboarding.preview=false;saveOnboarding();renderWelcome();notify("Connexion au module local confirmée.");}
+};
+$("home-preview").onclick=()=>{
+ onboarding.preview=true;saveOnboarding();renderWelcome();
+ notify("Mode aperçu activé. Une IA extérieure ne pourra pas piloter la table sans serveur.");
+};
+$("home-advanced-setup").onclick=()=>showGame("setup");
+$("home-resume").onclick=()=>showGame("setup");
+$("home-enter-board").onclick=()=>showGame(state.started?"history":"setup");
+$("home-copy-prompt").onclick=async()=>{
+ const ok=await copyAgentPrompt();
+ if(ok)notify("Instructions copiées. Colle-les dans la conversation avec l'IA de ton choix.");
+};
+$("home-create-game").onclick=async()=>{
+ const button=$("home-create-game");
+ if(button.disabled)return;
+ try{
+  if(catalog.length<20)throw Error("Le catalogue n'est pas chargé. Réessaie après le chargement ou importe le JSON dans Catalogue.");
+  const legend=homeCard("home-human-legend","legend");
+  const champion=homeCard("home-human-champion","unit");
+  const battlefield=homeCard("home-human-battlefield","battlefield");
+  const deck=resolvePrecon(catalog,$("home-ai-deck").value);
+  if(state.started&&!confirm("Remplacer la partie en cours par une nouvelle partie ?"))return;
+  button.disabled=true;button.textContent="Création en cours…";
+  if(!await dispatch({type:"reset"}))return;
+  if(!await dispatch({type:"setup-human",legend,champion,battlefield}))return;
+  if(!await dispatch({type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
+   main:deck.main,runes:deck.runes,battlefields:deck.battlefields,
+   mainIncludesChampion:true,format:"preconstructed",deckName:deck.label}))return;
+  if(!await dispatch({type:"start",player:$("home-first-player").value}))return;
+  $("human-legend-input").value=legend.name;
+  $("human-champion-input").value=champion.name;
+  $("human-battlefield-input").value=battlefield.name;
+  $("precon-select").value=$("home-ai-deck").value;
+  renderWelcome();
+  notify("Partie créée ! Deck IA : "+deck.label+". Tu peux maintenant copier le prompt, puis ouvrir le plateau.");
+ }catch(e){notify(e.message,true);}
+ finally{button.disabled=false;button.textContent="Créer et démarrer ma partie";}
 };
 render();
-loadCatalog().then(cards=>{catalog=cards;renderCatalog();}).catch(e=>{$("catalog-status").textContent=e.message;});
+renderWelcome();
+loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
+ $("catalog-status").textContent=e.message;
+ $("home-catalog-count").textContent="Impossible de charger les cartes : "+e.message;
+});
