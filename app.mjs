@@ -121,6 +121,20 @@ $("score-minus").onclick=()=>dispatch({type:"score",player:$("who").value,value:
 $("draw").onclick=()=>dispatch({type:"draw",player:$("who").value,count:1});
 $("channel").onclick=()=>dispatch({type:"channel",player:$("who").value,count:1});
 $("send-note").onclick=()=>{if($("notes").value.trim())dispatch({type:"note",text:$("notes").value.trim()});$("notes").value="";};
+const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SpeechAPI){$("voice-note").disabled=true;$("voice-note").title="Reconnaissance vocale non disponible sur ce navigateur";}
+else {
+ let recognizer=null,recording=false;
+ $("voice-note").onclick=()=>{
+   if(recording&&recognizer){recognizer.stop();return;}
+   recognizer=new SpeechAPI();recognizer.lang="fr-FR";recognizer.interimResults=false;recognizer.continuous=false;
+   recognizer.onresult=e=>{const transcript=Array.from(e.results).map(r=>r[0]?.transcript||"").join(" ").trim();$("notes").value=[$("notes").value.trim(),transcript].filter(Boolean).join(" ");notify("Dictée ajoutée. Vérifie puis clique sur Ajouter au journal.");};
+   recognizer.onerror=e=>notify("Dictée indisponible : "+e.error,true);
+   recognizer.onend=()=>{recording=false;$("voice-note").textContent="🎙 Dicter une action";};
+   try{recognizer.start();recording=true;$("voice-note").textContent="■ Terminer la dictée";}catch(e){notify(e.message,true);}
+ };
+}
+
 $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value))}catch(e){notify(e.message,true)}};
 $("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
 $("reset").onclick=()=>{if(confirm("Effacer la partie en cours ?"))dispatch({type:"reset"});};
