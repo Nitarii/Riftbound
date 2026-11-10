@@ -38,3 +38,27 @@ test("the UI is honest about physical cards, AI access and fan status",()=>{
  assert.match(js,/type:"setup-ai"/);
  assert.match(js,/type:"start"/);
 });
+
+test("wizard presents exactly one step at a time, with progress and back/next",()=>{
+ const steps=[...html.matchAll(/<section class="welcome-step" data-wizard-step="(\d)"[^>]*>/g)];
+ assert.equal(steps.length,4);
+ assert.deepEqual(steps.map(x=>Number(x[1])),[1,2,3,4]);
+ assert.ok(!steps[0][0].includes(" hidden"),"Step 1 should show by default.");
+ assert.ok(steps.slice(1).every(x=>x[0].includes(" hidden")),"Later steps must be initially hidden.");
+ assert.match(css,/\.welcome-step\[hidden\]\{display:none!important\}/);
+ for(const id of ["home-back","home-next","wizard-current-label","wizard-next-hint","welcome-progress"]){
+   assert.ok(ids.includes(id),"Missing wizard navigation element: "+id);
+ }
+ assert.match(js,/function setWizardStep\(/);
+ assert.match(js,/card\.hidden=wizardStep!==i\+1/);
+ assert.match(js,/wizardStep===4\?"Terminer et ouvrir le plateau/);
+});
+test("wizard requires confirmation before advancing, with a preview route",()=>{
+ assert.match(js,/if\(!status\[wizardStep-1\]\)\{/);
+ assert.match(js,/\$\("home-next"\)\.disabled=!steps\[wizardStep-1\]/);
+ assert.match(js,/onboarding\.installed\|\|onboarding\.installSkipped/);
+ assert.match(js,/onboarding\.installSkipped=true/);
+ assert.match(js,/onboarding\.preview=true/);
+ assert.match(js,/onboarding\.prompt/);
+ assert.match(js,/onboarding\.wizardStep=wizardStep/);
+});
