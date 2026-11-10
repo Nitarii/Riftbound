@@ -14,7 +14,9 @@ jobs:
         run: |
           node --check core.mjs
           node --check catalog.mjs
+          node --check precons.mjs
+          node --check narration.mjs
           node --check app.mjs
           node --check server.mjs
       - name: Run reducer tests
-        run: node --test tests/core.test.mjs
+        run: node --test tests/*.test.mjs
