@@ -1,5 +1,20 @@
 # Riftbound Table Companion (prototype v0.2)
 
+
+## Accès distant facultatif : Cloudflare Quick Tunnel
+
+Sur Windows, deux fichiers facilitent le démarrage : **start-local.bat** lance le serveur Node.js sur 127.0.0.1:8787; **start-tunnel.bat** crée, si cloudflared est déjà installé, une URL HTTPS temporaire en trycloudflare.com (nécessite deux terminaux). **Ne lance pas de tunnel si tu n'as pas besoin d'accès distant.**
+
+Procédure :
+1. Installer Node.js 20+ et, facultativement, cloudflared.
+2. Lancer start-local.bat et noter son jeton secret.
+3. Pour un agent distant compatible HTTP seulement, lancer start-tunnel.bat; récupérer l'adresse HTTPS temporaire affichée.
+4. Sur GitHub Pages, dans l'onglet Agent IA, entrer cette adresse et le jeton puis cliquer sur Connecter. Un contrôle de confirmation rappelle que le site devient accessible en ligne.
+5. Donner à l'agent autorisé l'URL de l'API et un moyen sécurisé d'authentification. Une simple URL ouverte dans un chat IA ne garantit pas qu'il puisse agir.
+6. Pour arrêter l'accès public, fermer la fenêtre du tunnel.
+
+**Attention :** un Quick Tunnel est public pour toute personne qui connaît son URL. Il ne supporte pas SSE, donc l'interface interroge le relais à intervalle régulier. L'API exige malgré tout un jeton Bearer long et aléatoire. N'affiche pas ce jeton dans un chat partagé, un fichier public ou une capture d'écran. Les Quick Tunnels sont conçus pour des tests, pas pour un service permanent. Voir https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/
+
 ## Mise à jour du 11 novembre 2026 — version 0.2
 
 **Site GitHub Pages** (si le déploiement est terminé) : https://nitarii.github.io/Riftbound/
