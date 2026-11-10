@@ -8,6 +8,7 @@ const onboardingStorage="riftbound-onboarding-v1";
 let onboarding;
 try{onboarding=JSON.parse(localStorage.getItem(onboardingStorage))||{};}catch{onboarding={};}
 function saveOnboarding(){try{localStorage.setItem(onboardingStorage,JSON.stringify(onboarding));}catch{}}
+let wizardStep=Number.isInteger(onboarding.wizardStep)?Math.max(1,Math.min(4,onboarding.wizardStep)):1;
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
 let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
@@ -312,17 +313,46 @@ async function connectRelay(){
 }
 $("connect-relay").onclick=connectRelay;
 
+function wizardStatus(){
+ return [
+  Boolean(onboarding.installed||onboarding.installSkipped),
+  Boolean(relay||onboarding.preview),
+  Boolean(state.players?.human?.legend&&state.players?.ai?.legend&&state.started),
+  Boolean(onboarding.prompt)
+ ];
+}
+function availableWizardStep(status){
+ // A returning user can only resume at the last unlocked step.
+ for(let i=0;i<status.length-1;i++)if(!status[i])return i+1;
+ return 4;
+}
+function setWizardStep(index){
+ const status=wizardStatus();
+ const limit=availableWizardStep(status);
+ wizardStep=Math.max(1,Math.min(limit,Math.min(4,Math.max(1,index))));
+ onboarding.wizardStep=wizardStep;saveOnboarding();
+ renderWelcome();
+ const heading=$("welcome-step-"+["one","two","three","four"][wizardStep-1]);
+ if(heading){heading.setAttribute("tabindex","-1");heading.focus({preventScroll:true});}
+ if(document.body.classList.contains("home-visible"))window.scrollTo({top:0,behavior:"smooth"});
+}
 function renderWelcome(){
  if(!$("welcome-progress"))return;
- const steps=[Boolean(onboarding.installed),Boolean(relay||onboarding.preview),
-  Boolean(state.players?.human?.legend&&state.players?.ai?.legend&&state.started),Boolean(onboarding.prompt)];
- const total=steps.filter(Boolean).length;
- $("welcome-progress").value=total;
- $("welcome-progress-label").textContent=total+" / 4 étapes";
+ const steps=wizardStatus(),limit=availableWizardStep(steps);
+ if(wizardStep>limit)wizardStep=limit;
+ const count=steps.filter(Boolean).length;
+ $("welcome-progress").value=count;
+ $("welcome-progress-label").textContent=count+" / 4 validées";
+ $("wizard-current-label").textContent="Étape "+wizardStep+" sur 4";
  for(let i=0;i<4;i++){
-  $("welcome-progress-"+(i+1)).classList.toggle("done",steps[i]);
-  const step=document.querySelectorAll(".welcome-step")[i];
-  if(step)step.classList.toggle("complete",steps[i]);
+   $("welcome-progress-"+(i+1)).classList.toggle("done",steps[i]);
+   $("welcome-progress-"+(i+1)).classList.toggle("active",wizardStep===i+1);
+   const card=document.querySelector('.welcome-step[data-wizard-step="'+(i+1)+'"]');
+   if(card){
+     card.hidden=wizardStep!==i+1;
+     card.setAttribute("aria-hidden",String(wizardStep!==i+1));
+     card.classList.toggle("complete",steps[i]);
+   }
  }
  $("home-installed").checked=Boolean(onboarding.installed);
  const status=$("home-relay-status");
@@ -332,9 +362,29 @@ function renderWelcome(){
  $("home-game-status").classList.toggle("complete",steps[2]);
  $("home-prompt-status").textContent=steps[3]?"✓ Prompt copié":"À copier";
  $("home-prompt-status").classList.toggle("complete",steps[3]);
- $("home-resume").textContent=steps[2]?"Reprendre le plateau":"Voir le plateau";
- $("home-enter-board").textContent=steps[2]?"Rejoindre ma partie":"Ouvrir le plateau";
+ $("home-resume").hidden=!state.started;
+ $("home-resume").textContent=state.started?"Reprendre ma partie":"Voir le plateau";
+ $("home-enter-board").disabled=!steps[3];
+ $("home-back").disabled=wizardStep===1;
+ $("home-next").disabled=!steps[wizardStep-1];
+ $("home-next").textContent=wizardStep===4?"Terminer et ouvrir le plateau →":"Valider et continuer →";
+ const prompts=[
+   "Coche « Module installé et lancé » ou choisis l'aperçu sans installation.",
+   "Connecte réellement le serveur, ou choisis le mode aperçu.",
+   "Renseigne les trois cartes et clique sur « Créer et démarrer ma partie ».",
+   "Clique sur « Copier le prompt IA » pour valider la dernière étape."
+ ];
+ $("wizard-next-hint").textContent=steps[wizardStep-1]?
+   (wizardStep===4?"Configuration terminée, tu peux rejoindre le plateau.":"Étape validée. Tu peux continuer."):
+   prompts[wizardStep-1];
 }
+$("home-back").onclick=()=>setWizardStep(wizardStep-1);
+$("home-next").onclick=()=>{
+ const status=wizardStatus();
+ if(!status[wizardStep-1]){renderWelcome();return;}
+ if(wizardStep===4){showGame(state.started?"history":"setup");return;}
+ setWizardStep(wizardStep+1);
+};
 function fillHomeCardSuggestions(){
  const lists=[
   ["home-legends",catalog.filter(c=>c.type.toLowerCase()==="legend")],
@@ -358,7 +408,21 @@ function homeCard(id,type){
  return guess(value,type)||{code:"manual-"+value.toLowerCase().replace(/[^a-z0-9]+/g,"-"),
   name:value,type:type==="legend"?"Legend":type==="battlefield"?"Battlefield":"Unit",image:""};
 }
-$("home-installed").onchange=e=>{onboarding.installed=e.target.checked;saveOnboarding();renderWelcome();};
+$("home-installed").onchange=e=>{
+ onboarding.installed=e.target.checked;
+ if(e.target.checked){onboarding.installSkipped=false;}
+ else{onboarding.installSkipped=false;}
+ saveOnboarding();renderWelcome();
+};
+$("home-skip-install").onclick=()=>{
+ if(!onboarding.installed){
+   onboarding.installSkipped=true;
+   onboarding.preview=true;
+ }
+ saveOnboarding();
+ setWizardStep(2);
+ notify("Mode aperçu sélectionné. Aucun serveur n'est requis pour voir le plateau, mais une IA distante ne pourra pas le piloter.");
+};
 $("home-download").onclick=()=>notify("Le ZIP contient start-local.bat. Coche « Installé » après l'avoir décompressé et lancé.");
 $("home-connect").onclick=async()=>{
  $("relay-url").value=$("home-server-url").value.trim();
@@ -372,7 +436,9 @@ $("home-preview").onclick=()=>{
 };
 $("home-advanced-setup").onclick=()=>showGame("setup");
 $("home-resume").onclick=()=>showGame("setup");
-$("home-enter-board").onclick=()=>showGame(state.started?"history":"setup");
+$("home-enter-board").onclick=()=>{
+ if(wizardStatus()[3])showGame(state.started?"history":"setup");
+};
 $("home-copy-prompt").onclick=async()=>{
  const ok=await copyAgentPrompt();
  if(ok)notify("Instructions copiées. Colle-les dans la conversation avec l'IA de ton choix.");
