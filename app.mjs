@@ -364,7 +364,7 @@ function renderWelcome(){
  $("home-prompt-status").classList.toggle("complete",steps[3]);
  $("home-resume").hidden=!state.started;
  $("home-resume").textContent=state.started?"Reprendre ma partie":"Voir le plateau";
- $("home-enter-board").disabled=!steps[3];
+
  $("home-back").disabled=wizardStep===1;
  $("home-next").disabled=!steps[wizardStep-1];
  $("home-next").textContent=wizardStep===4?"Terminer et ouvrir le plateau →":"Valider et continuer →";
@@ -436,9 +436,7 @@ $("home-preview").onclick=()=>{
 };
 $("home-advanced-setup").onclick=()=>showGame("setup");
 $("home-resume").onclick=()=>showGame("setup");
-$("home-enter-board").onclick=()=>{
- if(wizardStatus()[3])showGame(state.started?"history":"setup");
-};
+
 $("home-copy-prompt").onclick=async()=>{
  const ok=await copyAgentPrompt();
  if(ok)notify("Instructions copiées. Colle-les dans la conversation avec l'IA de ton choix.");
