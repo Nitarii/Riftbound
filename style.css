@@ -32,3 +32,64 @@ dialog{max-width:830px}
  #detail-image .card-tile,#detail-image .card-tile img{width:min(250px,80vw)}
  .inline-check{max-width:100%}
 }
+
+
+/* Guided home: intentionally shown before the full board. */
+body.home-visible #game-app{display:none}
+body:not(.home-visible) #welcome-screen{display:none}
+body.home-visible .header-actions > :not(.header-home){display:none!important}
+.header-home{border-color:#aa956b;color:#f0d9a5}
+.welcome-screen{max-width:1300px;margin:0 auto;padding:28px 22px 45px}
+.welcome-hero{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(285px,.8fr);gap:24px;align-items:stretch;margin-bottom:22px}
+.welcome-hero-copy{padding:38px 38px 28px;min-width:0;border-radius:13px;border:1px solid #526774;background:radial-gradient(ellipse at 90% 10%,#2d444482,transparent 60%),linear-gradient(140deg,#182937,#0d1d2b);box-shadow:0 16px 50px #0004}
+.welcome-eyebrow{color:#d0bd8b;font:700 12px 'Barlow Condensed',sans-serif;letter-spacing:3px}
+.welcome-hero h1{font:800 clamp(36px,4.2vw,60px)/1.03 'Barlow Condensed',Arial,sans-serif;color:#f4f0de;letter-spacing:.6px;margin:15px 0 18px}
+.welcome-hero h1 span{color:#e5c989}
+.welcome-hero-copy > p{max-width:680px;line-height:1.75;font-size:14px;color:#c4d2dc}
+.welcome-purpose{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}
+.welcome-purpose span{padding:7px 10px;border-radius:30px;background:#2646388c;border:1px solid #41715f;color:#c7ebd8;font-weight:600;font-size:11px}
+.welcome-hero-copy .welcome-disclaimer{font-size:12px;line-height:1.6;color:#9db1bf;border-left:2px solid #9f8960;padding-left:11px}
+.welcome-links{display:flex;align-items:center;flex-wrap:wrap;gap:16px;margin-top:22px}
+.welcome-guide{padding:25px;border-radius:13px;border:1px solid #475d68;background:linear-gradient(160deg,#162c34,#101e2d);display:flex;flex-direction:column;justify-content:center}
+.welcome-guide-heading{display:flex;justify-content:space-between;gap:8px;align-items:center;color:#d6c69e;font:700 13px 'Barlow Condensed',sans-serif;letter-spacing:1.1px}
+.welcome-guide-heading b{font-size:18px;color:#f6e1ac;white-space:nowrap}
+#welcome-progress{width:100%;height:10px;margin:17px 0 6px;accent-color:#c9aa69}
+.welcome-guide p{font-size:12px;margin:8px 0 17px;line-height:1.6}
+.welcome-guide-list{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.welcome-guide-list li{padding-left:24px;position:relative;color:#9bb1bc;font-size:12px;line-height:1.5}
+.welcome-guide-list li::before{position:absolute;left:0;top:0;content:"○";font-weight:bold;color:#6b8493;font-size:16px}
+.welcome-guide-list li.done{color:#bde0c7}
+.welcome-guide-list li.done::before{content:"✓";color:#87c9a7}
+.welcome-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px}
+.welcome-step{min-width:0;border:1px solid #384d59;border-radius:11px;background:#10202c;padding:22px 22px 18px;box-shadow:0 5px 25px #0002}
+.welcome-step.complete{border-color:#608575}
+.welcome-step-header{display:flex;align-items:flex-start;gap:13px}
+.welcome-step-header > div{flex:1;min-width:0}
+.welcome-step-index{display:flex;align-items:center;justify-content:center;flex:0 0 35px;height:35px;border:1px solid #977f54;border-radius:8px;color:#dec890;font:800 23px 'Barlow Condensed',sans-serif}
+.welcome-step.complete .welcome-step-index{background:#254d3b;color:#b7edcf;border-color:#608575}
+.welcome-step-header h2{font-size:23px;margin:2px 0 5px}
+.welcome-step-header p{font-size:12px;line-height:1.55;margin:0;color:#aac1cb}
+.welcome-step-check{margin:4px 0 0;flex:0 0 auto;flex-direction:row;align-items:center;gap:6px;white-space:nowrap;font-size:11px;color:#bbd4cc}
+.welcome-step-check input{width:19px;height:19px;accent-color:#8bbc99;margin:0;cursor:pointer}
+.welcome-state{display:inline-flex;font-size:11px;background:#1b2c38;color:#bacbd1;border:1px solid #395463;border-radius:30px;padding:6px 10px;white-space:nowrap}
+.welcome-state.complete{border-color:#598a73;color:#a9e4c2;background:#19362d}
+.welcome-step-body{margin:16px 0 0 48px}
+.welcome-step-body a.welcome-action{display:inline-flex;text-decoration:none;margin:0 13px 8px 0}
+.welcome-action{padding:11px 17px;border-radius:6px;font-weight:700}
+.welcome-action.primary-link{background:linear-gradient(110deg,#b99d60,#e5cc8d);color:#192431!important}
+.welcome-action.primary-link:hover{filter:brightness(1.1)}
+.welcome-step-body > a:not(.welcome-action){font-size:12px}
+.welcome-hint{color:#94aebd!important;font-size:11px!important;line-height:1.6!important;margin:11px 0 0!important}
+.welcome-hint strong{color:#ced8df}
+.welcome-hint code{background:#07151d;border-radius:3px;padding:2px 5px}
+.welcome-connect-grid,.welcome-setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.welcome-setup-grid fieldset{border:1px solid #324b59;border-radius:7px;min-width:0;padding:12px 13px 13px}
+.welcome-setup-grid legend{font:700 17px 'Barlow Condensed',sans-serif;color:#d8c58f;padding:0 6px}
+.welcome-connect-grid label,.welcome-setup-grid label{margin:5px 0 8px;min-width:0}
+.welcome-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:11px}
+.welcome-feedback{font-size:13px;line-height:1.55;border-top:1px solid #2c434e;padding:16px 0 0;margin:22px 0;color:#a9d4ba}
+.welcome-feedback.error{color:#f1aaa8}
+.welcome-step:focus-within{border-color:#a48c59}
+.welcome-step input:focus-visible,.welcome-step select:focus-visible,.welcome-step button:focus-visible{outline:2px solid #e2c789;outline-offset:2px}
+@media(max-width:1020px){.welcome-hero{grid-template-columns:1fr}.welcome-steps{grid-template-columns:1fr}.welcome-step-body{margin-left:48px}}
+@media(max-width:650px){.welcome-screen{padding:12px 10px 24px}.welcome-hero-copy{padding:24px 20px}.welcome-guide{padding:20px}.welcome-step{padding:17px 14px}.welcome-step-header{flex-wrap:wrap}.welcome-step-body{margin-left:0}.welcome-step-header .welcome-step-check,.welcome-step-header .welcome-state{margin-left:auto}.welcome-connect-grid,.welcome-setup-grid{grid-template-columns:1fr}.welcome-setup-grid fieldset{padding:10px}.welcome-hero h1{font-size:40px}}
