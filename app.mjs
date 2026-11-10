@@ -1,7 +1,8 @@
 import {createState,applyCommand,PHASES} from "./core.mjs";
-import {loadCatalog,importCatalog,searchCards,buildDraft} from "./catalog.mjs";
+import {loadCatalog,importCatalog,searchCards} from "./catalog.mjs";
+import {PRECONS,resolvePrecon} from "./precons.mjs";
 const $=id=>document.getElementById(id);
-const storage="riftbound-companion-state-v1";
+const storage="riftbound-companion-state-v2";
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
 let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
@@ -9,7 +10,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 function notify(message,bad=false){$("notice").textContent=message;$("notice").style.color=bad?"#f5a8a3":"#a7d9bd";}
 function cardHTML(c,show=true) {
   if(!c)return '<div class="empty-card">Non défini</div>';
-  const title=esc(c.name),img=c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(c.image)+'">':'<div class="empty-card">'+title+'</div>';
+  const title=esc(c.name),img=c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(c.image)+'" data-fallback="'+esc(c.imageFallback||"")+'">':'<div class="empty-card">'+title+'</div>';
   return '<div class="card-tile '+(c.exhausted?"exhausted ":"")+(c.faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'">'+(c.faceDown?'<div class="card-back">R</div>':img)+'<div class="card-label">'+(show?title:"")+'</div>'+(c.damage?'<b class="damage">−'+c.damage+'</b>':'')+Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+'</div>';
 }
 function render(){
@@ -61,7 +62,7 @@ document.addEventListener("click",e=>{
   const tile=e.target.closest(".card-tile");
   if(tile?.dataset.uid){
     const c=state.cards.find(c=>c.uid===tile.dataset.uid);
-    if(c){showInstance(c);return;}
+    if(c&&!(c.zone==="hand"&&c.owner==="ai")){showInstance(c);return;}
   }
   const result=e.target.closest("[data-code]");
   if(result){const c=catalog.find(c=>c.code===result.dataset.code);if(c)selectCard(c);}
@@ -99,19 +100,14 @@ $("setup-human").onclick=()=>{
   dispatch({type:"setup-human",legend,champion,battlefield});
 };
 $("setup-ai").onclick=()=>{
-  const legends=catalog.filter(c=>c.type.toLowerCase()==="legend");
-  const random=list=>list[Math.floor(Math.random()*list.length)];
-  const legend=cardFromInput("ai-legend-input","legend")||random(legends);
-  if(!legend){notify("Charge le catalogue pour un choix aléatoire.",true);return;}
-  const champions=catalog.filter(c=>c.type.toLowerCase().includes("unit")&&c.tags?.some(tag=>legend.name.toLowerCase().includes(tag.toLowerCase())));
-  const champion=cardFromInput("ai-champion-input","unit")||random(champions)||catalog.find(c=>c.type.toLowerCase().includes("unit")&&c.name===legend.name);
-  const battlegrounds=catalog.filter(c=>c.type.toLowerCase().includes("battlefield"));
-  const battlefield=cardFromInput("ai-battlefield-input","battlefield")||random(battlegrounds);
-  if(!champion||!battlefield){notify("Champion ou battlefield introuvable dans le catalogue.",true);return;}
-  const draft=buildDraft(catalog,legend,champion);
-  $("deck-info").textContent=draft.issues.join(" ");
-  if(draft.main.length<4){notify("Pas assez de cartes pour former la main de l'IA.",true);return;}
-  dispatch({type:"setup-ai",legend,champion,battlefield,main:draft.main,runes:draft.runes,battlefields:[battlefield]});
+  try{
+    const id=$("precon-select").value;
+    const deck=resolvePrecon(catalog,id);
+    $("deck-info").textContent=deck.label+" · 40 cartes, 12 runes, 3 terrains · choisi aléatoirement : "+deck.battlefield.name;
+    dispatch({type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
+      main:deck.main,runes:deck.runes,battlefields:deck.battlefields,
+      mainIncludesChampion:true,format:"preconstructed",deckName:deck.label});
+  }catch(e){notify(e.message,true);}
 };
 $("start-human").onclick=()=>dispatch({type:"start",player:"human"});
 $("start-ai").onclick=()=>dispatch({type:"start",player:"ai"});
@@ -136,6 +132,25 @@ else {
 }
 
 $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value))}catch(e){notify(e.message,true)}};
+$("copy-agent-prompt").onclick=async()=>{
+ const base=relay?.url||"http://127.0.0.1:8787";
+ const prompt=[
+   "Tu es mon adversaire dans une partie physique de Riftbound. Je manipule mes cartes physiques.",
+   "Ne réclame pas ma main cachée. Attends mes déclarations de jeu oralement ou par écrit.",
+   "Ne suppose jamais l'existence d'une carte ou la résolution d'un effet que tu n'as pas vérifié dans les règles officielles.",
+   "Tu peux consulter l'état du plateau via le relais local "+base+" (si ton environnement informatique y a accès).",
+   "Endpoints: GET /api/guide, GET /api/state, GET /api/catalog?q=..., POST /api/command.",
+   "Chaque requête nécessite l'en-tête Authorization: Bearer <JETON_LOCAL>.",
+   "Demande-moi le jeton via un canal privé approprié si tu en as besoin; ne le révèle jamais et ne le poste jamais sur GitHub.",
+   "Commence par GET /api/guide puis GET /api/state. Si l'IA n'est pas configurée, sélectionne un deck préconstruit avec POST /api/command {\"type\":\"select-precon\",\"id\":\"random\"}.",
+   "Annonce tes actions avec les noms, textes et effets précis des cartes, puis synchronise chaque changement sur le plateau.",
+   "Si tu n'as pas d'outil HTTP capable d'accéder au relais, donne-moi simplement les commandes JSON à coller dans l'onglet Agent IA.",
+   "Utilise le jeu comme compagnon de table, pas comme un logiciel d'arbitrage automatique."
+ ].join("\n");
+ try{await navigator.clipboard.writeText(prompt);notify("Instructions de l'agent copiées. Aucun jeton inclus.");}
+ catch(e){notify("Copie impossible : "+e.message,true);}
+};
+
 $("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
 $("reset").onclick=()=>{if(confirm("Effacer la partie en cours ?"))dispatch({type:"reset"});};
 $("export").onclick=()=>{
@@ -147,10 +162,19 @@ $("import-state").onchange=async e=>{
  catch(err){notify(err.message,true)}e.target.value="";
 };
 function renderCatalog(){
- $("catalog-status").textContent=catalog.length+" cartes disponibles"+(!catalog.length?" · Import JSON ou connexion Internet nécessaire":"");
+ $("catalog-status").textContent=catalog.length+" cartes chargées · images du CDN Riot avec secours Piltover Archive"+(!catalog.length?" · import JSON ou Internet nécessaire":"");
  const results=searchCards(catalog,$("card-search").value,$("card-type").value,90);
  $("search-results").innerHTML=results.map(c=>'<button class="result" data-code="'+esc(c.code)+'">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="">':'<span class="mini-placeholder">✦</span>')+'<span>'+esc(c.name)+'<small>'+esc(c.subtitle||c.type)+' · '+esc(c.set)+'</small></span></button>').join("");
 }
+// Network images fail occasionally; try Piltover Archive's CDN only when the official source fails.
+document.addEventListener("error",e=>{
+ const img=e.target;
+ if(!(img instanceof HTMLImageElement))return;
+ const next=img.dataset.fallback;
+ if(next&&img.src!==next){img.dataset.fallback="";img.src=next;return;}
+ img.style.opacity=".3";
+ img.alt=img.alt+" (image indisponible)";
+},true);
 $("card-search").oninput=renderCatalog;$("card-type").onchange=renderCatalog;
 $("refresh-cards").onclick=async()=>{try{catalog=await loadCatalog(true);renderCatalog();notify("Catalogue actualisé")}catch(e){notify(e.message,true)}};
 $("import-cards").onchange=async e=>{try{catalog=importCatalog(JSON.parse(await e.target.files[0].text()));renderCatalog();notify(catalog.length+" cartes chargées.");}catch(err){notify(err.message,true)}e.target.value="";};
