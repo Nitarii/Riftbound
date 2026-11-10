@@ -1,4 +1,27 @@
-# Riftbound Table Companion (prototype v0.1)
+# Riftbound Table Companion (prototype v0.2)
+
+## Mise à jour du 11 novembre 2026 — version 0.2
+
+**Site GitHub Pages** (si le déploiement est terminé) : https://nitarii.github.io/Riftbound/
+
+**Nouveautés :** catalogue de cartes et images issues de la galerie Riot (export communautaire Hugging Face : environ 1 407 cartes daté du 4 novembre 2026, sauvegarde depuis GitHub : environ 1 180 cartes), lien de secours des images vers Piltover Archive, sélection aléatoire de deux decks préconstruits officiellement publiés (Fiora et Rumble), mélange des decks, séparation correcte du champion choisi, API de recherche de cartes et des listes de decks, saisie vocale et interprétation prudente de quelques phrases françaises.
+
+Pour tester : ouvrir le site, attendre le chargement du catalogue, entrer sa légende / son champion / son battlefield, choisir le deck IA (Fiora, Rumble ou aléatoire), puis démarrer. Le joueur garde sa main physique secrète. Il peut écrire « je pioche deux cartes », « je gagne un point », « je pose Fiora, Peerless sur le terrain de l'IA » et utiliser **Interpréter & placer**. En mode voix, l'application peut appliquer automatiquement les annonces simples si l'option est cochée. Les effets, combats et règles compétitives restent à interpréter manuellement.
+
+Pour un agent IA local, lancer le serveur avec Node.js 20+ : cloner le dépôt puis exécuter **node server.mjs** dans son dossier. Ouvrir http://127.0.0.1:8787 et connecter l'API avec le jeton imprimé dans le terminal. Les nouvelles routes incluent **GET /api/catalog?q=Shen**, **GET /api/decks**, **POST /api/command** avec le corps JSON {"type":"select-precon","id":"random"}. La commande sélectionne un des deux decks. Une IA distante ne peut **pas** accéder simplement à localhost ou à un état privé avec la seule URL GitHub Pages.
+
+**Politique et licences :** images © Riot Games; Piltover Archive n'est qu'un lien de secours, pas une autorisation d'usage. Riot demande une clé API propre à l'application ou une licence écrite pour l'usage de ses actifs et restreint les applications autonomes de gameplay Riftbound et l'arbitrage automatique. Obtenir son accord avant la diffusion d'un jeu autonome avec ses images. Voir https://developer.riotgames.com/docs/riftbound. Le prototype est non commercial, non affilié et ne vérifie pas les règles.
+
+Source des decks : https://playriftbound.com/en-us/news/announcements/spiritforged-precons-fiora-rumble/
+
+Source des données récentes : https://huggingface.co/datasets/Wysme/riftbound-cards
+
+Catalogue de secours : https://github.com/slimtreble/Riftbound-card-data
+
+**À faire ensuite :** import de davantage de decks validés, accès distant sécurisé pour agents, gestion améliorée des zones cachées, interprétation des annonces complexes et mise à jour exhaustive des errata/bans. Les fonctionnalités ne sont pas encore validées dans une partie de bout en bout en navigateur.
+
+---
+
 
 A **non-official, non-commercial, human-supervised tabletop companion** for physical games of Riftbound, with a browser board, card gallery, shared local state model and opt-in local API for agents. This is not a licensed Riot product, a rules engine, or a tournament-certified game client.
 
@@ -91,7 +114,7 @@ A preexisting community card data project, [riftbound-cards](https://github.com/
 ## Current status and limitations
 
 - Working code paths for: interactive board, card detail, zone changes, markers, scoring, manual turn/phase changes, state history, browser import/export, local storage, one-way SSE state sync, and an authenticated local command API.
-- **Not implemented:** an autonomous strategic agent, reliable natural-language command interpretation, real voice transcription, validated competitive decks, tournament legality checks, effect resolution, combat rules engine, secure remote access from an external agent, full official card data bundled offline, hidden-information-safe agent contexts, and full synchronization of catalog/decks. 
+- **Not implemented:** an autonomous strategic agent, reliable natural-language command interpretation, advanced voice-to-action handling, validated competitive decks, tournament legality checks, effect resolution, combat rules engine, secure remote access from an external agent, full official card data bundled offline, hidden-information-safe agent contexts, and full synchronization of catalog/decks. 
 - **Not verified:** end-to-end play through a browser, live card-API connectivity, exhaustive correctness against October 2026 official Riftbound rules.
 - Some actions are **record-keeping shortcuts only**: draw/channel do not enforce rune/payment/turn timing rules.
 - The prototype has two battlefield display areas; it is not an exhaustive representation of all competitive variants or setup options.
