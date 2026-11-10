@@ -20,7 +20,7 @@ export function canonicalCode(code) {
   const text=String(code??"").toUpperCase().split("/")[0].replace(/[^A-Z0-9-]/g,"");
   const parts=text.split("-");
   // Riot's gallery API appends the printed denominator, e.g. "sfd-110-221".
-  if(parts.length>=3&&/^\d{3}$/.test(parts.at(-1)))parts.pop();
+  if(parts.length===3&&/^\d{3}[A-Z]?$/.test(parts[1])&&/^\d{3}$/.test(parts[2]))parts.pop();
   return parts.join("-");
 }
 export function preconById(id,rng=Math.random) {
