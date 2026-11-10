@@ -1,4 +1,5 @@
 // Community-exported metadata from the public Riot card gallery.
+import {canonicalCode} from "./precons.mjs";
 // Displayed card art is requested directly from Riot's CMS CDN when available.
 // Piltover Archive artwork is a last-resort remote fallback only; no art is copied to GitHub.
 export const CARD_SOURCE="https://huggingface.co/datasets/Wysme/riftbound-cards/resolve/main/cards.json";
@@ -6,7 +7,7 @@ export const CARD_SOURCE_BACKUP="https://raw.githubusercontent.com/slimtreble/Ri
 const STORAGE="riftbound-companion-catalog-v2";
 let cache=null;
 export function piltoverImage(code){
-  const normalized=String(code||"").trim().toUpperCase().split("/")[0];
+  const normalized=canonicalCode(code);
   if(!/^[A-Z]{3}-[A-Z0-9]+(?:[A-Z])?$/.test(normalized))return "";
   return "https://cdn.piltoverarchive.com/cards/"+normalized+".webp";
 }
