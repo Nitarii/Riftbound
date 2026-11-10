@@ -31,7 +31,7 @@ test("download links to real source bundle, with Node dependency disclosed",()=>
 });
 test("the UI is honest about physical cards, AI access and fan status",()=>{
  assert.match(html,/non commercial/);
- assert.match(html,/cartes physiques/);
+ assert.match(html,/cartes physiques/i);
  assert.match(html,/Une IA extérieure|une IA distante|une IA distante|IA distante|IA extérieure|agent externe/i);
  assert.match(js,/const deck=resolvePrecon\(catalog,\$\("home-ai-deck"\)\.value\)/);
  assert.match(js,/type:"setup-human"/);
