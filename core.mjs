@@ -21,7 +21,8 @@ export function validateCard(card) {
   if(!card||typeof card!=="object") throw Error("Carte invalide");
   const name=string(card.name,160);
   return {code:String(card.code||"").slice(0,100),name,type:String(card.type||"Unit").slice(0,40),
-    image:/^https:\/\/[a-z0-9.-]+\//i.test(card.image||"")?card.image:"",domain:Array.isArray(card.domains)?card.domains.slice(0,3).map(String):[],
+    image:/^https:\/\/[a-z0-9.-]+\//i.test(card.image||"")?card.image:"",
+    imageFallback:/^https:\/\/[a-z0-9.-]+\//i.test(card.imageFallback||"")?card.imageFallback:"",domains:Array.isArray(card.domains)?card.domains.slice(0,3).map(String):[],
     text:String(card.text||"").slice(0,2500),energy:Number.isFinite(+card.energy)?+card.energy:null,
     power:Number.isFinite(+card.power)?+card.power:null,might:Number.isFinite(+card.might)?+card.might:null,
     tags:Array.isArray(card.tags)?card.tags.slice(0,12).map(String):[]};
@@ -62,8 +63,19 @@ export function applyCommand(old, command) {
     if(who==="ai") {
       if(!Array.isArray(c.main)||!Array.isArray(c.runes)) throw Error("Deck IA : main[] et runes[] requis");
       if(c.main.length>150||c.runes.length>36)throw Error("Deck trop grand");
+      if(c.format==="preconstructed"&&(c.main.length!==40||c.runes.length!==12||!Array.isArray(c.battlefields)||c.battlefields.length!==3)){
+        throw Error("Deck préconstruit : 40 cartes (champion inclus), 12 runes et 3 battlefields attendus");
+      }
       s.decks.ai.main=c.main.map(deckCard);
+      // The chosen champion is one of the 40 main-deck cards, but starts in champion zone.
+      if(c.mainIncludesChampion!==false) {
+        const index=s.decks.ai.main.findIndex(v=>(c.champion.code&&v.code===c.champion.code)||
+          (v.name.toLowerCase()===c.champion.name.toLowerCase()));
+        if(index<0){if(c.format==="preconstructed")throw Error("Champion absent des 40 cartes");}
+        else s.decks.ai.main.splice(index,1);
+      }
       s.decks.ai.runes=c.runes.map(deckCard);
+      s.players.ai.deckName=typeof c.deckName==="string"?c.deckName.slice(0,100):"";
       s.decks.ai.battlefields=Array.isArray(c.battlefields)?c.battlefields.slice(0,3).map(deckCard):[validateCard(c.battlefield)];
       s.cards=s.cards.filter(v=>v.owner!=="ai"||["legend","champion"].includes(v.zone));
       s.players.ai.handCount=0;
