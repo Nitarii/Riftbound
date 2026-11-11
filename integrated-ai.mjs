@@ -124,6 +124,27 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
  }
  return checked;
 }
+// Prevent tiny local models from copying output-template instructions verbatim.
+export function groundedReply(reply,commands=[],board={},english=false){
+ const text=String(reply||"").trim().slice(0,1200);
+ const placeholder=/^(?:annonce courte(?: en fran[cç]ais)?|announce (?:the )?(?:possible )?actions|annoncer? les actions(?: possibles)?|short (?:french )?(?:reply|announcement)|réponse courte(?: en fran[cç]ais)?|actions possibles|reply|message|je vais annoncer les actions possibles)[.!\s]*$/i;
+ if(text&&!placeholder.test(text))return text;
+ const labels=[];
+ const names=new Map((board.cards||[]).filter(c=>c?.uid).map(c=>[c.uid,c.name]));
+ for(const cmd of commands){
+  if(cmd.type==="channel")labels.push(english?"channeled "+cmd.count+" rune(s)":"canalisé "+cmd.count+" rune(s)");
+  else if(cmd.type==="draw")labels.push(english?"drew "+cmd.count+" card(s)":"pioché "+cmd.count+" carte(s)");
+  else if(cmd.type==="move")labels.push((english?"played ":"joué ")+(names.get(cmd.uid)|| (english?"an existing card":"une carte connue")));
+  else if(cmd.type==="next-turn")labels.push(english?"ended my turn":"terminé mon tour");
+  else if(cmd.type==="score")labels.push(english?"updated the score":"mis à jour le score");
+ }
+ if(labels.length){
+  const unique=[...new Set(labels)];
+  return (english?"I ":"J'ai ")+unique.join(", ")+".";
+ }
+ return english?"I'm listening. Tell me your next move, or ask about a specific card.":
+  "Je t'écoute. Indique-moi ton prochain mouvement, ou pose-moi une question sur une carte précise.";
+}
 // The compact model is preconfigured by the program, without a user prompt.
 // Rules and card texts are provided fresh for every message via retrieval.
 export const SYSTEM_PROMPT=[
@@ -137,8 +158,8 @@ export const SYSTEM_PROMPT=[
  "Joue une carte IA avec move(uid,zone) depuis ta main existante, jamais avec add. Add est réservé à une carte humaine explicitement annoncée et trouvée dans gameReference.cards.",
  "Quand le joueur termine son tour, le serveur a déjà avancé : ne l'avance pas deux fois. Lorsque TU finis ton tour, next-turn une seule fois.",
  "Choisis tes actions parmi move, add, exhaust, exhaust-runes, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note. AI must use existing UID from own hand when playing a card, channel its real runes and track payment.",
- "Exemples : {\"type\":\"move\",\"uid\":\"uid-existant\",\"zone\":\"base\"}; {\"type\":\"draw\",\"player\":\"ai\",\"count\":1}.",
- "Réponds SEULEMENT en JSON de la forme {\"reply\":\"annonce courte en français\",\"commands\":[]}. Maximum huit commandes. Une question sans action peut avoir commands: [].",
+ "Pour jouer une carte, déplace-la depuis ta main uniquement avec son UID exact présent dans board.cards. Pour piocher, utilise draw(player=ai,count=1). N’invente aucun identifiant et ne paraphrase pas une commande dans reply sans l’émettre dans commands.",
+ "Réponds uniquement par un objet JSON avec deux propriétés : reply (une véritable réponse naturelle à la situation du joueur, dans sa langue) et commands (un tableau de commandes autorisées, huit maximum). Si aucune action précise n’est sûre, retourne un tableau vide et explique brièvement pourquoi. Ne copie jamais les instructions, un exemple de format, ni une phrase générique répétitive.",
  "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
 ].join("\n");
 export function createIntegratedAI({userData,getState,applyBatch,sendMessage,getMessages,getCatalog,
@@ -214,22 +235,23 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const english=/\\b(i |my |your |turn|play|draw|hello|what|can you|good|thanks)\\b/i.test(message)&&
     !/\\b(je |mon |tour|joue|pioche|bonjour|merci)\\b/i.test(message);
    let fallback=false;
-   if(!commands.length&&game.active==="ai"){
-    const safe=planSafeAITurn(game);
+   // A valid but incomplete note/phase is not a finished AI turn.
+   // Finish only simple, verifiable actions without inventing card effects.
+   if(game.active==="ai"&&preview.active==="ai"){
+    const safe=planSafeAITurn(preview);
     if(safe.length){commands.push(...safe);fallback=true;}
    }
    if(commands.length){
     try{await applyBatch(commands,revision);}
     catch(e){sendMessage((english?"Board unchanged: ":"Plateau inchangé : ")+String(e.message||e).slice(0,200));return;}
    }
-   if(fallback)reply=english?"I channeled, drew and completed my turn using the board's available cards.":
-      "J'ai canalisé, pioché et terminé mon tour en utilisant uniquement les cartes disponibles sur le plateau.";
+   if(fallback)reply=groundedReply("",commands,game,english);
    else if(rejected.length){
     // Never claim an invalid movement happened.
     reply=(english?"Some suggested moves were not executed: ":"Certains déplacements proposés n'ont pas été exécutés : ")+
      [...new Set(rejected)].slice(0,2).join("; ")+(commands.length?"":"");
    }
-   sendMessage(reply||(english?"I understand. What is your next action?":"J'ai compris. Quelle est ta prochaine action ?"));
+   sendMessage(groundedReply(reply,commands,game,english));
   }catch(e){
    lastError=e?.name==="TimeoutError"?"Délai de réponse dépassé.":String(e?.message||e).slice(0,250);
    // Invalid JSON from a very small model must not freeze the AI turn.

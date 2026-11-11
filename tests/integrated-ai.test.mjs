@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {createState,applyCommand} from "../core.mjs";
-import {createIntegratedAI,validateAIConfig,validateAgentCommands,modelBoardState} from "../integrated-ai.mjs";
+import {createIntegratedAI,validateAIConfig,validateAgentCommands,modelBoardState,groundedReply,SYSTEM_PROMPT} from "../integrated-ai.mjs";
 
 test("integrated AI supports three fixed providers and rejects unsafe custom endpoints",()=>{
  const a=validateAIConfig({provider:"openai",model:"gpt-4.1-mini",apiKey:"test-key"});
@@ -94,5 +94,41 @@ test("provider errors are displayed without leaking the API key",async()=>{
   const message=await Promise.race([received,new Promise((_,reject)=>setTimeout(()=>reject(Error("No error reply")),1500))]);
   assert.match(message,/HTTP 401/);
   assert.ok(!message.includes(key));
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test("local opponent never repeats the placeholder announcement from prompt",()=>{
+ assert.ok(!SYSTEM_PROMPT.includes("annonce courte en français"));
+ const board={cards:[{uid:"c_real",name:"Loyal Poro"}]};
+ assert.equal(groundedReply("annonce courte en français",[],board).includes("annonce courte"),false);
+ assert.match(groundedReply("annonce courte en français",[{type:"move",uid:"c_real",zone:"base"}],board),/Loyal Poro/);
+ assert.equal(groundedReply("announce the actions",[],board,true).includes("announce the actions"),false);
+ assert.equal(groundedReply("Je joue Loyal Poro",[],board),"Je joue Loyal Poro");
+});
+test("an incomplete AI note is completed with verifiable board actions",async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-ai-incomplete-"));
+ let state=startState(),received="",done;
+ state=applyCommand(state,{type:"add",player:"ai",zone:"hand",card:{code:"SAFE-01",name:"Safe Unit",type:"Unit",energy:1}});
+ state=applyCommand(state,{type:"next-turn"});
+ try{
+  const completion=new Promise(resolve=>done=resolve);
+  const ai=createIntegratedAI({
+   userData:dir,getState:()=>state,getCatalog:async()=>[],getMessages:()=>({messages:[]}),
+   sendMessage:text=>{received=text;done();},
+   applyBatch:async(cmds,revision)=>{
+    assert.equal(state.revision,revision);
+    for(const cmd of cmds)state=applyCommand(state,cmd);
+   },
+   fetchImpl:async()=>({ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({
+    reply:"annonce courte en français",commands:[{type:"note",text:"J'attends."}]
+   })}}]})})
+  });
+  ai.configure({provider:"openai",model:"gpt-4.1-mini",apiKey:"test"});
+  ai.onHumanMessage("À toi.");
+  await Promise.race([completion,new Promise((_,reject)=>setTimeout(()=>reject(Error("AI timeout")),1500))]);
+  assert.equal(state.active,"human");
+  assert.ok(state.cards.some(c=>c.owner==="ai"&&c.zone==="runes"));
+  assert.ok(state.cards.some(c=>c.owner==="ai"&&c.zone==="base"));
+  assert.ok(!received.includes("annonce courte en français"));
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
