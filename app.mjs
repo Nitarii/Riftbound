@@ -100,10 +100,23 @@ function notify(message,bad=false){
  const home=$("home-feedback");
  if(home){home.textContent=message;home.classList.toggle("error",bad);}
 }
-function cardHTML(c,show=true,large=false) {
-  if(!c)return '<div class="empty-card">Non défini</div>';
-  const title=esc(c.name),img=c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':'<div class="empty-card">'+title+'</div>';
-  return '<div class="card-tile '+(c.type?.toLowerCase().includes("battlefield")?"landscape ":"")+(c.exhausted?"exhausted ":"")+(c.faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'">'+(c.faceDown?'<div class="card-back">R</div>':img)+'<div class="card-label">'+(show?title:"")+'</div>'+(c.damage?'<b class="damage">−'+c.damage+'</b>':'')+Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+'</div>';
+function cardHTML(c,show=true,large=false){
+ if(!c)return '<div class="empty-card">—</div>';
+ const faceDown=Boolean(c.faceDown),turned=Boolean(c.exhausted);
+ const title=faceDown?(uiLanguage==="en"?"Hidden card":"Carte cachée"):esc(c.name);
+ const art=!faceDown&&c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
+   '<div class="empty-card">'+title+'</div>';
+ const label=show&&!faceDown?'<div class="card-label">'+title+'</div>':'';
+ const status=faceDown?' data-card-state="hidden" aria-label="'+title+'"':
+  turned?' data-card-state="exhausted" aria-label="'+title+' — exhausted"':
+  ' data-card-state="ready" aria-label="'+title+' — ready"';
+ const tile='<div class="card-tile '+(c.type?.toLowerCase().includes("battlefield")?"landscape ":"")+
+   (turned?"exhausted ":"")+(faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'" data-card-type="'+esc((c.type||"").toLowerCase())+'"'+status+'>'+
+   '<div class="card-art">'+(faceDown?'<div class="card-back">R</div>':art)+'</div>'+label+
+   (c.damage?'<b class="damage">−'+c.damage+'</b>':'')+
+   Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+
+   '</div>';
+ return tile;
 }
 let previousCardLocations=new Map();
 function render(){
@@ -114,13 +127,14 @@ function render(){
     $(p+"-score").textContent=player.score+" PV";
     $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main");
     const piles=$(p+"-decks");
-    if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+
-      '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
+    if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" '+((p!==state.active||state.turnActions?.drawn||player.deckCount===0)?"disabled ":"")+'title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+
+      '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" '+((p!==state.active||state.turnActions?.channeled||player.runeCount===0)?"disabled ":"")+'title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
     for(const z of ["legend","champion"]){$(p+"-"+z).innerHTML=cardHTML(state.cards.find(c=>c.owner===p&&c.zone===z)||player[z]);}
     const cards=z=>state.cards.filter(c=>c.owner===p&&c.zone===z);
     $(p+"-hand").innerHTML=p==="human"?'<span class="physical">'+player.handCount+' cartes physiques non révélées</span>':cards("hand").map(c=>cardHTML({...c,faceDown:true},false)).join("")||'<span class="muted">Main vide</span>';
-    $(p+"-runes").innerHTML=cards("runes").map(c=>cardHTML(c)).join("")||'<span class="muted">Aucune rune placée</span>';
-    $(p+"-base").innerHTML=cards("base").map(c=>cardHTML(c)).join("")||'<span class="muted">Aucune unité en base</span>';
+    $(p+"-runes").innerHTML=cards("runes").map(c=>cardHTML(c)).join("")||'<span class="muted">—</span>';
+    $(p+"-base").innerHTML=cards("base").map(c=>cardHTML(c)).join("")||'<span class="muted">—</span>';
+    $(p+"-trash").innerHTML=cards("trash").slice(-15).map(c=>cardHTML(c)).join("")||'<span class="muted">—</span>';
   }
   state.battlefields.forEach((b,i)=>{
     $("battlefield-name-"+i).textContent=b.card?.name||"À sélectionner";
@@ -413,12 +427,6 @@ function interpretNote(){
  if(confirm("Appliquer localement cette commande ?\n"+parsed.label))dispatch(parsed.command);
 }
 $("interpret-note").onclick=interpretNote;
-for(const p of ["human","ai"]){
- const rail=$(p+"-legend")?.closest(".rail");
- if(rail&&!$(p+"-decks")){
-  const piles=document.createElement("div");piles.className="deck-visuals";piles.id=p+"-decks";rail.append(piles);
- }
-}
 document.addEventListener("click",event=>{
  const pile=event.target.closest("[data-pile-action]");
  if(!pile)return;
@@ -443,6 +451,17 @@ try{setSidebarCollapsed(localStorage.getItem(sidebarKey)==="true");}catch{}
 const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 const voiceButton=$("voice-note"),voiceIndicator=$("voice-live"),voiceStatus=$("voice-live-text");
 const voiceReadReplies=$("voice-read-replies");
+const voiceTranscript=$("voice-transcript"),voiceHeard=$("voice-heard");
+const voiceTranscriptLabel=$("voice-transcript-label");
+function displayHeard(text,complete=false){
+ const heard=String(text||"").trim();
+ if(!heard)return;
+ voiceTranscript.hidden=false;
+ voiceHeard.textContent=heard;
+ voiceTranscriptLabel.textContent=complete?
+  (uiLanguage==="en"?"Heard · sent":"Entendu · envoyé"):
+  (uiLanguage==="en"?"Listening · live transcript":"Micro · transcription en direct");
+}
 function voiceUI(info){
  const active=Boolean(info.enabled);
  voiceButton.setAttribute("aria-pressed",String(active));
@@ -462,6 +481,7 @@ function showVoiceDraft(transcript){
   input.value=transcript;
   lastVoiceDraft=transcript;
  }
+ displayHeard(transcript);
 }
 voiceController=createVoiceConversation({
  Recognition:SpeechAPI,
@@ -470,6 +490,7 @@ voiceController=createVoiceConversation({
  onState:voiceUI,
  onPreview:showVoiceDraft,
  onTranscript:async text=>{
+  displayHeard(text,true);
   // The model receives the exact transcription through the normal chat API.
   // Only explicit, unambiguous end-turn phrases advance the board automatically.
   const success=await enqueuePlayerAnnouncement(text);
@@ -505,6 +526,7 @@ voiceButton.onclick=async()=>{
   notify("Le micro va fonctionner, mais active ton adversaire IA pour obtenir ses réponses.",true);
  }
  const started=voiceController.start();
+ if(started){voiceTranscript.hidden=true;voiceHeard.textContent="";}
  if(started)notify("Mode conversation activé. Parle, fais une courte pause et l'IA recevra ton message.");
 };
 voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);

@@ -165,6 +165,23 @@ export const SYSTEM_PROMPT=[
  "Réponds uniquement par un objet JSON avec deux propriétés : reply (une véritable réponse naturelle à la situation du joueur, dans sa langue) et commands (un tableau de commandes autorisées, huit maximum). Si aucune action précise n’est sûre, retourne un tableau vide et explique brièvement pourquoi. Ne copie jamais les instructions, un exemple de format, ni une phrase générique répétitive.",
  "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
 ].join("\n");
+// The 0.6B model has a small 4096-token local context: keep its instructions
+// bounded, reserving space for actual card information and structured output.
+export const FREE_SYSTEM_PROMPT=[
+ "You are a physical Riftbound opponent. Understand French, English, mixed language and typos. Never see or ask for the human's hidden hand.",
+ "Board and card reference are facts. Never invent a card, UID, ability or payment. Ask only when genuinely unclear.",
+ "Human commands were already applied by server. If board.active is ai, play your own turn using only real board.cards UIDs and valid commands. No repeated human actions.",
+ "Return only a JSON object with reply (one natural short sentence in preferredReplyLanguage) and commands (array). No surrounding text or examples.",
+ "Allowed: phase, channel, draw, move, exhaust-runes, next-turn, note. Do not guess effects. Be concise."
+].join("\n");
+export function modelHTTPError(status,provider){
+ if(provider==="free"){
+  if([400,413,422].includes(status))return "IA locale HTTP "+status+" : le moteur a refusé le format ou la taille de la requête, même après une tentative simplifiée.";
+  if(status===503)return "IA locale HTTP 503 : modèle occupé ou non prêt. Réessaie dans un instant.";
+  return "IA locale HTTP "+status+" : réponse du moteur local indisponible. Vérifie que le compagnon Windows est lancé.";
+ }
+ return "HTTP "+status+" du fournisseur. Vérifie sa configuration et sa disponibilité.";
+}
 export function createIntegratedAI({userData,getState,applyBatch,sendMessage,getMessages,getCatalog,
  fetchImpl=fetch,timeoutMs=45000}){
  const file=path.join(userData,".riftbound-ai-settings.json");
@@ -194,13 +211,14 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const game=getState(),revision=game.revision;
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
-   const transcript=getMessages(0).messages.slice(own.provider==="free"?-3:-8)
-    .map(m=>({role:m.role,text:String(m.text||"").slice(0,own.provider==="free"?230:1200)}));
+   const free=own.provider==="free";
+   const transcript=getMessages(0).messages.slice(free?-2:-8)
+    .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?140:1200)}));
    const payload={
-    model:own.model,temperature:own.provider==="free"?0.7:0.3,max_tokens:1100,
+    model:own.model,temperature:free?0.25:0.3,max_tokens:free?380:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
     messages:[
-     {role:"system",content:SYSTEM_PROMPT},
+     {role:"system",content:free?FREE_SYSTEM_PROMPT:SYSTEM_PROMPT},
      {role:"user",content:(own.provider==="free"?"/no_think\n":"")+JSON.stringify({
       latestHumanMessage:message,
       normalizedPlayerAnnouncement:normalizePlayerAnnouncement(message),
@@ -208,23 +226,41 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
       conversation:transcript,
       board:modelBoardState(game),
       gameReference:buildGameKnowledge(game,message,catalog,{
-       maxCards:own.provider==="free"?11:18,maxText:own.provider==="free"?330:700,
-       ruleCount:own.provider==="free"?3:5
+       maxCards:free?6:18,maxText:free?180:700,
+       ruleCount:free?2:5
       }),
       // Retained for API compatibility with previously supported model prompts.
-      knownCards:relevantCards(catalog,message)
-       .slice(0,own.provider==="free"?3:12)
+      knownCards:(free?[]:relevantCards(catalog,message))
+       .slice(0,free?0:12)
        .map(c=>({...c,text:String(c.text||"").slice(0,own.provider==="free"?180:1300)}))
      })}
     ]
    };
    const headers={"Content-Type":"application/json"};
    if(own.apiKey)headers.Authorization="Bearer "+own.apiKey;
-   const response=await fetchImpl(own.endpoint+"/chat/completions",{
-    method:"POST",headers,body:JSON.stringify(payload),
-    signal:AbortSignal.timeout(own.provider==="free"?180000:timeoutMs)
+   const sendRequest=async body=>fetchImpl(own.endpoint+"/chat/completions",{
+    method:"POST",headers,body:JSON.stringify(body),
+    signal:AbortSignal.timeout(free?180000:timeoutMs)
    });
-   if(!response.ok)throw Error("HTTP "+response.status+" du fournisseur. Vérifie la clé API et le nom du modèle.");
+   let response=await sendRequest(payload);
+   if(free&&[400,413,422].includes(response.status)&&!response.ok){
+    // Some bundled llama.cpp builds reject JSON grammar / long contexts.
+    // Retry without a grammar and with a much shorter, bounded reference.
+    const smallContext={
+     latestHumanMessage:message.slice(0,180),
+     preferredReplyLanguage:detectMessageLanguage(message),
+     board:modelBoardState(game),
+     gameReference:buildGameKnowledge(game,message,catalog,{
+      maxCards:3,maxText:110,ruleCount:1
+     })
+    };
+    response=await sendRequest({
+     model:own.model,temperature:0.2,max_tokens:240,
+     messages:[{role:"system",content:FREE_SYSTEM_PROMPT},
+      {role:"user",content:"/no_think\\n"+JSON.stringify(smallContext)}]
+    });
+   }
+   if(!response.ok)throw Error(modelHTTPError(response.status,own.provider));
    const packet=await response.json();
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
    if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error("Réponse IA mal formée.");
@@ -271,7 +307,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      }catch{}
     }
    }
-   sendMessage("⚠️ Impossible de joindre l'IA intégrée : "+lastError);
+   sendMessage((own.provider==="free"?"⚠️ ":"⚠️ Impossible de joindre l'IA intégrée : ")+lastError);
   }finally{processing=false;}
  }
  function onHumanMessage(text){

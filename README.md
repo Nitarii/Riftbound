@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.18.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.19.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.18.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+1. Télécharge et lance `RiftboundCompanion-v0.19.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,14 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.19 — Plateaux, clarification et micro
+- Interface inspirée des zones d'un playmat Riftbound : légende, champion choisi, grande base, runes actives, main, défausse et les deux pioches regroupées. Les champs de bataille restent au centre entre les deux camps. Les cartes conservent leurs proportions et leurs conteneurs défilent horizontalement si elles sont nombreuses, plutôt que de les recadrer.
+- Unités et runes épuisées apparaissent couchées à 90°, dans un emplacement élargi. Une unité jouée depuis une main entre normalement épuisée ; le moteur bloque son déplacement standard tant qu'elle l'est. Certains effets particuliers peuvent nécessiter une correction manuelle.
+- Le mode vocal montre la transcription Chrome/Edge en direct, puis la phrase effectivement envoyée à l'IA.
+- Lorsque le nom annoncé d'une carte est incertain, le serveur conserve temporairement l'annonce et demande confirmation. « oui », « Loyal Poro » ou le nom à l'envers peuvent reprendre cette annonce sans la soumettre à nouveau au modèle. Un paiement illégal reste refusé.
+- Les erreurs HTTP 400/413/422 du modèle CPU déclenchent une seconde requête plus courte, sans contrainte JSON ; les erreurs finales nomment le moteur local et ne mentionnent plus des clés API.
+- Les tests automatisés vérifient notamment l'absence de défilement de la page et de cartes coupées dans les principales zones.
 
 ## Compréhension FR / EN, fautes et langage naturel (v0.18)
 - Le compagnon comprend les annonces françaises, anglaises et mixtes dans la même phrase, y compris les variations de syntaxe, les accents manquants, les fautes courantes et certaines erreurs de transcription vocale.

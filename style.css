@@ -1140,3 +1140,297 @@ body:not(.home-visible) #game-app.history-collapsed{
 @media(prefers-reduced-motion:reduce){
  #game-app .card-tile.card-transition,#game-app .chat-typing span{animation:none!important}
 }
+
+
+/* v0.19 · Playmat: keep full card art visible while dedicating space to each zone. */
+#game-app{
+ --game-card-width:clamp(50px,4.1vw,70px);
+ --game-field-width:clamp(66px,5.25vw,90px);
+ --playmat-card-height:calc(var(--game-card-width) * 1.3965);
+}
+#game-app .board{
+ grid-template-rows:minmax(0,1.05fr) minmax(0,.87fr) minmax(0,1.05fr);
+}
+#game-app .board>.side.player,#game-app .board>.side.opponent{
+ display:flex;
+ flex-direction:column;
+ gap:3px;
+ padding:5px 7px;
+ overflow:hidden;
+}
+#game-app .board>.side .identity{
+ font-size:14px;
+ min-height:19px;
+ line-height:19px;
+}
+#game-app .board>.side .meta{font-size:9px;min-height:11px;line-height:11px;margin:0}
+#game-app .board>.side .playmat{
+ display:grid;
+ flex:1 1 auto;
+ grid-template-columns: minmax(56px,.8fr) minmax(56px,.8fr) minmax(0,4.4fr) minmax(74px,1.08fr);
+ grid-template-rows:minmax(0,1.4fr) minmax(0,.9fr);
+ grid-template-areas:"legend champion base piles" "runes runes hand trash";
+ align-items:stretch;
+ gap:4px;
+ min-width:0;min-height:0;
+}
+#game-app .playmat>[data-zone="legend"]{grid-area:legend}
+#game-app .playmat>[data-zone="champion"]{grid-area:champion}
+#game-app .playmat>[data-zone="base"]{grid-area:base}
+#game-app .playmat>.deck-visuals{grid-area:piles}
+#game-app .playmat>[data-zone="runes"]{grid-area:runes}
+#game-app .playmat>[data-zone="hand"]{grid-area:hand}
+#game-app .playmat>[data-zone="trash"]{grid-area:trash}
+#game-app .playmat .panel,
+#game-app .playmat .panel.stretch{
+ display:flex;
+ flex-direction:column;
+ margin:0;
+ max-height:none;
+ min-height:0;
+ width:100%;
+ overflow:hidden;
+ padding:4px 6px;
+ border-color:#385561;
+ background:linear-gradient(155deg,rgba(18,35,46,.95),rgba(8,22,32,.86));
+}
+#game-app .playmat .panel h3{
+ font-size:9px;
+ line-height:12px;
+ height:12px;
+ min-height:12px;
+ margin:0 0 4px;
+ flex:0 0 12px;
+ letter-spacing:.8px;
+ color:#d6c48d;
+}
+#game-app .playmat .zone-base{
+ border-color:#63765e;
+ background:radial-gradient(ellipse at 70% -40%,rgba(91,145,115,.14),transparent 75%),#0b2027;
+}
+#game-app .playmat .zone-runes{border-color:#456f65}
+#game-app .playmat .cardholder,
+#game-app .playmat .cards{
+ display:flex;
+ align-items:flex-start;
+ flex:1 1 auto;
+ min-width:0;
+ min-height:0;
+ max-height:none;
+ height:auto!important;
+ gap:7px;
+ overflow-x:auto;
+ overflow-y:hidden;
+ scrollbar-width:thin;
+ scrollbar-color:#728c81 transparent;
+ padding:1px 2px 3px;
+}
+#game-app .playmat .cardholder{justify-content:center}
+#game-app .playmat .cardholder .card-tile{margin:0 auto}
+#game-app .playmat .zone-base .cards,
+#game-app .playmat .zone-runes .cards{
+ overflow-x:auto;
+ overflow-y:hidden;
+}
+#game-app .playmat .panel.hand .physical{
+ min-height:0;
+ display:flex;
+ align-items:center;
+ font-size:10px;
+ line-height:1.4;
+}
+#game-app .board .card-tile{
+ width:var(--game-card-width);
+ min-width:var(--game-card-width);
+ flex:0 0 var(--game-card-width);
+ margin:0;
+ overflow:visible;
+ transform:none;
+ transition:filter .2s;
+}
+#game-app .board .card-tile .card-art{
+ display:block;
+ position:relative;
+ width:var(--game-card-width);
+ height:var(--playmat-card-height);
+ max-width:none;
+}
+#game-app .board .card-tile .card-art img{
+ width:100%;
+ height:100%;
+ aspect-ratio:744/1039;
+ object-fit:cover;
+ display:block;
+}
+#game-app .board .card-tile .card-art .empty-card{
+ width:100%;
+ height:100%;
+ min-height:0;
+ padding:3px;
+ overflow:hidden;
+ font-size:9px;
+}
+#game-app .board .card-tile .card-art .card-back{
+ width:100%;
+ height:100%;
+ font-size:clamp(18px,2.5vw,35px);
+}
+#game-app .board .card-tile .card-label{
+ max-width:100%;
+ font-size:9px;
+ line-height:11px;
+ margin-top:2px;
+ overflow:hidden;
+ text-overflow:ellipsis;
+ white-space:nowrap;
+}
+#game-app .board .card-tile.exhausted{
+ width:var(--playmat-card-height);
+ min-width:var(--playmat-card-height);
+ flex:0 0 var(--playmat-card-height);
+ height:calc(var(--game-card-width) + 7px);
+ margin:0;
+ transform:none!important;
+ opacity:.78;
+}
+#game-app .board .card-tile.exhausted .card-art{
+ position:absolute;
+ left:calc(var(--playmat-card-height) / 2);
+ top:calc(var(--game-card-width) / 2);
+ transform:translate(-50%,-50%) rotate(90deg);
+ transform-origin:center;
+}
+#game-app .board .card-tile.exhausted .card-label{display:none}
+#game-app .board .card-tile.exhausted::after{
+ content:"↷";
+ position:absolute;right:1px;bottom:-1px;
+ background:#142f30;color:#d5ebdc;
+ border:1px solid #668478;border-radius:3px;
+ font-size:10px;line-height:13px;padding:0 3px;
+}
+#game-app .board .card-tile:hover{filter:brightness(1.13);z-index:3;transform:none}
+#game-app .board .card-tile[data-card-type="rune"] .card-art>.empty-card{
+ border-color:#679f8f;
+ background:radial-gradient(circle,#205747,#112b34 80%);
+ color:#e1eadb;
+}
+#game-app .playmat .deck-visuals{
+ display:flex;
+ flex-direction:column;
+ min-height:0;
+ min-width:0;
+ gap:4px;
+}
+#game-app .playmat .pile{
+ flex:1 1 0;
+ display:flex;
+ flex-direction:row;
+ align-items:center;
+ justify-content:flex-start;
+ min-height:0;
+ gap:5px;
+ padding:3px 4px;
+}
+#game-app .playmat .pile-back{
+ flex:0 0 28px;
+ min-height:32px;
+ font-size:20px;
+}
+#game-app .playmat .pile-label{
+ font-size:10px;
+ line-height:1.15;
+ font-weight:650;
+}
+#game-app .battlefield-row{
+ grid-template-columns:repeat(2,minmax(0,1fr));
+ gap:var(--game-gap);
+ overflow:visible;
+}
+#game-app .battlefield{padding:5px 8px}
+#game-app .battlefield-title{font-size:11px;flex-wrap:nowrap}
+#game-app .field-content{
+ min-height:0;
+ overflow:hidden;
+ align-items:flex-start;
+ padding:4px 2px 2px;
+ margin-top:0;
+ gap:8px;
+}
+#game-app .field-card{
+ flex:0 0 var(--game-field-width);
+ max-width:var(--game-field-width);
+ min-height:0;
+ overflow:visible;
+}
+#game-app .field-card .card-tile{
+ --game-card-width:var(--game-field-width);
+ --playmat-card-height:calc(var(--game-field-width) * 1.3965);
+ width:var(--game-field-width);
+ min-width:var(--game-field-width);
+}
+#game-app .field-content>.cards{
+ overflow-x:auto;
+ overflow-y:hidden;
+ padding:2px 4px;
+ height:100%;
+ gap:8px;
+ align-items:flex-start;
+}
+#game-app .voice-transcript{
+ display:flex;
+ flex-direction:column;
+ gap:4px;
+ padding:7px 9px;
+ margin:0;
+ flex:0 0 auto;
+ max-height:80px;
+ overflow-y:auto;
+ background:#142e36;
+ border:1px solid #4f8179;
+ border-radius:7px;
+ color:#c1e8df;
+ font-size:11px;
+}
+#game-app .voice-transcript[hidden]{display:none!important}
+#game-app .voice-transcript strong{color:#edd597;font-size:10px;line-height:1.1}
+#game-app .voice-transcript span{overflow-wrap:anywhere;line-height:1.4}
+@media(max-height:760px) and (min-width:891px){
+ #game-app{--game-card-width:clamp(43px,3.8vw,58px);--game-field-width:clamp(58px,4.8vw,76px)}
+ #game-app .board>.side{padding:3px 5px}
+ #game-app .playmat .panel{padding:2px 4px}
+ #game-app .playmat .panel h3{margin-bottom:2px}
+ #game-app .board>.side .playmat{gap:3px}
+}
+@media(max-width:1100px) and (min-width:891px){
+ #game-app .board>.side .playmat{
+  grid-template-columns:minmax(48px,.8fr) minmax(48px,.8fr) minmax(0,3.8fr) minmax(68px,.95fr);
+  gap:3px;
+ }
+ #game-app .playmat .pile-label{font-size:8px}
+ #game-app .playmat .pile-back{flex-basis:21px;min-height:28px}
+}
+@media(max-width:890px){
+ #game-app{--game-card-width:clamp(52px,9vw,72px);--game-field-width:clamp(63px,10vw,83px)}
+ #game-app .board>.side .playmat{
+  grid-template-columns:minmax(58px,.8fr) minmax(58px,.8fr) minmax(0,3.5fr) minmax(70px,.9fr);
+ }
+ #game-app .board{grid-template-rows:minmax(0,1fr) minmax(0,.85fr) minmax(0,1fr)}
+}
+@media(max-width:600px){
+ #game-app{--game-card-width:clamp(46px,11vw,61px);--game-field-width:clamp(52px,13vw,67px)}
+ #game-app .board>.side .playmat{
+  grid-template-columns:minmax(48px,.8fr) minmax(48px,.8fr) minmax(0,3fr) minmax(58px,.85fr);
+  gap:3px;
+ }
+ #game-app .playmat .panel{padding:3px}
+ #game-app .playmat .panel h3{font-size:8px}
+ #game-app .playmat .pile{padding:2px;gap:2px}
+ #game-app .playmat .pile-label{font-size:7px}
+ #game-app .playmat .pile-back{flex-basis:17px;min-height:23px;font-size:15px}
+ #game-app .board .card-tile .card-label{font-size:8px}
+}
+@media(prefers-reduced-motion:reduce){
+ #game-app .board .card-tile{transition:none}
+}
+
+#game-app .playmat .pile:disabled{opacity:.48;cursor:not-allowed;filter:grayscale(.55)}

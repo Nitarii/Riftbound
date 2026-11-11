@@ -16,6 +16,7 @@ import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
 import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
+import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI} from "./free-ai.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 const packaged=sea.isSea();
@@ -98,7 +99,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.18.0",
+ name:"Riftbound Table Companion",version:"0.19.0",
  officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
@@ -154,7 +155,7 @@ async function executeGameCommand(input){
     format:"preconstructed",deckName:deck.label};
  }
  state=applyCommand(state,command);
- if(input.type==="reset")conversation.clear();
+ if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
  save();broadcast();return state;
 }
 const readMessages=after=>conversation.list(after);
@@ -173,25 +174,56 @@ const integratedAI=createIntegratedAI({
 // profiles are left on disk for migration but never auto-start after upgrade.
 if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
  integratedAI.disable();
-// Ordered, deterministic application of human statements before the local AI responds.
+// The physical player can correct the previous card name without a separate model request.
+// Pending actions are never executed until a real catalog card and all costs are verified.
+let pendingHumanAction=null;
 let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=text=>{
  const entry=conversation.post("human",text);
  humanAnnouncements=humanAnnouncements.catch(()=>{}).then(async()=>{
   let catalog=[];
   try{catalog=await loadServerCatalog();}catch{}
-  const plan=planHumanAnnouncement(entry.text,state,catalog);
+  let announcement=entry.text;
+  const english=detectMessageLanguage(entry.text)==="en";
+  if(pendingHumanAction){
+   const answer=resolveCardClarification(pendingHumanAction,entry.text,catalog,state,{english});
+   if(answer.status==="waiting"){
+    receiveAgentMessage(answer.message);
+    return;
+   }
+   if(answer.status==="cancel"){
+    pendingHumanAction=null;
+    receiveAgentMessage(answer.message);
+    return;
+   }
+   if(answer.status==="confirmed"){
+    announcement=answer.announcement;
+    pendingHumanAction=null;
+   }else pendingHumanAction=null; // new action or expired request
+  }
+  const plan=planHumanAnnouncement(announcement,state,catalog);
+  if(plan.needsClarification){
+   pendingHumanAction=makeCardClarification({
+    announcement,query:plan.needsClarification.query,
+    revision:state.revision,catalog
+   });
+   const prompt=resolveCardClarification(pendingHumanAction,"",catalog,state,{english});
+   receiveAgentMessage(prompt.message);
+   return;
+  }
   if(plan.error){
-   const english=detectMessageLanguage(entry.text)==="en";
    receiveAgentMessage(english?plan.errorEN:plan.error);
    return;
   }
   if(plan.commands?.length){
    const revision=state.revision;
    try{applyAgentBatch(plan.commands,revision);}
-   catch(e){receiveAgentMessage("Action non appliquée / Action not applied: "+String(e.message||e));return;}
+   catch(e){
+    receiveAgentMessage((english?"Action not applied: ":"Action non appliquée : ")+String(e.message||e).slice(0,180));
+    return;
+   }
   }
-  integratedAI.onHumanMessage(entry.text);
+  integratedAI.onHumanMessage(announcement);
  }).catch(e=>receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180)));
  return entry;
 };
@@ -215,7 +247,7 @@ const remoteAccess=createRemoteAccess({
 });
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();});
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -250,7 +282,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.18.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.19.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
