@@ -24,7 +24,7 @@ test("all homepage controls have unique IDs and handlers",()=>{
  }
 });
 test("direct Windows download is a single exe with no Node dependency for the player",()=>{
- assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion\.exe/);
+ assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion-v0\\.5\\.exe/);
  assert.match(html,/Aucune installation ni dépendance supplémentaire/);
  assert.match(html,/Logiciel non signé/);
  assert.doesNotMatch(html,/main\.zip/);
@@ -70,4 +70,15 @@ test("game-like quest tick is keyboard accessible and linked to progress",()=>{
  assert.match(css,/\.quest-check input:focus-visible \+ \.quest-check-badge/);
  assert.match(css,/\.quest-check input:checked \+ \.quest-check-badge/);
  assert.match(html,/id="home-connection-label"/);
+});
+
+test("browser permission requires an explicit click and describes recovery",()=>{
+ assert.match(html,/id="home-allow-local"/);
+ assert.match(html,/id="home-permission-help"/);
+ assert.match(html,/Accès au réseau local/);
+ assert.match(js,/navigator\.permissions\.query\(\{name:"loopback-network"\}\)/);
+ assert.match(js,/targetAddressSpace:"loopback"/);
+ assert.match(js,/if\(!userInitiated&&permissionState!=="granted"\)return false;/);
+ assert.match(js,/pairExistingHostedTab\(true\)/);
+ assert.doesNotMatch(js,/setInterval\(\(\)=>\{if\(!relay\)pairExistingHostedTab\(\);\},1200\)/);
 });
