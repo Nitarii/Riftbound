@@ -69,6 +69,17 @@ jobs:
             if ($page.StatusCode -ne 200 -or !$page.Content.Contains("welcome-screen")) {throw "Bundled UI missing"}
             $js = Invoke-WebRequest "http://127.0.0.1:8878/app.mjs" -UseBasicParsing
             if (!$js.Content.Contains("function renderWelcome")) {throw "Bundled JS missing"}
+            $badPairHeaders = @{Origin = "https://untrusted.example"; "X-Riftbound-Pair" = "1"}
+            $rejected = $false
+            try {
+              Invoke-RestMethod "http://127.0.0.1:8878/api/pair" -Method POST -Headers $badPairHeaders -ContentType "application/json" -Body '{}' | Out-Null
+            } catch { $rejected = $true }
+            if (!$rejected) {throw "Pairing from unrelated origin should be denied"}
+            $pairHeaders = @{Origin = "https://nitarii.github.io"; "X-Riftbound-Pair" = "1"}
+            $paired = Invoke-RestMethod "http://127.0.0.1:8878/api/pair" -Method POST -Headers $pairHeaders -ContentType "application/json" -Body '{}'
+            if ($paired.token -ne "ci-only-local-smoketest-token") {throw "Existing-tab pairing failed"}
+            $icon = Invoke-WebRequest "http://127.0.0.1:8878/assets/companion-icon.svg" -UseBasicParsing
+            if ($icon.StatusCode -ne 200 -or !$icon.Content.Contains("<svg")) {throw "Branded icon is not embedded"}
             $head = @{Authorization = "Bearer ci-only-local-smoketest-token"}
             $state = Invoke-RestMethod "http://127.0.0.1:8878/api/state" -Headers $head
             if ($null -eq $state.state.players.human) {throw "Authenticated state missing"}
