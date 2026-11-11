@@ -1,23 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Riftbound Companion — portail de cartes">
-<defs>
-  <radialGradient id="bg" cx=".38" cy=".28" r=".85"><stop stop-color="#2c455c"/><stop offset=".55" stop-color="#0f1e32"/><stop offset="1" stop-color="#07111e"/></radialGradient>
-  <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff1b6"/><stop offset=".35" stop-color="#f1c872"/><stop offset=".7" stop-color="#b17a2c"/><stop offset="1" stop-color="#fff1a0"/></linearGradient>
-  <linearGradient id="violet" x1=".1" y1=".1" x2=".95" y2=".9"><stop stop-color="#4fe1fc"/><stop offset=".48" stop-color="#7578fc"/><stop offset="1" stop-color="#c559ea"/></linearGradient>
-  <filter id="glow" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="4"/></filter>
-</defs>
-<rect x="5" y="5" width="246" height="246" rx="57" fill="url(#bg)" stroke="#42596c" stroke-width="3"/>
-<circle cx="128" cy="128" r="95" fill="none" stroke="#2a4156" stroke-width="2" opacity=".8"/>
-<path d="M44 155 C28 101 59 53 112 37 C157 23 193 42 216 80" fill="none" stroke="#49bbfe" stroke-width="17" stroke-linecap="round" opacity=".34" filter="url(#glow)"/>
-<path d="M210 99 C228 152 206 204 157 221 C105 237 64 211 42 169" fill="none" stroke="#aa69ff" stroke-width="17" stroke-linecap="round" opacity=".34" filter="url(#glow)"/>
-<path d="M42 155 A88 88 0 0 1 212 94" fill="none" stroke="url(#violet)" stroke-width="12" stroke-linecap="round"/>
-<path d="M214 104 A88 88 0 0 1 45 169" fill="none" stroke="url(#gold)" stroke-width="13" stroke-linecap="round"/>
-<path d="M194 54 L221 73 L201 95 L197 77 L178 76 Z" fill="#e8cb7c"/>
-<path d="M62 199 L37 180 L55 163 L59 179 L76 181 Z" fill="#67b7ee"/>
-<g transform="rotate(-7 128 128)">
- <rect x="92" y="82" width="76" height="95" rx="8" fill="#152d42" stroke="#efd691" stroke-width="5"/>
- <path d="M106 97 H154 V158 H106 Z" fill="#1e3e53" stroke="#4e7381" stroke-width="2"/>
- <path d="M130 101 L139 119 L157 128 L139 136 L130 154 L121 136 L103 128 L121 119 Z" fill="url(#gold)"/>
- <circle cx="130" cy="128" r="5" fill="#fff4c7"/>
-</g>
-<g fill="#f6d88f"><circle cx="69" cy="81" r="3"/><circle cx="186" cy="179" r="2.5"/><circle cx="160" cy="44" r="2"/></g>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Riftbound Companion, monogramme doré sur cartes violettes">
+ <defs>
+  <linearGradient id="outer" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3f245e"/><stop offset=".55" stop-color="#18132e"/><stop offset="1" stop-color="#0b1424"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff3bd"/><stop offset=".3" stop-color="#ffc96a"/><stop offset=".8" stop-color="#dc8b39"/><stop offset="1" stop-color="#ffe6a3"/></linearGradient>
+  <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#be70ff"/><stop offset=".6" stop-color="#7447c8"/><stop offset="1" stop-color="#332458"/></linearGradient>
+ </defs>
+ <rect width="256" height="256" rx="54" fill="#0e1426"/>
+ <rect x="7" y="7" width="242" height="242" rx="50" fill="url(#outer)" stroke="#ba83f2" stroke-opacity=".55" stroke-width="3"/>
+ <path d="M35 184 Q17 119 65 72 Q116 20 188 48 Q228 65 225 109" fill="none" stroke="#8151df" stroke-width="12" opacity=".65" stroke-linecap="round"/>
+ <path d="M209 76 Q240 123 217 177 Q192 226 127 229" fill="none" stroke="#ffd37a" stroke-width="8" opacity=".78" stroke-linecap="round"/>
+ <g transform="rotate(-18 126 122)">
+  <rect x="80" y="47" width="101" height="150" rx="13" fill="#302151" stroke="#9b66dd" stroke-width="6"/>
+ </g>
+ <g transform="rotate(12 132 124)">
+  <rect x="78" y="49" width="108" height="153" rx="13" fill="#32204e" stroke="#b67bea" stroke-width="5"/>
+ </g>
+ <rect x="75" y="56" width="109" height="155" rx="14" fill="#181a30" stroke="url(#gold)" stroke-width="8"/>
+ <rect x="88" y="70" width="83" height="127" rx="6" fill="#272046" stroke="#5e3c83" stroke-width="2"/>
+ <path d="M107 168 V93 H138 C163 93 165 130 137 133 H108 M136 133 L160 171" fill="none" stroke="#773b13" stroke-width="21" stroke-linecap="round" stroke-linejoin="round" opacity=".5" transform="translate(3 3)"/>
+ <path d="M107 168 V93 H138 C163 93 165 130 137 133 H108 M136 133 L160 171" fill="none" stroke="url(#gold)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M34 122 L42 139 L59 146 L42 152 L34 169 L27 152 L10 146 L27 139 Z" fill="#ffdb83" opacity=".95"/>
+ <path d="M211 181 L216 193 L228 198 L216 203 L211 215 L206 203 L194 198 L206 193 Z" fill="#b780fb"/>
 </svg>
