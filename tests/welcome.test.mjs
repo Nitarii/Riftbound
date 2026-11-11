@@ -23,11 +23,13 @@ test("all homepage controls have unique IDs and handlers",()=>{
    assert.ok(js.includes('"'+id+'"'),"Missing JS reference for "+id);
  }
 });
-test("download links to real source bundle, with Node dependency disclosed",()=>{
- assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/archive\/refs\/heads\/main\.zip/);
- assert.match(html,/start-local\.bat/);
- assert.match(html,/Node\.js 20\+/);
- assert.match(html,/https:\/\/nodejs\.org\//);
+test("direct Windows download is a single exe with no Node dependency for the player",()=>{
+ assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion\.exe/);
+ assert.match(html,/Aucune installation ni dépendance supplémentaire/);
+ assert.match(html,/Logiciel non signé/);
+ assert.doesNotMatch(html,/main\.zip/);
+ assert.match(js,/function autoBootstrapCompanion\(/);
+ assert.match(js,/sessionStorage\.setItem/);
 });
 test("the UI is honest about physical cards, AI access and fan status",()=>{
  assert.match(html,/non commercial/);
@@ -61,4 +63,11 @@ test("wizard requires confirmation before advancing, with a preview route",()=>{
  assert.match(js,/onboarding\.preview=true/);
  assert.match(js,/onboarding\.prompt/);
  assert.match(js,/onboarding\.wizardStep=wizardStep/);
+});
+
+test("game-like quest tick is keyboard accessible and linked to progress",()=>{
+ assert.match(html,/class="welcome-step-check quest-check"/);
+ assert.match(css,/\.quest-check input:focus-visible \+ \.quest-check-badge/);
+ assert.match(css,/\.quest-check input:checked \+ \.quest-check-badge/);
+ assert.match(html,/id="home-connection-label"/);
 });
