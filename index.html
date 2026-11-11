@@ -31,31 +31,37 @@
       <div class="welcome-step-header">
         <span class="welcome-step-index">01</span>
         <div><h2 id="welcome-step-one">Télécharger le module serveur</h2>
-          <p>Un petit serveur local permet à un agent doté d'outils HTTP de consulter et modifier le plateau.</p></div>
-        <label class="welcome-step-check"><input type="checkbox" id="home-installed"><span>Module installé et lancé</span></label>
+          <p>Un seul fichier Windows à lancer : le plateau et le serveur sont intégrés, sans installation de Node.js.</p></div>
+        <label class="welcome-step-check quest-check"><input type="checkbox" id="home-installed"><span class="quest-check-badge" aria-hidden="true"><span class="quest-check-symbol">✓</span></span><span class="quest-check-label">J'ai lancé l'application</span></label>
       </div>
       <div class="welcome-step-body">
-        <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/archive/refs/heads/main.zip" target="_blank" rel="noopener noreferrer">Télécharger le module (.zip)</a>
-        <a href="https://nodejs.org/fr/download" target="_blank" rel="noopener noreferrer">Installer Node.js si nécessaire</a>
-        <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu)</button></div>
-        <p class="welcome-hint">Le ZIP contient le serveur et <code>start-local.bat</code> : décompresse le dossier et double-clique sur ce fichier. <strong>Node.js 20+ est requis</strong>. Ce n'est pas encore un exécutable autonome.</p>
+        <div class="download-feature">
+          <div class="download-feature-icon" aria-hidden="true">✦</div>
+          <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+        </div>
+        <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il démarre le serveur local et ouvre automatiquement le plateau dans ton navigateur. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
+        <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
       </div>
     </section>
 
     <section class="welcome-step" data-wizard-step="2" aria-labelledby="welcome-step-two" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">02</span>
-        <div><h2 id="welcome-step-two">Connecter le serveur</h2><p>Récupère le jeton privé affiché par la fenêtre de <code>start-local.bat</code>.</p></div>
+        <div><h2 id="welcome-step-two">Connecter ton compagnon</h2><p>Lorsque tu ouvres le .exe, une page locale apparaît et la connexion s'établit automatiquement.</p></div>
         <span id="home-relay-status" class="welcome-state">Non connecté</span></div>
       <div class="welcome-step-body">
-        <div class="welcome-connect-grid">
-          <label>Adresse du serveur<input id="home-server-url" type="url" value="http://127.0.0.1:8787" autocomplete="url"></label>
-          <label>Jeton du serveur<input id="home-server-token" type="password" placeholder="Jeton affiché dans le terminal" autocomplete="off"></label>
-        </div>
+        <div class="connection-feature"><div class="connection-feature-led" aria-hidden="true"></div><div><strong id="home-connection-label">En attente de l'application locale</strong><p>Tu peux aussi ouvrir <a href="http://127.0.0.1:8787/" target="_blank" rel="noopener noreferrer">le plateau local</a> si tu as fermé la fenêtre automatique.</p></div></div>
         <div class="welcome-actions">
-          <button type="button" id="home-connect" class="primary">Connecter mon serveur</button>
-          <button type="button" id="home-preview">Tester sans serveur</button>
+          <button type="button" id="home-preview">Continuer en mode aperçu</button>
         </div>
-        <p class="welcome-hint">Sans serveur, le plateau fonctionne comme aperçu local, mais une IA distante ne pourra pas le piloter. Un agent externe doit disposer d'un accès HTTP autorisé au serveur : <a href="https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/" target="_blank" rel="noopener noreferrer">tunnel HTTPS facultatif</a>.</p>
+        <details class="advanced-connect"><summary>Connexion manuelle · avancé</summary>
+          <div class="welcome-connect-grid">
+            <label>Adresse du serveur<input id="home-server-url" type="url" value="http://127.0.0.1:8787" autocomplete="url"></label>
+            <label>Jeton privé<input id="home-server-token" type="password" placeholder="Jeton affiché par le module" autocomplete="off"></label>
+          </div>
+          <button type="button" id="home-connect" class="primary">Connecter manuellement</button>
+        </details>
+        <p class="welcome-hint">Le mode aperçu ne donne pas de contrôle à une IA distante. Un agent externe doit disposer d'un accès réseau autorisé et d'un jeton privé. L'accès distant est optionnel.</p>
       </div>
     </section>
 
