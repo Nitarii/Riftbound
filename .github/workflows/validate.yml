@@ -19,5 +19,6 @@ jobs:
           node --check picker.mjs
           node --check app.mjs
           node --check server.mjs
+          node --check remote.mjs
       - name: Run reducer tests
         run: node --test tests/*.test.mjs
