@@ -12,6 +12,19 @@ import {brotliDecompressSync} from "node:zlib";
 
 const LIVE_MS=4*60*60*1000;
 const MAX_JSON=100000;
+const CLOUDFLARED_HASH="2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343";
+export function verifyEmbeddedTunnel(){
+ if(!sea.isSea())throw Error("Tunnel verification only available in the packaged executable");
+ const compressed=Buffer.from(sea.getAsset("cloudflared.exe.br"));
+ const original=brotliDecompressSync(compressed);
+ const hash=crypto.createHash("sha256").update(original).digest("hex");
+ if(hash!==CLOUDFLARED_HASH)throw Error("Embedded Cloudflare binary integrity check failed");
+ // Keep the Apache license available inside the packaged executable as well.
+ if(!Buffer.from(sea.getAsset("licenses/cloudflared-APACHE-2.0.txt")).includes("Apache License"))
+  throw Error("Missing bundled Cloudflare license");
+ return {sha256:hash,bytes:original.length,packedBytes:compressed.length};
+}
+
 function safeEqual(input,expected){
  const a=Buffer.from(String(input||"")),b=Buffer.from(String(expected||""));
  return a.length===b.length&&crypto.timingSafeEqual(a,b);
@@ -124,7 +137,7 @@ export function createRemoteAccess({
  };
  // Pinned vendor release verified during GitHub Actions. Also verified here
  // before extracting or running. No runtime download and no user installation.
- const CLOUDFLARED_HASH="2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343";
+
  function getBinary(){
   if(!sea.isSea()){
    // Source/developer mode can still use locally installed cloudflared.
