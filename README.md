@@ -2,38 +2,32 @@
 
 Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce site accompagne une partie de Riftbound jouée avec des cartes physiques face à un agent IA : plateau visuel, marqueurs, tours, decks, historique et accès temporaire de l'agent. Ce n'est pas une copie du jeu ni un service de parties numériques.
 
-## Installer : un seul exécutable Windows
+## Installation gratuite, un seul exécutable Windows 10/11 x64
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement Windows 10/11 64 bits :**
-https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.12.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.14.exe
 
-1. Télécharger puis lancer `RiftboundCompanion-v0.12.exe`.
-2. Dans l'onglet du site déjà ouvert, cliquer sur **Autoriser la connexion locale** lorsque le navigateur le demande. L'exécutable n'ouvre pas un nouvel onglet tout seul.
-3. Choisir la légende, le champion choisi, le champ de bataille et le deck de l'IA; démarrer la partie.
-4. À l'étape 4, cliquer **Activer l'accès et copier le prompt IA**, puis coller le texte dans une **conversation privée** avec l'agent souhaité. Si le navigateur ne permet pas la copie automatique, le prompt apparaît dans un champ sélectionnable.
-5. À la fin, cliquer **Couper l'accès** ou fermer l'exécutable.
+1. Télécharge et lance `RiftboundCompanion-v0.14.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
+3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
+4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
 
-**Aucune installation de Node.js, Cloudflare ou cloudflared n'est nécessaire.** L'EXE contient le serveur, le site et une copie compressée de `cloudflared` (outil officiel de Cloudflare), vérifiée par SHA-256 lors de la compilation et avant sa première utilisation. Le module Cloudflare est extrait une seule fois dans `%LOCALAPPDATA%\RiftboundTableCompanion` et réutilisé ensuite : aucune installation système ni téléchargement à l'exécution.
+**Coût : zéro abonnement, zéro clé API, aucune facture liée à un modèle cloud.** Le modèle s'exécute directement sur le processeur du PC avec `llama-server.exe`, sans GPU dédié, aucune configuration ROCm/CUDA et sans tunnel. Après l'installation, les réponses IA fonctionnent hors ligne. Les fichiers sont conservés pour les prochaines sessions.
 
-L'EXE n'est pas signé numériquement; Windows peut présenter SmartScreen. Vérifier le fichier depuis GitHub et sa somme SHA-256 publiée avec la Release. Le navigateur peut demander une autorisation de connexion vers `127.0.0.1`. Les images de cartes et l'accès distant nécessitent une connexion Internet.
+**Compatibilité :** ce package vise **Windows 10/11 64 bits** avec un processeur x64 compatible et assez de mémoire libre (prévoir environ **2 Go de RAM disponibles** pour le modèle et son contexte, davantage si le jeu et le navigateur sont très chargés). Il ne peut pas fonctionner sur absolument tous les PC, notamment les Windows 32 bits, machines à très faible RAM ou autres systèmes sans version dédiée. Les performances varient selon le CPU. Le petit modèle peut être moins compétent pour les règles de Riftbound qu'un modèle plus gros.
 
-## Partager temporairement le plateau avec un agent
+Le programme n'est pas signé numériquement; Windows SmartScreen peut afficher un avertissement. Les images officielles des cartes et le catalogue nécessitent ponctuellement Internet; le moteur d'IA n'en a pas besoin après téléchargement. Le mode avancé de tunnel Cloudflare est conservé en option pour les agents réellement dotés d'outils réseau, mais **il n'est pas nécessaire pour jouer gratuitement avec l'IA intégrée**.
 
-Par sécurité, aucun accès distant n'est actif avant le clic sur **Activer l'accès et copier le prompt IA**. Ce bouton crée un Quick Tunnel HTTPS, émet un jeton d'agent distinct du jeton d'administration local, puis prépare le prompt. La connexion est valable **quatre heures maximum**, mais peut être fermée immédiatement.
+**Sources et sécurité des téléchargements** :
+- moteur `ggml-org/llama.cpp`, release [b12277](https://github.com/ggml-org/llama.cpp/releases/tag/b12277), fichier Windows CPU, SHA-256 `5943df89ff76289e16fd9c9600a38871b47f20272c589c3b803eca2181f67a08` (licence MIT) ;
+- modèle officiel [Qwen3-0.6B Q8 GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q8_0.gguf), SHA-256 `9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031` (licence Apache 2.0).
 
-Le tunnel ne redirige pas vers le serveur principal. Il redirige vers une **passerelle dédiée** qui n'autorise que :
+### Limite des règles
 
-- `GET /api/guide`, `GET /api/state`, `GET /api/decks`, `GET /api/catalog`
-- `POST /api/command`, avec restrictions sur les opérations qui appartiennent au joueur local
-- `/agent` : interface web restreinte pour les agents disposant d'un navigateur interactif
+Le site constitue un outil de suivi pour une partie **physique**. Le petit modèle peut jouer, répondre et commander le plateau, mais ne garantit pas à lui seul l'application exacte de toutes les règles compétitives ni des effets des cartes. Les actions automatiques restent vérifiées par le code contre des erreurs techniques évidentes.
 
-Le jeton temporaire est nécessaire pour lire ou modifier l'état du plateau. **Ne communique le prompt d'accès qu'à un agent de confiance dans une conversation privée.** L'adresse HTTPS est accessible sur Internet, même si l'accès au jeu est protégé par un jeton. Le jeton d'administration local n'est pas exposé par cette passerelle.
-
-Un simple chat IA **ne peut pas forcément accéder au plateau** : l'agent doit savoir naviguer dans la console web distante ou envoyer des requêtes HTTP authentifiées. Le tunnel ne lui confère pas ces capacités. En l'absence de ces outils, le site offre un mode manuel de suivi des actions.
-
-Cloudflare Quick Tunnels convient à cet usage expérimental, sans garantie de disponibilité ni d'adresse permanente. Aucun compte Cloudflare n'est nécessaire pour le tunnel temporaire.
+---
 
 ## Si l'IA ne peut pas ouvrir le tunnel : mode assisté sans F12
 
@@ -50,18 +44,6 @@ Pour éviter les codes JavaScript dans la console du navigateur :
 **Confidentialité et limite essentielle :** cet export masque les deux mains, les cartes face cachée, le contenu des decks, les notes privées et tous les jetons d'authentification. C'est utile pour suivre les actions annoncées sans révéler la main du joueur, **mais l'IA ne peut pas choisir correctement des cartes secrètes de sa propre main à partir de cet export**. Pour jouer comme un véritable adversaire avec main et deck secrets, il faut utiliser un agent disposant d'un navigateur interactif ou d'outils HTTP autorisés.
 
 Le mode assisté n'applique jamais du JavaScript fourni par l'IA : il parse du JSON, vérifie les types de commandes autorisés, les identifiants de cartes et la version du plateau avant l'envoi. Les actions restent soumises à une vérification humaine des règles.
-
-## Adversaire intégré : sans tunnel ni navigateur externe
-
-Le mode **IA directement dans le jeu** est désormais recommandé pour les conversations ChatGPT qui ne peuvent pas joindre les tunnels HTTPS. Le module Companion fait ses propres requêtes sortantes vers un **fournisseur de modèle OpenAI-compatible**, puis présente les réponses dans le chat du plateau et applique les commandes validées à la table.
-
-**Démarrage (une seule configuration)** : à l'étape 4 du site, choisis OpenAI API, Ollama, LM Studio ou un fournisseur HTTPS compatible. Indique le modèle ; colle une clé API pour les fournisseurs payants. Clique **Activer l'IA intégrée**. Le site ouvre ensuite le plateau : un message écrit ou dicté dans la chatbox déclenche une réponse automatique. Nul besoin de copier un prompt ni d'ouvrir le tunnel.
-
-L'abonnement **ChatGPT Plus n'inclut pas la facturation de l'API OpenAI**. La clé API doit être obtenue et créditée indépendamment sur la plateforme du fournisseur. Une clé n'est **pas** nécessaire pour Ollama/LM Studio, mais leurs serveurs et leurs modèles doivent être installés et opérationnels sur le PC. Les modèles locaux peuvent être moins fiables pour les règles et les commandes complexes. Le coût des requêtes dépend du fournisseur ; chaque message envoyé peut déclencher une requête.
-
-**Confidentialité et sécurité** : la configuration et la clé sont enregistrées dans le dossier de données local du programme, jamais dans GitHub Pages ou dans le navigateur. Les endpoints de configuration ne sont disponibles que sur le serveur de l'utilisateur authentifié en local, jamais via la passerelle Cloudflare. Le fournisseur choisi reçoit les messages, le plateau public, **la main de l'IA** et les informations nécessaires à sa décision ; **la main physique cachée du joueur n'est jamais envoyée**. Les commandes du modèle sont limitées à une liste blanche, contrôlées avant application et appliquées ensemble uniquement si le plateau n'a pas changé. Le bouton **Désactiver** suspend les nouvelles requêtes IA. Le mode tunnel externe reste une alternative facultative, mutuellement exclusive.
-
-**Limites** : le moteur n'arbitre pas automatiquement tous les effets ou règles compétitives, et l'IA peut se tromper. Ce mode n'est pas une connexion à une conversation ChatGPT déjà ouverte : c'est une session de modèle distincte, facturée ou exécutée localement. Il fournit cependant une IA capable de répondre et de modifier le plateau sans aucun accès réseau entrant depuis l'environnement d'un chat.
 
 ## Interface de partie v0.12 : tout accessible sans défilement de page
 
