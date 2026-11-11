@@ -34,9 +34,9 @@ export function validateCard(card) {
     power:card.power==null||card.power===""?null:Number.isFinite(+card.power)?+card.power:null,might:card.might==null||card.might===""?null:Number.isFinite(+card.might)?+card.might:null,
     tags:Array.isArray(card.tags)?card.tags.slice(0,12).map(String):[]};
 }
-function place(state, p, c, zone, battlefield, faceDown) {
+function place(state, p, c, zone, battlefield, faceDown, stableUid=null) {
   if(!ZONES.has(zone)) throw Error("Zone inconnue");
-  const instance={uid:id(),owner:p,...validateCard(c),zone,battlefield:zone==="battlefield"?Math.max(0,Math.min(1,Number(battlefield)||0)):null,
+  const instance={uid:stableUid||id(),owner:p,...validateCard(c),zone,battlefield:zone==="battlefield"?Math.max(0,Math.min(1,Number(battlefield)||0)):null,
     exhausted:false,faceDown:!!faceDown,counters:{},damage:0};
   state.cards.push(instance);return instance;
 }
@@ -223,7 +223,12 @@ export function applyCommand(old, command) {
     if(p==="ai"){
       for(let i=0;i<n;i++){
         const card=s.decks.ai[stock].shift();if(!card)break;
-        place(s,p,card,dst);if(dst==="hand")s.players.ai.handCount++;
+        // The preview planner and committed reducer MUST agree on generated
+        // UIDs. Stable IDs prevent a later paid play referencing an unknown
+        // card drawn/channelled earlier in the same atomic batch.
+        const stableUid="c_auto_"+p+"_"+type+"_"+s.revision+"_"+i;
+        place(s,p,card,dst,undefined,false,stableUid);
+        if(dst==="hand")s.players.ai.handCount++;
       }
       s.players.ai.deckCount=s.decks.ai.main.length;
       s.players.ai.runeCount=s.decks.ai.runes.length;
