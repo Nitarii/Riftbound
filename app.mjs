@@ -62,7 +62,15 @@ function render(){
     $("bf-image-"+i).innerHTML=cardHTML(b.card);
     $("units-"+i).innerHTML=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i).map(c=>cardHTML(c)).join("");
   });
-  $("history-log").innerHTML=state.history.map(h=>'<li><small>#'+h.revision+' · '+new Date(h.at).toLocaleTimeString("fr-FR")+'</small> '+esc(h.text)+'</li>').join("");
+  const historyEntries=Array.isArray(state.history)?state.history:[];
+  const historyHTML=h=>'<li><small>#'+h.revision+' · '+
+    new Date(h.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})+
+    '</small> '+esc(h.text)+'</li>';
+  $("history-log").innerHTML=historyEntries.map(historyHTML).join("")||
+    '<li class="history-empty">Aucune action enregistrée.</li>';
+  $("live-history-log").innerHTML=historyEntries.slice(0,60).map(historyHTML).join("")||
+    '<li class="history-empty">Aucune action enregistrée.</li>';
+  $("live-history-count").textContent=historyEntries.length+" action"+(historyEntries.length>1?"s":"");
   save();
   renderWelcome();
 }
@@ -154,6 +162,34 @@ function setActiveTab(name){
  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
  document.querySelectorAll(".tabcontent").forEach(t=>t.classList.toggle("hidden",t!==target));
 }
+// A permanent, viewport-sized workspace during play. Narrow screens show
+// one full-size panel at a time rather than squeezing cards below readability.
+function selectWorkspacePanel(view){
+ if(!["board","history","chat"].includes(view))return;
+ const area=$("game-app");
+ area.dataset.workspaceView=view;
+ for(const b of document.querySelectorAll("[data-workspace-view]")){
+  b.setAttribute("aria-pressed",String(b.dataset.workspaceView===view));
+ }
+}
+selectWorkspacePanel("board");
+for(const control of document.querySelectorAll(".workspace-mobile [data-workspace-view]")){
+ control.addEventListener("click",()=>selectWorkspacePanel(control.dataset.workspaceView));
+}
+const fullscreenButton=$("layout-fullscreen");
+fullscreenButton.addEventListener("click",async()=>{
+ try{
+  if(document.fullscreenElement=== $("game-app"))await document.exitFullscreen();
+  else if($("game-app").requestFullscreen)await $("game-app").requestFullscreen();
+  else notify("Le plein écran n'est pas disponible dans ce navigateur.",true);
+ }catch(e){notify("Le navigateur a refusé le plein écran : "+e.message,true);}
+});
+document.addEventListener("fullscreenchange",()=>{
+ const active=document.fullscreenElement===$("game-app");
+ fullscreenButton.textContent=active?"⛶ Quitter le plein écran":"⛶ Plein écran";
+ fullscreenButton.setAttribute("aria-label",active?"Quitter le plein écran":"Activer le plein écran");
+ fullscreenButton.title=active?"Retour à la fenêtre":"Étendre le plateau sur tout l'écran";
+});
 function showHome(){document.body.classList.add("home-visible");renderWelcome();window.scrollTo({top:0,behavior:"smooth"});}
 function showGame(tab="setup"){setActiveTab(tab);document.body.classList.remove("home-visible");window.scrollTo({top:0,behavior:"smooth"});}
 $("go-home").onclick=showHome;
