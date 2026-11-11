@@ -47,6 +47,7 @@ test("bottom-right discussion, voice, Enter, end-turn and terrain detail are wir
  assert.match(app,/method:"POST"/);
  assert.match(app,/showBattlefieldDetails\(Number\(field\.dataset\.battlefieldInspect\)\)/);
  assert.match(app,/data-fallback/);
- assert.match(app,/new SpeechAPI\(\)/);
- assert.match(app,/notify\("Dictée prête/);
+ assert.match(app,/createVoiceConversation\(/);
+ assert.match(app,/voiceController\.start\(\)/);
+ assert.match(app,/voiceController\.speak\(m\.text\)/);
 });
