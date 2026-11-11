@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.10.0"/></head>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.11.0"/></head>
 <body class="home-visible">
 <header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
@@ -38,7 +38,7 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.10.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.11.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
         <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
@@ -123,10 +123,45 @@
 
     <section class="welcome-step" data-wizard-step="4" aria-labelledby="welcome-step-four" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">04</span>
-        <div><h2 id="welcome-step-four">Donner les instructions à l'IA</h2>
-          <p>Copie un prompt pour expliquer ton jeu physique, le suivi des cartes et l'API du plateau.</p></div>
+        <div><h2 id="welcome-step-four">Choisir ton adversaire IA</h2>
+          <p>IA intégrée au compagnon : elle répond directement dans le chat et déplace les cartes, sans tunnel ni prompt.</p></div>
         <span class="welcome-state" id="home-prompt-status">À copier</span></div>
       <div class="welcome-step-body">
+        <section class="integrated-agent-panel" aria-labelledby="integrated-agent-heading">
+          <div class="integrated-heading"><span aria-hidden="true">✦</span><div>
+            <h3 id="integrated-agent-heading">IA directement dans le jeu</h3>
+            <p>Le programme contacte le modèle lui-même : pas de tunnel, pas de prompt, pas de navigateur à donner à une autre IA.</p>
+          </div></div>
+          <div class="ai-config-grid">
+            <label for="ai-provider">Fournisseur
+              <select id="ai-provider">
+                <option value="openai">OpenAI API (clé API nécessaire)</option>
+                <option value="ollama">Ollama · modèle local (sans clé)</option>
+                <option value="lmstudio">LM Studio · modèle local (sans clé)</option>
+                <option value="compatible">Autre fournisseur compatible OpenAI</option>
+              </select>
+            </label>
+            <label for="ai-model">Modèle
+              <input id="ai-model" type="text" maxlength="100" placeholder="gpt-4.1-mini" autocomplete="off">
+            </label>
+            <label for="ai-key" id="ai-key-label">Clé API (enregistrée sur ton PC, jamais affichée)
+              <input id="ai-key" type="password" autocomplete="off" placeholder="Coller ta clé API ici" maxlength="512">
+            </label>
+            <label for="ai-endpoint" id="ai-endpoint-label" hidden>Adresse du fournisseur HTTPS (termine par /v1)
+              <input id="ai-endpoint" type="url" placeholder="https://api.exemple.com/v1" autocomplete="off">
+            </label>
+          </div>
+          <p id="ai-provider-help" class="integrated-help">L'API OpenAI est facturée séparément de ChatGPT Plus. Aucun crédit API n'est inclus dans l'abonnement.</p>
+          <div class="welcome-actions">
+            <button id="ai-save" type="button" class="primary">Activer l'IA intégrée</button>
+            <button id="ai-disable" type="button" disabled>Désactiver</button>
+            <button id="ai-open-board" type="button">Ouvrir le plateau</button>
+          </div>
+          <p id="ai-status" class="integrated-status" role="status" aria-live="polite">En attente de connexion au programme.</p>
+          <p class="integrated-caution">Ce mode est expérimental : l'IA peut se tromper dans les règles et les placements. Vérifie les cartes avant de jouer. Les messages et les cartes de la main IA sont transmis au fournisseur choisi, jamais ta main physique cachée.</p>
+        </section>
+        <details class="remote-access-alternative">
+          <summary>Autre méthode : connecter un agent externe avec un lien HTTPS</summary>
         <div class="remote-agent-panel">
           <div class="remote-agent-top">
             <span class="remote-agent-glyph" aria-hidden="true">🔒</span>
@@ -159,6 +194,7 @@
             <button id="home-copy-offline" type="button">Ouvrir le mode assisté sans connexion</button>
           </details>
         </div>
+        </details>
       </div>
     </section>
   </div>
@@ -229,4 +265,4 @@
   <p class="disclaimer">Compagnon de partie physique, non officiel. Un agent doit disposer d'un accès HTTP ou d'un navigateur compatible pour répondre ; les règles ne sont pas arbitrées automatiquement.</p>
 </section></aside>
 </main><dialog id="card-dialog"><div class="dialog-layout"><div id="detail-image"></div><div><h2 id="detail-name"></h2><p id="detail-text"></p><label>Propriétaire<select id="detail-owner"><option value="human">Joueur</option><option value="ai">IA</option></select></label><label>Zone<select id="detail-zone"><option value="base">Base</option><option value="battlefield">Champ de bataille</option><option value="hand">Main</option><option value="trash">Défausse</option><option value="banished">Bannissement</option><option value="runes">Runes</option></select></label><label>Battlefield<select id="detail-bf"><option value="0">Joueur</option><option value="1">IA</option></select></label><div class="line"><button id="detail-add" class="primary">Placer</button><button id="detail-close">Fermer</button></div></div></div></dialog>
-<script type="module" src="./app.mjs?v=0.10.0"></script></body></html>
+<script type="module" src="./app.mjs?v=0.11.0"></script></body></html>
