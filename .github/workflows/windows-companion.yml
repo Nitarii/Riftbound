@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'server.mjs'
+      - 'remote.mjs'
       - 'core.mjs'
       - 'catalog.mjs'
       - 'precons.mjs'
