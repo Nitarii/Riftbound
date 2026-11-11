@@ -416,6 +416,35 @@ aiProviderFields(true);
 
 // One-click free local opponent. All downloads and generation run inside the
 // Windows Companion, never through a paid provider or a Cloudflare tunnel.
+let knowledgeRequest=null;
+async function refreshKnowledgeStatus(){
+ const label=$("ai-knowledge-cards");
+ if(!localAI()){
+  label.textContent="Règles du jeu et fonctionnement du plateau préconfigurés. Connecte l'application pour charger les cartes.";
+  return;
+ }
+ if(knowledgeRequest)return knowledgeRequest;
+ const session=relay;
+ knowledgeRequest=(async()=>{
+  try{
+   const response=await fetch(session.url+"/api/ai/reference?q=règles",{
+    ...localFetchOptions(session.url),
+    headers:{"Authorization":"Bearer "+session.token},
+    signal:AbortSignal.timeout(30000),cache:"no-store"
+   });
+   if(!response.ok)throw Error("référence indisponible");
+   const data=await response.json();
+   if(relay!==session)return;
+   label.textContent="✓ Règles du "+(data.sources?.coreRevision||"09/10/2026")+
+    " • "+data.catalogCount+" cartes consultables • Guide du plateau intégré."+
+    (data.notice?" Catalogue : "+data.notice:"");
+  }catch(e){
+   if(relay===session)label.textContent=
+    "✓ Mémo de règles et guide du site intégrés. Catalogue complet inaccessible : vérifier la connexion ou les cartes enregistrées.";
+  }
+ })().finally(()=>{knowledgeRequest=null;});
+ return knowledgeRequest;
+}
 let freeAIInfo=null,freeAILoading=false;
 const runningPhases=new Set(["checking","engine","extracting","starting","model"]);
 function freeReadableBytes(n){
@@ -456,6 +485,7 @@ async function pollFreeAI(){
   const previous=freeAIInfo?.phase;
   freeAIInfo=await reply.json();
   if(previous!==freeAIInfo.phase&&freeAIInfo.phase==="ready"){
+   refreshKnowledgeStatus();
    await aiQuery();
    onboarding.prompt=true;saveOnboarding();renderWelcome();
    notify("✓ Ton IA gratuite est installée ! Tu peux jouer sans payer de requêtes.");
@@ -819,7 +849,7 @@ async function connectRelay(){
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
-  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();});
+  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();refreshKnowledgeStatus();});
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
