@@ -13,6 +13,7 @@ import {createState,applyCommand,COMMANDS} from "./core.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
+import {createConversation} from "./conversation.mjs";
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
 const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
@@ -21,6 +22,7 @@ const port=Number(process.env.PORT||8787);
 const host="127.0.0.1";
 const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
 const stateFile=path.join(userData,".riftbound-local-state.json");
+const conversation=createConversation({file:path.join(userData,".riftbound-conversation.json")});
 const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
 let browserHandoff=false;
@@ -92,12 +94,14 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.8.0",
+ name:"Riftbound Table Companion",version:"0.10.0",
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
  "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
  "GET /api/decks":"Printed preconstructed deck recipes, authenticated",
+ "GET /api/messages?after=0":"Read physical player announcements and agent replies; poll every 2 seconds",
+ "POST /api/messages":"Human chat message; JSON {text}, authenticated",
  "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
@@ -138,19 +142,27 @@ async function executeGameCommand(input){
     main:deck.main,runes:deck.runes,mainIncludesChampion:true,
     format:"preconstructed",deckName:deck.label};
  }
- state=applyCommand(state,command);save();broadcast();return state;
+ state=applyCommand(state,command);
+ if(input.type==="reset")conversation.clear();
+ save();broadcast();return state;
 }
+const readMessages=after=>conversation.list(after);
+const receiveAgentMessage=text=>conversation.post("ai",text);
+const receiveHumanMessage=text=>conversation.post("human",text);
 const remoteAccess=createRemoteAccess({
  userData,
  getState:()=>state,
  performCommand:executeGameCommand,
  getCatalog:loadServerCatalog,
  getDecks:deckDescriptions,
- getGuide:()=>guide
+ getGuide:()=>guide,
+ getMessages:readMessages,
+ sendMessage:receiveAgentMessage,
+ markAgentPoll:()=>conversation.markAgentPoll()
 });
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>remoteAccess.stop());
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -185,7 +197,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.7.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.10.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -202,6 +214,17 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
   if(!authorized(req)){msg(res,401,"Jeton manquant ou incorrect",req);return;}
+  if(req.method==="GET"&&url.pathname==="/api/messages"){
+    try{json(res,200,readMessages(url.searchParams.get("after")||"0"),req);}
+    catch(e){msg(res,400,e.message,req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/messages"){
+    try{
+      const message=await body(req);
+      const entry=receiveHumanMessage(message.text);
+      json(res,200,{ok:true,message:entry},req);
+    }catch(e){msg(res,400,e.message,req);}return;
+  }
   if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
   if(req.method==="GET"&&url.pathname==="/api/decks"){
