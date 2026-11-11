@@ -7,9 +7,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 **Site :** https://nitarii.github.io/Riftbound/
 
 **Téléchargement Windows 10/11 64 bits :**
-https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.10.exe
+https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.11.exe
 
-1. Télécharger puis lancer `RiftboundCompanion-v0.10.exe`.
+1. Télécharger puis lancer `RiftboundCompanion-v0.11.exe`.
 2. Dans l'onglet du site déjà ouvert, cliquer sur **Autoriser la connexion locale** lorsque le navigateur le demande. L'exécutable n'ouvre pas un nouvel onglet tout seul.
 3. Choisir la légende, le champion choisi, le champ de bataille et le deck de l'IA; démarrer la partie.
 4. À l'étape 4, cliquer **Activer l'accès et copier le prompt IA**, puis coller le texte dans une **conversation privée** avec l'agent souhaité. Si le navigateur ne permet pas la copie automatique, le prompt apparaît dans un champ sélectionnable.
@@ -50,6 +50,18 @@ Pour éviter les codes JavaScript dans la console du navigateur :
 **Confidentialité et limite essentielle :** cet export masque les deux mains, les cartes face cachée, le contenu des decks, les notes privées et tous les jetons d'authentification. C'est utile pour suivre les actions annoncées sans révéler la main du joueur, **mais l'IA ne peut pas choisir correctement des cartes secrètes de sa propre main à partir de cet export**. Pour jouer comme un véritable adversaire avec main et deck secrets, il faut utiliser un agent disposant d'un navigateur interactif ou d'outils HTTP autorisés.
 
 Le mode assisté n'applique jamais du JavaScript fourni par l'IA : il parse du JSON, vérifie les types de commandes autorisés, les identifiants de cartes et la version du plateau avant l'envoi. Les actions restent soumises à une vérification humaine des règles.
+
+## Adversaire intégré : sans tunnel ni navigateur externe
+
+Le mode **IA directement dans le jeu** est désormais recommandé pour les conversations ChatGPT qui ne peuvent pas joindre les tunnels HTTPS. Le module Companion fait ses propres requêtes sortantes vers un **fournisseur de modèle OpenAI-compatible**, puis présente les réponses dans le chat du plateau et applique les commandes validées à la table.
+
+**Démarrage (une seule configuration)** : à l'étape 4 du site, choisis OpenAI API, Ollama, LM Studio ou un fournisseur HTTPS compatible. Indique le modèle ; colle une clé API pour les fournisseurs payants. Clique **Activer l'IA intégrée**. Le site ouvre ensuite le plateau : un message écrit ou dicté dans la chatbox déclenche une réponse automatique. Nul besoin de copier un prompt ni d'ouvrir le tunnel.
+
+L'abonnement **ChatGPT Plus n'inclut pas la facturation de l'API OpenAI**. La clé API doit être obtenue et créditée indépendamment sur la plateforme du fournisseur. Une clé n'est **pas** nécessaire pour Ollama/LM Studio, mais leurs serveurs et leurs modèles doivent être installés et opérationnels sur le PC. Les modèles locaux peuvent être moins fiables pour les règles et les commandes complexes. Le coût des requêtes dépend du fournisseur ; chaque message envoyé peut déclencher une requête.
+
+**Confidentialité et sécurité** : la configuration et la clé sont enregistrées dans le dossier de données local du programme, jamais dans GitHub Pages ou dans le navigateur. Les endpoints de configuration ne sont disponibles que sur le serveur de l'utilisateur authentifié en local, jamais via la passerelle Cloudflare. Le fournisseur choisi reçoit les messages, le plateau public, **la main de l'IA** et les informations nécessaires à sa décision ; **la main physique cachée du joueur n'est jamais envoyée**. Les commandes du modèle sont limitées à une liste blanche, contrôlées avant application et appliquées ensemble uniquement si le plateau n'a pas changé. Le bouton **Désactiver** suspend les nouvelles requêtes IA. Le mode tunnel externe reste une alternative facultative, mutuellement exclusive.
+
+**Limites** : le moteur n'arbitre pas automatiquement tous les effets ou règles compétitives, et l'IA peut se tromper. Ce mode n'est pas une connexion à une conversation ChatGPT déjà ouverte : c'est une session de modèle distincte, facturée ou exécutée localement. Il fournit cependant une IA capable de répondre et de modifier le plateau sans aucun accès réseau entrant depuis l'environnement d'un chat.
 
 ## Contrôle du plateau par les annonces du joueur
 
