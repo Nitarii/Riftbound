@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.14.0"/></head>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.15.0"/></head>
 <body class="home-visible">
 <header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
@@ -38,7 +38,7 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.14.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.15.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
         <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
@@ -145,7 +145,12 @@
           </div>
           <progress id="free-ai-progress" max="100" value="0" hidden aria-label="Progression de l'installation IA gratuite"></progress>
           <p id="free-ai-stage" class="integrated-status" role="status" aria-live="polite">Connecte ton programme Windows pour installer l'IA gratuite.</p>
-          <p class="integrated-caution">Pas de frais par message : le modèle travaille sur ta carte graphique ou ton processeur. Il consomme de l'électricité et de l'espace disque. Ses décisions restent expérimentales : les règles compétitives et effets doivent être vérifiés. Ta main cachée n'est pas envoyée à un service d'IA.</p>
+          <div class="ai-knowledge-status">
+            <strong>✓ Connaissances Riftbound préconfigurées</strong>
+            <p id="ai-knowledge-cards" role="status" aria-live="polite">Règles de base et de tournoi · Commandes du plateau · Textes des cartes consultés automatiquement.</p>
+            <a href="https://playriftbound.com/fr-fr/rules-hub/" target="_blank" rel="noopener noreferrer">Consulter le hub officiel des règles et errata</a>
+          </div>
+          <p class="integrated-caution">Le petit modèle reçoit automatiquement les règles utiles, les commandes du site et les effets des cartes concernées. Le résumé n'est pas un arbitre officiel et les règles compétitives doivent être vérifiées. Ta main physique cachée reste privée.</p>
           <div hidden aria-hidden="true" id="legacy-ai-config">
             <select id="ai-provider"><option value="openai">OpenAI</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="compatible">Compatible</option></select>
             <input id="ai-model" type="text">
@@ -280,4 +285,4 @@
   <p class="disclaimer">Compagnon de partie physique, non officiel. Un agent doit disposer d'un accès HTTP ou d'un navigateur compatible pour répondre ; les règles ne sont pas arbitrées automatiquement.</p>
 </section></aside>
 </main><dialog id="card-dialog"><div class="dialog-layout"><div id="detail-image"></div><div><h2 id="detail-name"></h2><p id="detail-text"></p><label>Propriétaire<select id="detail-owner"><option value="human">Joueur</option><option value="ai">IA</option></select></label><label>Zone<select id="detail-zone"><option value="base">Base</option><option value="battlefield">Champ de bataille</option><option value="hand">Main</option><option value="trash">Défausse</option><option value="banished">Bannissement</option><option value="runes">Runes</option></select></label><label>Battlefield<select id="detail-bf"><option value="0">Joueur</option><option value="1">IA</option></select></label><div class="line"><button id="detail-add" class="primary">Placer</button><button id="detail-close">Fermer</button></div></div></div></dialog>
-<script type="module" src="./app.mjs?v=0.14.0"></script></body></html>
+<script type="module" src="./app.mjs?v=0.15.0"></script></body></html>
