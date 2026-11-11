@@ -35,7 +35,9 @@ export function createRemoteAccess({
  getCatalog,
  getDecks,
  getGuide,
- onStatus=()=>{}
+ onStatus=()=>{},
+ launchTunnel=spawn,
+ onGatewayReady=()=>{}
 }){
  let gateway=null,child=null,active=null,expiryTimer=null,pending=null;
  const status=()=>({
@@ -144,10 +146,11 @@ export function createRemoteAccess({
     gateway.listen(0,"127.0.0.1",resolve);
    });
    const localPort=gateway.address().port;
+   onGatewayReady(localPort);
    active={url:"",agentToken:crypto.randomBytes(32).toString("hex"),
      expiresAt:Date.now()+LIVE_MS};
    const binary=getBinary();
-   const proc=spawn(binary,["tunnel","--url","http://127.0.0.1:"+localPort],{
+   const proc=launchTunnel(binary,["tunnel","--url","http://127.0.0.1:"+localPort],{
     windowsHide:true,stdio:["ignore","pipe","pipe"],env:process.env
    });
    child=proc;
