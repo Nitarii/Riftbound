@@ -12,6 +12,7 @@ import {execFile} from "node:child_process";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
+import {createRemoteAccess} from "./remote.mjs";
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
 const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
@@ -91,16 +92,16 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.2.0",
+ name:"Riftbound Table Companion",version:"0.7.0",
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
  "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
- "GET /api/decks":"Verified printed Fiora/Rumble deck recipe identifiers, authenticated",
+ "GET /api/decks":"Printed preconstructed deck recipes, authenticated",
  "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
- "select-precon":{type:"select-precon",id:"random",note:"Valid ids: fiora, rumble. The server draws four physical instances from the resulting shuffled 39-card main deck."},
+ "select-precon":{type:"select-precon",id:"random",note:"Valid ids are in GET /api/decks. The server separates chosen champion before drawing."},
  "setup-human|setup-ai":{legend:{name:"Shen, Eye of Twilight",type:"Legend"},champion:{name:"Shen",type:"Unit"},battlefield:{name:"Grove of the God-Willow",type:"Battlefield"},main:"required array for setup-ai",runes:"required array for setup-ai"},
  start:{type:"start",player:"human"},
  "next-turn":{type:"next-turn"},
@@ -121,6 +122,32 @@ const guide={
  },
  allCommandTypes:COMMANDS
 };
+const deckDescriptions=()=>PRECONS.map(p=>({id:p.id,label:p.label,source:p.source,
+ mainSize:p.main.reduce((sum,[,n])=>sum+n,0),runeSize:p.runes.reduce((sum,[,n])=>sum+n,0),
+ battlefields:p.battlefields}));
+async function executeGameCommand(input){
+ // Shared between local authenticated server and restricted remote agent gateway.
+ if(Number.isInteger(input.ifRevision)&&input.ifRevision!==state.revision)
+  throw Error("Version obsolète; recharge /api/state");
+ let command=input;
+ if(input.type==="select-precon"){
+   const cards=await loadServerCatalog();
+   const deck=resolvePrecon(cards,input.id||"random");
+   command={type:"setup-ai",legend:deck.legend,champion:deck.champion,
+    battlefield:deck.battlefield,battlefields:deck.battlefields,
+    main:deck.main,runes:deck.runes,mainIncludesChampion:true,
+    format:"preconstructed",deckName:deck.label};
+ }
+ state=applyCommand(state,command);save();broadcast();return state;
+}
+const remoteAccess=createRemoteAccess({
+ userData,
+ getState:()=>state,
+ performCommand:executeGameCommand,
+ getCatalog:loadServerCatalog,
+ getDecks:deckDescriptions,
+ getGuide:()=>guide
+});
 const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","style.css","assets/companion-icon.svg"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
@@ -156,7 +183,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.4.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.7.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -176,7 +203,19 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
   if(req.method==="GET"&&url.pathname==="/api/decks"){
-    json(res,200,{decks:PRECONS.map(p=>({id:p.id,label:p.label,source:p.source,mainSize:p.main.reduce((sum,[,n])=>sum+n,0),runeSize:p.runes.reduce((sum,[,n])=>sum+n,0),battlefields:p.battlefields}))},req);return;
+    json(res,200,{decks:deckDescriptions()},req);return;
+  }
+  // The local authenticated UI controls the only public-facing gateway.
+  // This control endpoint is NOT exposed by the restricted gateway.
+  if(req.method==="GET"&&url.pathname==="/api/remote/status"){
+    json(res,200,remoteAccess.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/remote/start"){
+    try{json(res,200,await remoteAccess.start(),req);}
+    catch(e){msg(res,503,e.message,req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/remote/stop"){
+    remoteAccess.stop();json(res,200,{active:false},req);return;
   }
   if(req.method==="GET"&&url.pathname==="/api/catalog"){
     try{
@@ -195,17 +234,8 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/command"){
     try{
       const input=await body(req);
-      // Optional optimistic concurrency; client may use state.revision.
-      if(Number.isInteger(input.ifRevision)&&input.ifRevision!==state.revision){msg(res,409,"Version obsolète; recharge /api/state",req);return;}
-      let command=input;
-      if(input.type==="select-precon"){
-        const cards=await loadServerCatalog();
-        const deck=resolvePrecon(cards,input.id||"random");
-        command={type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
-          battlefields:deck.battlefields,main:deck.main,runes:deck.runes,
-          mainIncludesChampion:true,format:"preconstructed",deckName:deck.label};
-      }
-      const updated=applyCommand(state,command);state=updated;save();broadcast();json(res,200,{ok:true,state},req);
+      const updated=await executeGameCommand(input);
+      json(res,200,{ok:true,state:updated},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }
   msg(res,404,"Endpoint inconnu",req);
@@ -218,7 +248,8 @@ server.listen(port,host,()=>{
   console.log("\nRIFTBOUND TABLE COMPANION");
   console.log("Site local : http://"+host+":"+port);
   console.log("Jeton local : "+token);
-  console.log("L'API est réservée à 127.0.0.1. Ne publie pas le jeton.\n");
+  console.log("L'API principale est réservée à 127.0.0.1. Ne publie pas le jeton.");
+  console.log("L'accès distant à une IA est DÉSACTIVÉ par défaut, et doit être démarré depuis le site.\n");
   if(packaged&&process.platform==="win32"){
     console.log("Ouvre https://nitarii.github.io/Riftbound/ dans ton navigateur,");
     console.log("puis clique sur « Autoriser la connexion locale » à l'étape 2.");
