@@ -1,0 +1,99 @@
+// Headless layout smoke test: no page-level scroll, readable independent panels.
+// Launched by CI with the already-installed runner Chrome / Chromium browser.
+import fs from "node:fs";
+import path from "node:path";
+import http from "node:http";
+import {fileURLToPath} from "node:url";
+import {chromium} from "playwright-core";
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
+const contentType=file=>file.endsWith(".html")?"text/html":
+ file.endsWith(".css")?"text/css":file.endsWith(".js")||file.endsWith(".mjs")?"text/javascript":
+ file.endsWith(".svg")?"image/svg+xml":"text/plain";
+const server=http.createServer((req,res)=>{
+ const url=new URL(req.url||"/","http://127.0.0.1");
+ const relative=decodeURIComponent(url.pathname==="/"?"/index.html":url.pathname);
+ const file=path.resolve(root,"."+relative);
+ if(!(file.startsWith(root+path.sep)&&fs.existsSync(file)&&fs.statSync(file).isFile())){
+  res.writeHead(404);res.end("Not found");return;
+ }
+ res.writeHead(200,{"Content-Type":contentType(file),"Cache-Control":"no-store"});
+ fs.createReadStream(file).pipe(res);
+});
+await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+const url="http://127.0.0.1:"+server.address().port;
+let chromePath=["/usr/bin/google-chrome","/usr/bin/google-chrome-stable","/usr/bin/chromium"]
+ .find(file=>fs.existsSync(file));
+const browser=await chromium.launch({headless:true,
+ ...(chromePath?{executablePath:chromePath}:{}),args:["--no-sandbox"]});
+fs.mkdirSync(path.join(root,"artifacts"),{recursive:true});
+
+function ensure(value,description){if(!value)throw Error(description);}
+async function evaluateLayout(page,expectDesktop){
+ const result=await page.evaluate(()=>{
+  const read=selector=>{
+   const el=document.querySelector(selector),rect=el.getBoundingClientRect(),
+    styles=getComputedStyle(el);
+   return {x:rect.x,y:rect.y,w:rect.width,h:rect.height,
+    right:rect.right,bottom:rect.bottom,visible:styles.display!=="none"&&rect.width>0&&rect.height>0};
+  };
+  return {
+   width:innerWidth,height:innerHeight,
+   rootScrollHeight:document.documentElement.scrollHeight,
+   bodyScrollHeight:document.body.scrollHeight,
+   board:read("#game-app .board"),
+   history:read("#game-app .bottom>.drawer"),
+   chat:read("#game-app .bottom>.chat-panel"),
+   topbar:read("#game-app .topbar")
+  };
+ });
+ ensure(result.rootScrollHeight<=result.height+2,
+  "Document scrolls at "+result.width+"px: scrollHeight="+result.rootScrollHeight+" viewport="+result.height);
+ ensure(result.bodyScrollHeight<=result.height+2,"Body scrolls at "+result.width+"px");
+ for(const panel of [result.topbar,...(expectDesktop?[result.history,result.board,result.chat]:[result.board])]){
+  ensure(panel.visible&&panel.y>=-1&&panel.bottom<=result.height+2,
+   "Panel clipped offscreen at "+result.width+"px: "+JSON.stringify(panel));
+ }
+ if(expectDesktop){
+  ensure(result.history.right<=result.board.x+2,"History overlaps board");
+  ensure(result.board.right<=result.chat.x+2,"Board overlaps chat");
+ }
+ return result;
+}
+try{
+ for(const viewport of [{width:1440,height:900},{width:1280,height:720},{width:1024,height:768},{width:390,height:844}]){
+  const page=await browser.newPage({viewport,deviceScaleFactor:1});
+  await page.goto(url,{waitUntil:"domcontentloaded"});
+  await page.evaluate(()=>document.body.classList.remove("home-visible"));
+  await page.waitForTimeout(180);
+  let result=await evaluateLayout(page,viewport.width>890);
+  if(viewport.width<=890){
+   for(const view of ["history","chat","board"]){
+    await page.locator('.workspace-mobile [data-workspace-view="'+view+'"]').click();
+    const visible=await page.locator(view==="board"?"#game-app .board":
+      view==="history"?"#game-app .bottom>.drawer":"#game-app .bottom>.chat-panel").isVisible();
+    ensure(visible,"Mobile view "+view+" is hidden after navigation");
+    result=await evaluateLayout(page,false);
+   }
+  }
+  if(viewport.width>=1000){
+   // Dozens of card entries must be handled inside the board, not by the document.
+   await page.evaluate(()=>{
+    const target=document.getElementById("ai-base");
+    for(let i=0;i<24;i++){
+     const el=document.createElement("div");
+     el.className="card-tile";
+     el.innerHTML='<div class="card-back">R</div>';
+     target.append(el);
+    }
+   });
+   await evaluateLayout(page,true);
+  }
+  await page.screenshot({path:path.join(root,"artifacts","workspace-"+viewport.width+".png")});
+  console.log("PASS",viewport.width+"x"+viewport.height,"no page scroll; board/chat/history accessible");
+  await page.close();
+ }
+}finally{
+ await browser.close();
+ await new Promise(resolve=>server.close(resolve));
+}
