@@ -185,6 +185,16 @@ $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value)
 let remoteSession=null;
 let remoteStarting=false;
 const REMOTE_MAX_HOURS=4;
+async function checkRemoteSession(){
+ if(!relay?.token)return;
+ try{
+  const data=await requestRemote("status");
+  const wasActive=Boolean(remoteSession?.url);
+  remoteSession=data.active?data:null;
+  updateRemoteUI();
+  if(wasActive&&!data.active)notify("L'accès distant à l'IA a été fermé ou a expiré.");
+ }catch{/* Local module is offline; don't erase a session without confirmation. */}
+}
 function updateRemoteUI(message=""){
  const button=$("home-start-remote"),stop=$("home-stop-remote"),status=$("home-remote-status");
  const running=Boolean(remoteSession?.url);
@@ -364,7 +374,9 @@ async function connectRelay(){
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
-  notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();return true;
+  notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
+  queueMicrotask(()=>checkRemoteSession());
+  return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
 $("connect-relay").onclick=connectRelay;
@@ -870,6 +882,7 @@ render();
 renderWelcome();
 renderDeckChoices();
 updateRemoteUI();
+setInterval(()=>{if(relay?.token&&remoteSession)checkRemoteSession();},15000);
 autoBootstrapCompanion();
 watchForLocalCompanion();
 loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
