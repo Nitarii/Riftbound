@@ -3,6 +3,7 @@ import {loadCatalog,importCatalog,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
 import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName,isChosenChampion} from "./picker.mjs";
+import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 const $=id=>document.getElementById(id);
 // Declare the loopback destination so Chrome/Edge can request the right permission.
 // Browsers that do not implement the option simply ignore it.
@@ -331,12 +332,77 @@ $("home-stop-remote").onclick=async()=>{
  }catch(e){notify(e.message,true);}
 };
 $("home-copy-prompt").onclick=()=>copyAgentPrompt(true);
-$("home-copy-offline").onclick=()=>copyAgentPrompt(false);
+$("home-copy-offline").onclick=()=>{
+ showGame("agent");
+ document.getElementById("manual-agent-panel")?.scrollIntoView({behavior:"smooth",block:"start"});
+};
 $("home-select-prompt").onclick=()=>{
  const textarea=$("home-prompt-text");textarea.focus();textarea.select();
 };
 $("open-remote-setup").onclick=()=>{showHome();setWizardStep(4);};
 $("copy-agent-prompt").onclick=()=>copyAgentPrompt(true);
+
+// Text-only fallback for agents without a browser or an HTTP connector.
+// No console scripts. We never export secret credentials or hidden hands.
+let pendingManualActions=null;
+const previewBox=$("manual-agent-preview");
+function resetManualPreview(message="Aucune réponse importée.",bad=false){
+ pendingManualActions=null;
+ $("manual-apply").disabled=true;
+ previewBox.classList.toggle("is-error",bad);
+ previewBox.textContent=message;
+}
+$("manual-copy-state").onclick=async()=>{
+ let request;
+ try{request=manualAgentRequest(state);}
+ catch(e){notify(e.message,true);return;}
+ const copied=await writePrompt(request);
+ if(!copied){
+  // Browser clipboard permission can be blocked; show/select text locally.
+  $("manual-agent-reply").value="";
+  const node=$("manual-agent-reply");node.value=request;node.select();
+  resetManualPreview("Copie le texte sélectionné avec Ctrl+C, puis efface-le avant de coller la réponse de l'IA.");
+  notify("La copie automatique a été refusée : texte sélectionné pour Ctrl+C.");
+  return;
+ }
+ onboarding.prompt=true;saveOnboarding();renderWelcome();
+ resetManualPreview("État public copié. Colle-le dans la conversation de l'IA, puis colle ici sa réponse JSON.");
+ notify("État public copié. Aucun jeton ou carte cachée inclus.");
+};
+$("manual-agent-reply").oninput=()=>{
+ resetManualPreview("Réponse modifiée. Clique sur « Vérifier les actions ».");
+};
+$("manual-preview").onclick=()=>{
+ try{
+  const planned=previewManualActions(state,$("manual-agent-reply").value);
+  pendingManualActions=planned;
+  $("manual-apply").disabled=false;
+  previewBox.classList.remove("is-error");
+  previewBox.textContent=(planned.message?planned.message+"\n":"")+
+   planned.changes.map((line,i)=>(i+1)+". "+line).join("\n")+
+   "\n\n"+planned.commands.length+" commande(s) vérifiée(s). Clique sur « Appliquer au plateau » pour confirmer.";
+ }catch(e){resetManualPreview(e.message,true);}
+};
+$("manual-apply").onclick=async()=>{
+ const expected=pendingManualActions;
+ if(!expected||expected.revision!==state.revision){
+  resetManualPreview("L'état du plateau a changé. Refais vérifier la réponse de l'IA.",true);return;
+ }
+ $("manual-apply").disabled=true;
+ let applied=0;
+ for(const cmd of expected.commands){
+  const ok=await dispatch({...cmd,ifRevision:state.revision});
+  if(!ok){
+   resetManualPreview(applied+" commande(s) appliquée(s). La suivante a échoué : actualise l'état avant de poursuivre.",true);
+   return;
+  }
+  applied++;
+ }
+ pendingManualActions=null;
+ $("manual-agent-reply").value="";
+ resetManualPreview("✓ "+applied+" commande(s) appliquée(s) au plateau. Copie le nouvel état pour poursuivre.");
+ notify(applied+" commande(s) de l'IA appliquée(s).");
+};
 
 $("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
 $("reset").onclick=async()=>{
