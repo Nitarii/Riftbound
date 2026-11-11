@@ -22,6 +22,9 @@ jobs:
           node --check integrated-ai.mjs
           node --check game-knowledge.mjs
           node --check free-ai.mjs
+          node --check player-actions.mjs
+          node --check ai-turn.mjs
+          node --check voice-session.mjs
           node --check app.mjs
           node --check server.mjs
           node --check remote.mjs

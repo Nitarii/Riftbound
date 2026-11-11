@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.16.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.17.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.16.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+1. Télécharge et lance `RiftboundCompanion-v0.17.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -65,7 +65,7 @@ Le document principal ne défile plus pendant une partie. Pour préserver la lis
 
 Sur les petits écrans (moins de 891 pixels CSS de largeur), il est impossible d'afficher côte à côte trois surfaces lisibles. La page offre donc un sélecteur **Plateau / Historique / Discussion IA** pour passer d'un panneau à l'autre sans défilement de page. Les fonctions et le contenu restent disponibles sans changer de page.
 
-## Conversation vocale continue (v0.16)
+## Conversation vocale continue (v0.17)
 
 Le bouton **🎙 Mode vocal**, dans la discussion en bas à droite, active l'écoute mains libres. Parle normalement en français : l'interface affiche la transcription en direct, puis **une pause d'environ 1,5 seconde** envoie automatiquement la phrase au relais local. Aucune touche Entrée ni nouvel appui sur le micro n'est nécessaire. Toutes les phrases passent par la même file de messages que le texte écrit : l'adversaire IA les reçoit, répond et peut commander le plateau selon ses règles configurées. Les déclarations sans ambiguïté telles que « Je termine mon tour » font également avancer le tour avant transmission.
 
@@ -86,6 +86,14 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## Table de jeu v0.17 — actions et lisibilité
+- Les annonces explicites sont d'abord vérifiées par le serveur : canalisation des runes, pioche, épuisement de runes, placement d'une unité identifiée dans le catalogue et fin de tour. Les actions trop ambiguës ne sont pas exécutées automatiquement.
+- Le joueur qui commence canalise normalement **2 runes** au premier tour, le second joueur **3**. Le programme refuse l'annonce d'un nombre différent en première phase. Les runes physiques restent anonymes et sont visibles/épuisables sur le plateau.
+- En cas de réponse mal formée ou d'UID inventé par le modèle Qwen, une action invalide est rejetée ; au tour de l'IA, un automate de secours peut effectuer les opérations simples et vérifiables (canaliser, piocher, jouer une unité ordinaire d'un coût connu, finir son tour). Il ne joue pas les effets incertains et ne prétend pas être un arbitre intégral.
+- Piles de deck et de runes visibles, avec compteurs et commandes manuelles de pioche, animation des cartes qui changent de zone et indicateur de réflexion de l'IA. L'historique n'est affiché qu'une fois et sa colonne est réductible. La base physique se trouve immédiatement sous les champs de bataille.
+- Sélecteur **FR / EN** pour l'interface principale et la langue de reconnaissance/lecture vocale. L'adversaire accepte les annonces françaises et anglaises ; les textes complets de cartes restent ceux du catalogue source.
+- Limites : le programme ne peut pas vérifier le contenu de la main physique ni l'intégralité des restrictions, réactions et effets de cartes Riftbound. Une vérification humaine reste nécessaire pour les cas ambigus.
 
 ## Catalogue et gameplay
 

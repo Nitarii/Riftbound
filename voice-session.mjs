@@ -20,9 +20,11 @@ export function createVoiceConversation({
  setTimer=setTimeout,
  clearTimer=clearTimeout,
  silenceMs=1450,
- restartMs=750
+ restartMs=750,
+ language="fr"
 }={}){
  let enabled=false,current=null,epoch=0,seenFinal=new Set();
+ let locale=language==="en"?"en-US":"fr-FR";
  let finalParts=[],interim="",flushTimer=null,restartTimer=null;
  let speaking=false,speechEnabled=true,spokenQueue=[],currentSpeech=null,speechTimer=null;
  let noSpeech=0,networkFailures=0,hidden=false,phase="off",detail="";
@@ -57,7 +59,7 @@ export function createVoiceConversation({
   let rec;
   try{
    rec=new Recognition();
-   rec.lang="fr-FR";
+   rec.lang=locale;
    rec.continuous=true;
    rec.interimResults=true;
    rec.maxAlternatives=1;
@@ -175,11 +177,11 @@ export function createVoiceConversation({
   let utterance;
   try{
    utterance=new Utterance(text);
-   utterance.lang="fr-FR";
+   utterance.lang=locale;
    utterance.rate=1.05;
    utterance.pitch=1;
-   const french=synthesis.getVoices?.().find(v=>v.lang?.toLowerCase().startsWith("fr"));
-   if(french)utterance.voice=french;
+   const matching=synthesis.getVoices?.().find(v=>v.lang?.toLowerCase().startsWith(locale.slice(0,2).toLowerCase()));
+   if(matching)utterance.voice=matching;
    currentSpeech=utterance;
    let ended=false;
    const finish=()=>{
@@ -233,5 +235,13 @@ export function createVoiceConversation({
    emit("waiting","Écoute en pause : reviens sur l'onglet Riftbound pour reprendre.");
   }else if(!speaking)retry(250);
  }
- return {start,stop,speak,setHidden,setSpeechEnabled,state,flush};
+ function setLanguage(value){
+  locale=value==="en"?"en-US":"fr-FR";
+  if(enabled&&!speaking){
+   const rec=current;current=null;epoch++;
+   if(rec)try{rec.abort();}catch{}
+   retry(150);
+  }
+ }
+ return {start,stop,speak,setHidden,setSpeechEnabled,setLanguage,state,flush};
 }

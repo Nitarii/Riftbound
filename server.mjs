@@ -15,6 +15,7 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
+import {planHumanAnnouncement} from "./player-actions.mjs";
 import {createFreeLocalAI} from "./free-ai.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 const packaged=sea.isSea();
@@ -172,9 +173,27 @@ const integratedAI=createIntegratedAI({
 // profiles are left on disk for migration but never auto-start after upgrade.
 if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
  integratedAI.disable();
+// Ordered, deterministic application of human statements before the local AI responds.
+let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=text=>{
  const entry=conversation.post("human",text);
- integratedAI.onHumanMessage(entry.text);
+ humanAnnouncements=humanAnnouncements.catch(()=>{}).then(async()=>{
+  let catalog=[];
+  try{catalog=await loadServerCatalog();}catch{}
+  const plan=planHumanAnnouncement(entry.text,state,catalog);
+  if(plan.error){
+   const english=/\\b(i |my |your |play|draw|turn|channel|runes)\\b/i.test(entry.text)&&
+    !/\\b(je |mon |tour|joue|pioche|runes de)\\b/i.test(entry.text);
+   receiveAgentMessage(english?plan.errorEN:plan.error);
+   return;
+  }
+  if(plan.commands?.length){
+   const revision=state.revision;
+   try{applyAgentBatch(plan.commands,revision);}
+   catch(e){receiveAgentMessage("Action non appliquée / Action not applied: "+String(e.message||e));return;}
+  }
+  integratedAI.onHumanMessage(entry.text);
+ }).catch(e=>receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180)));
  return entry;
 };
 const localFreeAI=createFreeLocalAI({
@@ -197,7 +216,7 @@ const remoteAccess=createRemoteAccess({
 });
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();});
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
