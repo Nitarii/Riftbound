@@ -35,6 +35,22 @@ Un simple chat IA **ne peut pas forcément accéder au plateau** : l'agent doit 
 
 Cloudflare Quick Tunnels convient à cet usage expérimental, sans garantie de disponibilité ni d'adresse permanente. Aucun compte Cloudflare n'est nécessaire pour le tunnel temporaire.
 
+## Si l'IA ne peut pas ouvrir le tunnel : mode assisté sans F12
+
+Un lien HTTPS fonctionnel ne suffit pas à donner un navigateur ou un accès HTTP à toutes les conversations IA. Certaines conversations n'ont aucun moyen de contacter une URL externe. **Aucun changement au site ne peut imposer ces outils à une IA externe.**
+
+Pour éviter les codes JavaScript dans la console du navigateur :
+
+1. Ouvre l'onglet **Agent IA** et sa section **Jouer avec une IA sans accès réseau** (ou choisis « Utiliser sans connexion distante » à l'étape 4).
+2. Clique **Copier l'état pour l'IA**, puis colle le texte dans la conversation.
+3. Demande à l'IA de répondre avec un bloc JSON contenant `commands` et `revision`.
+4. Colle la réponse dans le site, clique **Vérifier les actions** puis **Appliquer au plateau**. Les commandes sont prévalidées et ne sont exécutées qu'après confirmation du joueur.
+5. Recommence au besoin après chaque échange. Le site rejette les réponses fondées sur une ancienne révision.
+
+**Confidentialité et limite essentielle :** cet export masque les deux mains, les cartes face cachée, le contenu des decks, les notes privées et tous les jetons d'authentification. C'est utile pour suivre les actions annoncées sans révéler la main du joueur, **mais l'IA ne peut pas choisir correctement des cartes secrètes de sa propre main à partir de cet export**. Pour jouer comme un véritable adversaire avec main et deck secrets, il faut utiliser un agent disposant d'un navigateur interactif ou d'outils HTTP autorisés.
+
+Le mode assisté n'applique jamais du JavaScript fourni par l'IA : il parse du JSON, vérifie les types de commandes autorisés, les identifiants de cartes et la version du plateau avant l'envoi. Les actions restent soumises à une vérification humaine des règles.
+
 ## Catalogue et gameplay
 
 - Sélection compacte de légende/champion/battlefield, recherche par nom de personnage, aperçus limités à 7 résultats, champions compatibles proposés.
