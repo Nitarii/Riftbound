@@ -1,44 +1,50 @@
-// One-click, entirely local opponent runtime for Windows.
-// Downloads verified official Ollama packages and free open-weight models once.
-// No paid API, subscription, cloud account, or inbound public tunnel is required.
-import fs from "node:fs";
-import {createReadStream} from "node:fs";
+// Portable and fully free opponent: llama.cpp CPU-only Windows x64 + Qwen3 0.6B.
+// The player downloads both once with a single click; no driver, cloud API,
+// paid account, setup wizard, external launcher, or always-on network required.
+import fs,{createReadStream} from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import crypto from "node:crypto";
 import {spawn} from "node:child_process";
 import {once} from "node:events";
 
-const RELEASE="v0.40.16";
+const ENGINE_RELEASE="b12277";
+const ENGINE_FILE="llama-b12277-bin-win-cpu-x64.zip";
+const ENGINE_SHA256="5943df89ff76289e16fd9c9600a38871b47f20272c589c3b803eca2181f67a08";
+const MODEL_FILE="Qwen3-0.6B-Q8_0.gguf";
+const MODEL_SHA256="9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031";
+const MODEL_NAME="qwen3:0.6b";
+const ENGINE_URL="https://github.com/ggml-org/llama.cpp/releases/download/"+ENGINE_RELEASE+"/"+ENGINE_FILE;
+const MODEL_URL="https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/"+MODEL_FILE+"?download=true";
 const HOST="127.0.0.1",PORT=11435;
-const ENGINE_URL="http://"+HOST+":"+PORT;
-const ENGINE_PACKAGES=[
- {name:"ollama-windows-amd64.zip",sha256:"50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e"},
- {name:"ollama-windows-amd64-rocm.zip",sha256:"0daf19f77f678a02264b5fa398d6988dece19832ca1682f1f7b8f81450d1f574"}
-];
-const AVAILABLE_MODELS={
- "qwen3:4b-instruct":{label:"Rapide et gratuit · Qwen3 4B",size:"2,5 Go",profile:"fast"},
- "qwen3.5:9b":{label:"Plus performant · Qwen3.5 9B",size:"6,6 Go",profile:"quality"}
-};
-export const FREE_MODELS=Object.entries(AVAILABLE_MODELS).map(([id,v])=>({id,...v}));
-export const FREE_ENGINE_VERSION=RELEASE;
+const ORIGIN="http://"+HOST+":"+PORT;
+const EXPECTED_MODEL_SIZE=639000000;
+export const FREE_MODELS=[{id:MODEL_NAME,label:"Qwen3 0.6B · CPU · recommandé pour les petits PC",
+ size:"639 Mo",profile:"universal"}];
+export const FREE_ENGINE_VERSION=ENGINE_RELEASE;
 export const FREE_ENGINE_PORT=PORT;
-export const FREE_ENGINE_ORIGIN=ENGINE_URL;
+export const FREE_ENGINE_ORIGIN=ORIGIN;
+export const FREE_ENGINE_DOWNLOAD={url:ENGINE_URL,sha256:ENGINE_SHA256};
+export const FREE_MODEL_DOWNLOAD={url:MODEL_URL,sha256:MODEL_SHA256,bytes:EXPECTED_MODEL_SIZE};
+
 export function freeModelID(value){
- const id=String(value||"qwen3:4b-instruct").trim();
- if(!Object.hasOwn(AVAILABLE_MODELS,id))throw Error("Modèle local non pris en charge.");
- return id;
+ if(value===undefined||value===null||value==="")return MODEL_NAME;
+ if(value!==MODEL_NAME)throw Error("Modèle indisponible. Utilise le modèle gratuit compatible CPU.");
+ return MODEL_NAME;
 }
 export function verifiedDownloadHash(bytes,expected){
  return crypto.createHash("sha256").update(bytes).digest("hex")===expected;
+}
+async function fileSHA256(filename){
+ const sha=crypto.createHash("sha256");
+ for await(const chunk of createReadStream(filename,{highWaterMark:1024*1024}))sha.update(chunk);
+ return sha.digest("hex");
 }
 export async function downloadVerified(url,target,expected,report=()=>{},fetchImpl=fetch){
  const temporary=target+".part";
  fs.mkdirSync(path.dirname(target),{recursive:true});
  if(fs.existsSync(target)){
-  // Never load a multi-gigabyte archive into RAM just to verify its digest.
-  const hash=crypto.createHash("sha256");
-  for await(const chunk of createReadStream(target,{highWaterMark:1024*1024}))hash.update(chunk);
-  if(hash.digest("hex")===expected)return fs.statSync(target).size;
+  if(await fileSHA256(target)===expected)return fs.statSync(target).size;
   fs.rmSync(target,{force:true});
  }
  let completed=0;
@@ -51,206 +57,151 @@ export async function downloadVerified(url,target,expected,report=()=>{},fetchIm
   try{
    for await(const chunk of response.body){
     const part=Buffer.from(chunk);
-    digest.update(part);completed+=part.length;
+    completed+=part.length;digest.update(part);
     if(!stream.write(part))await once(stream,"drain");
     report(completed,total);
    }
-   await new Promise((resolve,reject)=>stream.end(err=>err?reject(err):resolve()));
+   await new Promise((resolve,reject)=>stream.end(error=>error?reject(error):resolve()));
   }catch(e){stream.destroy();throw e;}
-  if(digest.digest("hex")!==expected)throw Error("Fichier téléchargé invalide (empreinte SHA-256 différente).");
+  if(digest.digest("hex")!==expected)
+   throw Error("Échec du contrôle d'intégrité SHA-256. Le fichier a été rejeté.");
   fs.renameSync(temporary,target);
   return completed;
- }catch(e){
-  try{fs.rmSync(temporary,{force:true});}catch{}
-  throw e;
- }
+ }catch(e){try{fs.rmSync(temporary,{force:true});}catch{}throw e;}
 }
-function findExecutable(folder,depth=4){
- if(!fs.existsSync(folder)||depth<0)return "";
- for(const entry of fs.readdirSync(folder,{withFileTypes:true})){
-  if(entry.isFile()&&entry.name.toLowerCase()==="ollama.exe")return path.join(folder,entry.name);
- }
- for(const entry of fs.readdirSync(folder,{withFileTypes:true})){
+function findServer(folder,depth=4){
+ if(depth<0||!fs.existsSync(folder))return "";
+ const entries=fs.readdirSync(folder,{withFileTypes:true});
+ const found=entries.find(x=>x.isFile()&&x.name.toLowerCase()==="llama-server.exe");
+ if(found)return path.join(folder,found.name);
+ for(const entry of entries){
   if(entry.isDirectory()){
-   const result=findExecutable(path.join(folder,entry.name),depth-1);
+   const result=findServer(path.join(folder,entry.name),depth-1);
    if(result)return result;
   }
  }
  return "";
 }
-function formatError(error){
- const message=String(error?.message||error||"Erreur de l'IA locale");
- if(error?.code==="ENOENT")return "L'utilitaire Windows tar est introuvable (Windows 10/11 nécessaire).";
- return message.slice(0,350);
+function failure(error){
+ if(error?.code==="ENOENT")return "Windows tar est introuvable. Windows 10/11 64 bits est requis.";
+ return String(error?.message||error||"Erreur inconnue").slice(0,350);
 }
 export function createFreeLocalAI({
- userData,
- onReady=async()=>{},
- fetchImpl=fetch,
- spawnImpl=spawn,
+ userData,onReady=async()=>{},
+ fetchImpl=fetch,spawnImpl=spawn,
  extract=async(archive,directory)=>{
-  const proc=spawn("tar",["-xf",archive,"-C",directory],{windowsHide:true,stdio:"ignore"});
-  const [code]=await once(proc,"close");
-  if(code!==0)throw Error("Extraction de l'IA locale impossible (tar : code "+code+").");
+  const process=spawn("tar",["-xf",archive,"-C",directory],{windowsHide:true,stdio:"ignore"});
+  const [code]=await once(process,"close");
+  if(code!==0)throw Error("L'extraction du moteur CPU a échoué (code "+code+").");
  },
  platform=process.platform
 }){
  const root=path.join(userData,"free-opponent");
- const runtime=path.join(root,"engine-"+RELEASE);
- const downloads=path.join(root,"downloads");
- const marker=path.join(runtime,".riftbound-engine-verified.json");
- const modelDirectory=path.join(root,"models");
- let task=null,child=null,childStarted=false;
- let current={phase:"idle",progress:0,transferred:0,total:0,message:"IA locale non installée.",
-  error:"",model:"qwen3:4b-instruct",installed:false,ready:false};
- function update(partial){current={...current,...partial};}
- function status(){
-  return {...current,model:current.model,
-   models:FREE_MODELS,version:RELEASE,enginePort:PORT,
-   running:Boolean(task),free:true};
- }
- function installationOK(){
+ const engineFolder=path.join(root,"llama-"+ENGINE_RELEASE);
+ const modelFolder=path.join(root,"models");
+ const zipFile=path.join(root,"downloads",ENGINE_FILE);
+ const modelFile=path.join(modelFolder,MODEL_FILE);
+ const marker=path.join(engineFolder,".verified.json");
+ let active=null,job=null;
+ let info={phase:"idle",progress:0,transferred:0,total:0,message:"IA gratuite CPU non installée.",
+  error:"",model:MODEL_NAME,installed:false,ready:false};
+ function set(partial){info={...info,...partial};}
+ function status(){return {...info,models:FREE_MODELS,version:ENGINE_RELEASE,enginePort:PORT,
+  free:true,running:Boolean(job)};}
+ function installed(){
   try{
-   const details=JSON.parse(fs.readFileSync(marker,"utf8"));
-   return details.release===RELEASE&&details.packages.every((p,i)=>
-     p.name===ENGINE_PACKAGES[i].name&&p.sha256===ENGINE_PACKAGES[i].sha256)&&
-     Boolean(findExecutable(runtime));
+   const saved=JSON.parse(fs.readFileSync(marker,"utf8"));
+   return saved.engine===ENGINE_SHA256&&Boolean(findServer(engineFolder));
   }catch{return false;}
  }
- async function probe(url,timeout=1200){
+ function modelPresent(){return fs.existsSync(modelFile)&&fs.statSync(modelFile).size>500000000;}
+ async function probe(timeout=1200){
   try{
-   const response=await fetchImpl(url,{signal:AbortSignal.timeout(timeout)});
-   return response.ok;
-  }catch{return false;}
- }
- async function api(route,data,timeout=60_000){
-  const response=await fetchImpl(ENGINE_URL+route,{
-   method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify(data),signal:AbortSignal.timeout(timeout)
-  });
-  if(!response.ok)throw Error("Le moteur local a répondu HTTP "+response.status);
-  return response;
- }
- async function server(){
-  if(await probe(ENGINE_URL+"/api/version",1500))return;
-  if(!installationOK())throw Error("Le moteur IA gratuit doit être installé.");
-  if(platform!=="win32")throw Error("Le lancement autonome est actuellement prévu pour Windows.");
-  const binary=findExecutable(runtime);
-  if(!binary)throw Error("Moteur IA introuvable après extraction.");
-  const settings={
-   ...process.env,OLLAMA_HOST:HOST+":"+PORT,OLLAMA_MODELS:modelDirectory,
-   OLLAMA_NO_CLOUD:"1",OLLAMA_NUM_PARALLEL:"1",OLLAMA_MAX_LOADED_MODELS:"1"
-  };
-  fs.mkdirSync(modelDirectory,{recursive:true});
-  child=spawnImpl(binary,["serve"],{env:settings,windowsHide:true,stdio:"ignore"});
-  childStarted=true;
-  child.once("error",error=>update({phase:"error",error:formatError(error)}));
-  child.once("exit",()=>{child=null;childStarted=false;});
-  for(let i=0;i<110;i++){
-   if(await probe(ENGINE_URL+"/api/version",1500))return;
-   await new Promise(resolve=>setTimeout(resolve,350));
-  }
-  throw Error("Le moteur local ne démarre pas. Mets à jour ton pilote AMD ou vérifie l'antivirus.");
- }
- async function hasModel(id){
-  try{
-   const response=await fetchImpl(ENGINE_URL+"/api/tags",{signal:AbortSignal.timeout(3000)});
+   const response=await fetchImpl(ORIGIN+"/health",{signal:AbortSignal.timeout(timeout)});
    if(!response.ok)return false;
-   const result=await response.json();
-   return result.models?.some(x=>x.name===id||x.model===id);
+   const payload=await response.json();
+   return payload.status==="ok"||payload.status==="no slot available";
   }catch{return false;}
- }
- async function pull(model){
-  update({phase:"model",progress:0,transferred:0,total:0,
-   message:"Téléchargement du modèle gratuit "+model+" (une seule fois)…"});
-  const response=await api("/api/pull",{model,stream:true},2*60*60*1000);
-  let pending="";
-  if(!response.body)throw Error("Téléchargement du modèle interrompu.");
-  for await(const chunk of response.body){
-   pending+=Buffer.from(chunk).toString("utf8");
-   if(pending.length>200000)throw Error("Réponse du moteur local trop volumineuse.");
-   let pos;
-   while((pos=pending.indexOf("\n"))>=0){
-    const row=pending.slice(0,pos);pending=pending.slice(pos+1);
-    if(!row.trim())continue;
-    const line=JSON.parse(row);
-    if(line.error)throw Error(line.error);
-    if(Number.isFinite(line.total)&&line.total>0){
-     const completed=line.completed||0;
-     update({transferred:completed,total:line.total,
-      progress:Math.min(99,Math.round(completed/line.total*100))});
-    }
-    if(typeof line.status==="string")update({message:line.status});
-   }
-  }
-  if(!await hasModel(model))throw Error("Modèle non disponible après le téléchargement.");
  }
  async function installEngine(){
-  if(installationOK())return;
-  if(platform!=="win32")throw Error("Installation automatique prévue pour Windows 10/11.");
-  fs.mkdirSync(downloads,{recursive:true});
-  fs.rmSync(runtime,{force:true,recursive:true});
-  fs.mkdirSync(runtime,{recursive:true});
-  for(let index=0;index<ENGINE_PACKAGES.length;index++){
-   const pkg=ENGINE_PACKAGES[index],filename=path.join(downloads,pkg.name);
-   update({phase:"engine",progress:0,transferred:0,total:0,
-    message:"Téléchargement du moteur gratuit ("+(index+1)+"/"+ENGINE_PACKAGES.length+")…"});
-   await downloadVerified("https://github.com/ollama/ollama/releases/download/"+RELEASE+"/"+pkg.name,
-    filename,pkg.sha256,(bytes,total)=>update({transferred:bytes,total,
-     progress:total?Math.min(100,Math.round(bytes/total*100)):0}),fetchImpl);
-   update({phase:"extracting",progress:0,message:"Extraction du moteur local ("+(index+1)+"/"+ENGINE_PACKAGES.length+")…"});
-   await extract(filename,runtime);
-   try{fs.rmSync(filename,{force:true});}catch{}
-  }
-  if(!findExecutable(runtime))throw Error("Le programme Ollama est absent de l'archive vérifiée.");
-  fs.writeFileSync(marker,JSON.stringify({
-   release:RELEASE,packages:ENGINE_PACKAGES.map(x=>({name:x.name,sha256:x.sha256}))
-  }),{mode:0o600});
+  if(installed())return;
+  if(platform!=="win32")throw Error("Le téléchargement intégré fonctionne sur Windows 10/11 64 bits.");
+  fs.mkdirSync(path.dirname(zipFile),{recursive:true});
+  fs.rmSync(engineFolder,{recursive:true,force:true});
+  fs.mkdirSync(engineFolder,{recursive:true});
+  set({phase:"engine",message:"Téléchargement du petit moteur CPU (25 Mo)…",progress:0,transferred:0,total:0});
+  await downloadVerified(ENGINE_URL,zipFile,ENGINE_SHA256,(bytes,total)=>
+   set({transferred:bytes,total,progress:total?Math.round(bytes/total*100):0}),fetchImpl);
+  set({phase:"extracting",message:"Extraction du moteur CPU…",progress:0});
+  await extract(zipFile,engineFolder);
+  if(!findServer(engineFolder))throw Error("Le fichier llama-server.exe est absent de l'archive officielle.");
+  fs.writeFileSync(marker,JSON.stringify({engine:ENGINE_SHA256,version:ENGINE_RELEASE}),{mode:0o600});
+  try{fs.rmSync(zipFile,{force:true});}catch{}
  }
- async function ensure(model,download=true){
-  const id=freeModelID(model);
-  update({phase:"checking",model:id,error:"",message:"Vérification de l'IA locale…",ready:false});
-  if(!installationOK()){
-   if(!download)throw Error("Moteur local non installé. Clique sur Installer mon IA gratuite.");
+ async function downloadModel(){
+  if(modelPresent()){
+   // Verify cached file before first loading; never trust a pre-existing weight.
+   if(await fileSHA256(modelFile)===MODEL_SHA256)return;
+   fs.rmSync(modelFile,{force:true});
+  }
+  set({phase:"model",message:"Téléchargement du modèle Qwen3 gratuit (639 Mo)…",
+   transferred:0,total:EXPECTED_MODEL_SIZE,progress:0});
+  await downloadVerified(MODEL_URL,modelFile,MODEL_SHA256,(bytes,total)=>
+   set({transferred:bytes,total:total||EXPECTED_MODEL_SIZE,
+    progress:Math.min(99,Math.round(bytes/(total||EXPECTED_MODEL_SIZE)*100))}),fetchImpl);
+ }
+ async function runServer(){
+  if(active&&await probe())return;
+  // Never attach to another process bound to the reserved port.
+  if(!active&&await probe())throw Error("Le port local 11435 est déjà utilisé. Ferme l'autre serveur et réessaie.");
+  const executable=findServer(engineFolder);
+  if(!executable)throw Error("L'exécutable CPU est introuvable.");
+  const args=["--model",modelFile,"--host",HOST,"--port",String(PORT),
+   "--ctx-size","4096","--threads",String(Math.max(1,Math.min(4,os.availableParallelism?.()||4))),
+   "--n-gpu-layers","0","--parallel","1","--alias",MODEL_NAME];
+  active=spawnImpl(executable,args,{cwd:path.dirname(executable),windowsHide:true,stdio:"ignore"});
+  active.once("error",error=>set({phase:"error",error:failure(error)}));
+  active.once("exit",()=>{active=null;});
+  for(let i=0;i<150;i++){
+   if(await probe(1400))return;
+   if(!active)throw Error("Le moteur CPU s'est arrêté au démarrage. Vérifie l'architecture Windows.");
+   await new Promise(resolve=>setTimeout(resolve,450));
+  }
+  throw Error("Démarrage de l'IA trop long. Sur un vieux PC, vérifie la RAM disponible.");
+ }
+ async function prepare({download=true}={}){
+  set({phase:"checking",message:"Vérification des fichiers locaux…",ready:false,error:"",progress:0});
+  if(!installed()){
+   if(!download)throw Error("L'IA gratuite doit être installée une seule fois.");
    await installEngine();
   }
-  update({phase:"starting",progress:0,message:"Lancement du moteur gratuit sur ton ordinateur…"});
-  await server();
-  if(!await hasModel(id)){
-   if(!download)throw Error("Modèle gratuit absent. Installe-le depuis le site.");
-   await pull(id);
+  if(!modelPresent()){
+   if(!download)throw Error("Le modèle gratuit n'est pas encore téléchargé.");
+   await downloadModel();
+  }else if(await fileSHA256(modelFile)!==MODEL_SHA256){
+   if(!download)throw Error("Le modèle n'est pas valide ; relance l'installation.");
+   await downloadModel();
   }
-  await onReady(id);
-  update({phase:"ready",model:id,ready:true,installed:true,progress:100,
-   transferred:0,total:0,message:"IA gratuite prête ! Aucun compte ni clé API."});
+  set({phase:"starting",message:"Démarrage du modèle sur le processeur…",progress:99});
+  await runServer();
+  await onReady(MODEL_NAME);
+  set({phase:"ready",ready:true,installed:true,progress:100,transferred:0,total:0,
+   message:"✓ IA gratuite prête, sans GPU, abonnement ni requête payante."});
  }
- function start(model="qwen3:4b-instruct"){
-  if(task)return status();
-  let id;
-  try{id=freeModelID(model);}catch(e){throw e;}
-  const job=ensure(id,true).catch(e=>update({
-   phase:"error",error:formatError(e),message:"Installation inachevée.",ready:false,
-   installed:installationOK()
-  })).finally(()=>{if(task===job)task=null;});
-  task=job;
+ function begin(download){
+  if(job)return status();
+  const promise=prepare({download}).catch(error=>set({phase:"error",ready:false,
+   installed:installed(),error:failure(error),message:"Installation inachevée."}))
+  .finally(()=>{if(job===promise)job=null;});
+  job=promise;
   return status();
  }
- function resume(model){
-  if(task||!installationOK())return status();
-  const id=freeModelID(model);
-  const job=ensure(id,false).catch(e=>update({phase:"error",error:formatError(e),
-   message:"IA gratuite à réactiver.",ready:false,installed:installationOK()
-  })).finally(()=>{if(task===job)task=null;});
-  task=job;
-  return status();
- }
+ function start(model=MODEL_NAME){freeModelID(model);return begin(true);}
+ function resume(model=MODEL_NAME){freeModelID(model);return job?status():installed()?begin(false):status();}
  function stop(){
-  if(child&&childStarted){try{child.kill();}catch{}}
-  child=null;childStarted=false;
-  update({phase:"idle",ready:false,progress:0,message:"IA locale arrêtée."});
+  if(active){try{active.kill();}catch{}active=null;}
+  set({phase:"idle",ready:false,progress:0,message:"IA locale arrêtée."});
  }
- // Installation persists across Companion launches; do not download without consent.
- update({installed:installationOK(),
-  message:installationOK()?"Moteur local installé. Clique pour activer ton IA gratuite.":"IA gratuite non installée."});
+ set({installed:installed(),message:installed()?"Moteur CPU installé. Active l'IA gratuite.":"IA gratuite CPU non installée."});
  return {start,resume,status,stop};
 }
