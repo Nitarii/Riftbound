@@ -255,7 +255,7 @@ async function copyAgentPrompt(){
    temporaryAccess?"Authentification temporaire pour CETTE session : Authorization: Bearer "+remoteSession.agentToken:
       "Pour un accès direct, demande un lien HTTPS distant temporaire. N'utilise pas 127.0.0.1 dans un environnement cloud.",
    "Le jeton temporaire n'autorise que l'accès à la partie, pas à l'administration du PC. Ne le publie jamais sur GitHub ni sur un site public.",
-   "Si ton environnement ne permet pas des requêtes HTTP avec en-têtes personnalisés, explique-le immédiatement et n'affirme pas pouvoir lire le plateau.",
+   "Tu peux jouer soit par la console avec un navigateur capable de cliquer, soit par appels HTTP authentifiés. Si tu ne possèdes ni l'un ni l'autre, explique-le et n'affirme pas être connecté.",
    "Commence par GET /api/guide puis GET /api/state. Si l'IA n'est pas configurée, sélectionne un deck préconstruit avec POST /api/command {\"type\":\"select-precon\",\"id\":\"random\"}.",
    "Annonce tes actions avec les noms, textes et effets précis des cartes, puis synchronise chaque changement sur le plateau.",
    "Si tu ne peux pas accéder à l'URL HTTPS depuis ton environnement, demande l'export JSON ou donne-moi des commandes à coller. Ne prétends pas être connecté.",
