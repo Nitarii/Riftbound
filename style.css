@@ -322,3 +322,37 @@ body.home-visible .header-actions > :not(.header-home){display:none!important}
  .remote-primary-actions button{width:100%}
  .remote-ready-head{flex-direction:column;align-items:flex-start;gap:3px}
 }
+
+
+/* Mode assisté : passerelle de texte pour les agents sans accès navigateur/HTTP. */
+.manual-agent-panel{display:grid;gap:17px;margin:20px 0;padding:20px;border-radius:13px;
+ background:radial-gradient(ellipse at 90% 0,rgba(93,137,175,.13),transparent 60%),#142833;
+ border:1px solid #5d776d}
+.manual-agent-heading{display:flex;gap:13px;align-items:center}
+.manual-agent-heading h3{margin:0 0 5px;color:#eacb8e;font-size:20px}
+.manual-agent-heading p{margin:0;font-size:12px;line-height:1.6;color:#b4cad0}
+.manual-agent-symbol{display:grid;place-items:center;flex:0 0 45px;width:45px;height:45px;
+ border-radius:10px;border:1px solid #a28b61;background:#304d47;font-size:27px;color:#f6dca0}
+.manual-agent-step{display:flex;gap:14px;padding:15px 12px;border-radius:10px;
+ background:rgba(13,30,41,.85);border:1px solid #375666}
+.manual-agent-index{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;
+ border-radius:8px;background:#4d6755;color:#f4dfab;font-weight:800}
+.manual-agent-step>div{min-width:0;flex:1}
+.manual-agent-step strong{color:#e2e5d8;font-size:13px}
+.manual-agent-step p{font-size:12px;line-height:1.6;color:#acc4c9;margin:8px 0 12px}
+.manual-agent-step textarea{width:100%;box-sizing:border-box;min-height:115px;resize:vertical;
+ border:1px solid #526876;border-radius:9px;background:#091c27;color:#d7e7e9;
+ font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;padding:11px}
+.manual-agent-step .line{display:flex;flex-wrap:wrap;gap:9px;margin-top:10px}
+.manual-agent-preview{font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;
+ white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 12px;margin-top:12px;
+ border:1px solid #3c6c60;border-radius:8px;background:#102d2e;color:#bddfcf}
+.manual-agent-preview.is-error{background:#35252a;color:#f4b8ae;border-color:#8f5c62}
+.manual-agent-privacy{font-size:11px!important;line-height:1.65!important;color:#b9c9c7!important;
+ border-top:1px solid #3f595b;padding-top:12px;margin:0}
+@media(max-width:650px){
+ .manual-agent-panel{padding:12px;gap:12px}
+ .manual-agent-heading{align-items:flex-start}
+ .manual-agent-step{padding:12px 8px;gap:9px}
+ .manual-agent-step .line button{flex:1}
+}
