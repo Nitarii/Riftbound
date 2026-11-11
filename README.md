@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.15.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.16.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.15.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+1. Télécharge et lance `RiftboundCompanion-v0.16.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -64,6 +64,16 @@ Sur ordinateur, lorsque la partie est ouverte, l'interface utilise la hauteur de
 Le document principal ne défile plus pendant une partie. Pour préserver la lisibilité, les zones susceptibles de s'allonger sont **défilables individuellement** : listes de cartes à l'horizontale, journal, chat et panneaux d'outils à la verticale. L'ancienne page d'installation garde un défilement normal, car elle comporte plusieurs étapes.
 
 Sur les petits écrans (moins de 891 pixels CSS de largeur), il est impossible d'afficher côte à côte trois surfaces lisibles. La page offre donc un sélecteur **Plateau / Historique / Discussion IA** pour passer d'un panneau à l'autre sans défilement de page. Les fonctions et le contenu restent disponibles sans changer de page.
+
+## Conversation vocale continue (v0.16)
+
+Le bouton **🎙 Mode vocal**, dans la discussion en bas à droite, active l'écoute mains libres. Parle normalement en français : l'interface affiche la transcription en direct, puis **une pause d'environ 1,5 seconde** envoie automatiquement la phrase au relais local. Aucune touche Entrée ni nouvel appui sur le micro n'est nécessaire. Toutes les phrases passent par la même file de messages que le texte écrit : l'adversaire IA les reçoit, répond et peut commander le plateau selon ses règles configurées. Les déclarations sans ambiguïté telles que « Je termine mon tour » font également avancer le tour avant transmission.
+
+Le moteur de reconnaissance navigateur tourne en mode **continuous**, puis redémarre automatiquement après la fin d'une session ou une absence de voix détectée (`no-speech`). Un silence n'est donc plus traité comme un échec définitif. Le statut coloré du micro distingue écoute, transcription, réponse de l'IA, reconnexion et erreur de permission/périphérique. En cas de messages `no-speech` répétés, vérifie le microphone sélectionné dans **Chrome → Paramètres → Confidentialité et sécurité → Paramètres des sites → Microphone**, ainsi que le périphérique d'entrée de Windows, et parle suffisamment près du micro. Accepter l'autorisation ne garantit pas qu'une entrée sonore soit captée.
+
+Pendant la lecture vocale de l'adversaire, **le microphone s'interrompt pour éviter que l'IA se réentende**. Il reprend ensuite automatiquement. La case **L'IA me répond à voix haute** permet de couper la synthèse vocale ; le texte des réponses reste toujours dans la discussion. Le bouton **■ Couper le micro** arrête immédiatement l'écoute. La capture vocale est mise en pause quand l'onglet devient invisible.
+
+**Confidentialité :** cette fonctionnalité utilise l'API Web Speech de Chrome/Edge. Selon le navigateur, **la transcription vocale peut utiliser un service Internet et y transmettre l'audio** ; elle n'est pas nécessairement hors ligne, même si le modèle Qwen3 de Riftbound est entièrement local et gratuit. Elle ne nécessite **ni clé API, ni abonnement, ni paiement par message**. Les navigateurs sans prise en charge Web Speech conservent le chat écrit.
 
 ## Contrôle du plateau par les annonces du joueur
 
