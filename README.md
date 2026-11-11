@@ -7,9 +7,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 **Site :** https://nitarii.github.io/Riftbound/
 
 **Téléchargement Windows 10/11 64 bits :**
-https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.8.exe
+https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.9.exe
 
-1. Télécharger puis lancer `RiftboundCompanion-v0.8.exe`.
+1. Télécharger puis lancer `RiftboundCompanion-v0.9.exe`.
 2. Dans l'onglet du site déjà ouvert, cliquer sur **Autoriser la connexion locale** lorsque le navigateur le demande. L'exécutable n'ouvre pas un nouvel onglet tout seul.
 3. Choisir la légende, le champion choisi, le champ de bataille et le deck de l'IA; démarrer la partie.
 4. À l'étape 4, cliquer **Activer l'accès et copier le prompt IA**, puis coller le texte dans une **conversation privée** avec l'agent souhaité. Si le navigateur ne permet pas la copie automatique, le prompt apparaît dans un champ sélectionnable.
