@@ -179,6 +179,10 @@ let chatItems=[],chatCursor=0,chatBusy=false,agentLastSeen=null,sendingChat=fals
 function renderChatStatus(){
  const label=$("chat-connection");
  if(!relay){label.textContent="Serveur déconnecté";label.dataset.status="offline";return;}
+ if(integratedAIStatus?.enabled){
+  label.textContent=integratedAIStatus.processing?"IA intégrée · réfléchit":"IA intégrée · prête";
+  label.dataset.status="online";return;
+ }
  const active=agentLastSeen&&Date.now()-agentLastSeen<30000;
  label.textContent=active?"Activité de l'agent détectée":remoteSession?.url?"Accès IA actif · en attente":"Aucun agent distant actif";
  label.dataset.status=active?"online":remoteSession?.url?"waiting":"offline";
@@ -296,8 +300,81 @@ else {
  };
 }
 setInterval(()=>{if(relay)syncChat();else renderChatStatus();},2500);
+setInterval(()=>{if(localAI()&&integratedAIStatus?.enabled)aiQuery();},8000);
 
 $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value))}catch(e){notify(e.message,true)}};
+let integratedAIStatus=null;
+const aiModels={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",compatible:""};
+const localAI=()=>Boolean(relay?.token&&/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(relay.url));
+function aiProviderFields(resetModel=false){
+ const provider=$("ai-provider").value;
+ $("ai-key-label").hidden=provider==="ollama"||provider==="lmstudio";
+ $("ai-endpoint-label").hidden=provider!=="compatible";
+ if(resetModel)$("ai-model").value=aiModels[provider]||"";
+ $("ai-provider-help").textContent=provider==="openai"?
+  "OpenAI API nécessite une clé et une facturation séparées de ChatGPT Plus.":
+  provider==="ollama"?"Lance Ollama (localhost:11434) et télécharge un modèle avant de jouer.":
+  provider==="lmstudio"?"Charge un modèle et active le serveur de LM Studio (localhost:1234).":
+  "Fournisseur HTTPS compatible avec /v1/chat/completions. Vérifie ses tarifs et sa confidentialité.";
+}
+function aiDisplay(message=""){
+ const active=!!integratedAIStatus?.enabled;
+ $("ai-disable").disabled=!active;
+ $("ai-save").textContent=active?"✓ IA activée · Enregistrer":"Activer l'IA intégrée";
+ $("ai-status").textContent=message||(active?
+  "✓ IA intégrée "+integratedAIStatus.model+" prête. Écris-lui directement dans la discussion.":
+  integratedAIStatus?.configured?"IA enregistrée mais désactivée.":"Configure ton modèle, puis active l'IA.");
+ if(integratedAIStatus?.lastError)$("ai-status").textContent+=" · "+integratedAIStatus.lastError;
+ renderChatStatus();
+}
+async function aiQuery(){
+ if(!localAI()){integratedAIStatus=null;aiDisplay("Connecte d'abord l'exécutable Windows.");return;}
+ try{
+  const response=await fetch(relay.url+"/api/ai/status",{...localFetchOptions(relay.url),
+   headers:{Authorization:"Bearer "+relay.token}});
+  if(!response.ok)throw Error("API indisponible");
+  const data=await response.json();integratedAIStatus=data;
+  if(data.configured){
+   $("ai-provider").value=data.provider;$("ai-model").value=data.model;
+   if(data.provider==="compatible")$("ai-endpoint").value=data.endpoint||"";
+   $("ai-key").value="";
+   $("ai-key").placeholder=data.hasKey?"Clé conservée (champ vide)":"Clé API";
+   aiProviderFields();
+   if(data.enabled){onboarding.prompt=true;saveOnboarding();}
+  }
+  aiDisplay();
+ }catch(e){aiDisplay("Impossible de lire l'état IA : "+e.message);}
+}
+async function aiPost(action,settings={}){
+ if(!localAI())throw Error("Connecte d'abord le module Windows.");
+ const response=await fetch(relay.url+"/api/ai/"+action,{...localFetchOptions(relay.url),
+  method:"POST",headers:{Authorization:"Bearer "+relay.token,"Content-Type":"application/json"},
+  body:JSON.stringify(settings)});
+ const data=await response.json();
+ if(!response.ok)throw Error(data.error||"Impossible de configurer l'IA.");
+ return data;
+}
+$("ai-provider").onchange=()=>aiProviderFields(true);
+$("ai-save").onclick=async()=>{
+ $("ai-save").disabled=true;
+ try{
+  integratedAIStatus=await aiPost("config",{
+   provider:$("ai-provider").value,model:$("ai-model").value.trim(),
+   endpoint:$("ai-endpoint").value.trim(),apiKey:$("ai-key").value.trim(),enabled:true
+  });
+  $("ai-key").value="";
+  onboarding.prompt=true;saveOnboarding();aiDisplay();renderWelcome();
+  notify("IA intégrée activée : elle recevra tes messages dans le chat.");
+  showGame("setup");
+ }catch(e){aiDisplay("Impossible d'activer l'IA : "+e.message);notify(e.message,true);}
+ finally{$("ai-save").disabled=false;}
+};
+$("ai-disable").onclick=async()=>{
+ try{integratedAIStatus=await aiPost("disable");aiDisplay();notify("IA intégrée désactivée.");}
+ catch(e){notify(e.message,true);}
+};
+$("ai-open-board").onclick=()=>showGame("setup");
+aiProviderFields(true);
 let remoteSession=null;
 let remoteStarting=false;
 let remoteCopyArmed=null;
@@ -559,7 +636,8 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
- remoteSession=null;clearManualPrompt();updateRemoteUI();resetChatView();notify("Relais déconnecté.");renderWelcome();
+ remoteSession=null;integratedAIStatus=null;clearManualPrompt();updateRemoteUI();
+ resetChatView();aiDisplay("Serveur déconnecté.");notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
  if(relay!==session)return;
@@ -627,7 +705,7 @@ async function connectRelay(){
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
-  queueMicrotask(()=>checkRemoteSession());
+  queueMicrotask(()=>{checkRemoteSession();aiQuery();});
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
