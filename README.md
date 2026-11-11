@@ -31,6 +31,12 @@ Un deuxième mode **« Essayer sans installer »** permet un aperçu du plateau 
 
 GitHub Pages peut afficher le plateau, mais **ne peut pas exécuter le serveur local ni donner automatiquement des outils réseau à une IA**. L'exécutable contient tout le plateau et son serveur dans un seul fichier, avec les mêmes fonctionnalités. La page GitHub Pages peut se connecter au programme local après l'autorisation du navigateur; tu n'as normalement ni adresse ni jeton à saisir. Pour utiliser un **agent IA extérieur**, il faut encore lui donner un accès HTTP explicitement autorisé au serveur (un tunnel HTTPS facultatif, avec protection par jeton), et l'agent doit posséder des outils de navigation ou d'appel HTTP. Un simple chat avec un lien ne suffit pas.
 
+## Correction du sélecteur de personnages (11 novembre 2026)
+
+Le champ de Légende comprend désormais les **noms de champions**, même quand les cartes sont indexées sous leur seul titre. Par exemple, taper **Shen** retrouve « Shen, Eye of Twilight » ; taper **Lillia** retrouve « Lillia, Bashful Bloom ». Après sélection, les champions compatibles apparaissent automatiquement (par ex. « Lillia, Fae Fawn » et « Lillia, Protector of Dreams »), en utilisant le tag de champion et les domaines présents dans les données Riot. Les cartes incompatibles ne sont pas proposées comme Champions choisis.
+
+Les miniatures des cartes déjà choisies sont désormais forcées à **46 × 64 px** pour ne plus déformer le formulaire. Le cache local du catalogue a changé de version afin de recharger les informations de type « Champion » et les tags de personnage manquants dans l'ancien import. Le CSS et le script portent également un numéro de version, pour éviter un affichage périmé.
+
 ## Sélection de cartes et decks disponibles
 
 La création de partie n'utilise **plus de listes HTML interminables**. Les trois champs (Légende, Champion choisi, Champ de bataille) sont des **recherches compactes avec aperçu des cartes** et sept résultats affichés au maximum. Les accents sont ignorés pour la recherche; flèches et Entrée fonctionnent au clavier. Quand une légende est choisie, le champ Champion propose uniquement les unités portant le nom du champion de cette légende. Un clic confirme visuellement la carte retenue. Les exemples en gris sont sélectionnés aléatoirement parmi les cartes du catalogue lors du chargement : ils ne préremplissent pas la sélection.
