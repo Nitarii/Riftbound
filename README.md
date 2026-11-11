@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.17.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.18.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.17.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+1. Télécharge et lance `RiftboundCompanion-v0.18.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,14 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## Compréhension FR / EN, fautes et langage naturel (v0.18)
+- Le compagnon comprend les annonces françaises, anglaises et mixtes dans la même phrase, y compris les variations de syntaxe, les accents manquants, les fautes courantes et certaines erreurs de transcription vocale.
+- Les verbes du jeu, les quantités et les noms de cartes sont interprétés séparément. Les correspondances approximatives de noms de cartes sont limitées et doivent être non ambiguës ; sinon l'IA demande le nom exact, sans modifier le plateau.
+- Exemples : « Je chanel 2 runnes », « I draw une carte », « j'exaust une rune to play Loyal Porro in my base » (Loyal Poro uniquement si la correspondance est fiable).
+- Les questions, hypothèses et négations ne déclenchent pas une action physique automatique.
+- La langue de réponse est choisie d'après la formulation dominante du message, même s'il contient des termes dans les deux langues. Les noms de cartes sont préservés.
+- Les règles, le paiement et les limites de connaissance du compagnon restent prioritaires : aucune correction orthographique ne rend légale une action interdite.
 
 ## Table de jeu v0.17 — actions et lisibilité
 - Les annonces explicites sont d'abord vérifiées par le serveur : canalisation des runes, pioche, épuisement de runes, placement d'une unité identifiée dans le catalogue et fin de tour. Les actions trop ambiguës ne sont pas exécutées automatiquement.

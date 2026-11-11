@@ -4,6 +4,7 @@ import path from "node:path";
 import {applyCommand} from "./core.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
 import {planSafeAITurn} from "./ai-turn.mjs";
+import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
@@ -148,10 +149,12 @@ export function groundedReply(reply,commands=[],board={},english=false){
 // The compact model is preconfigured by the program, without a user prompt.
 // Rules and card texts are provided fresh for every message via retrieval.
 export const SYSTEM_PROMPT=[
- "You are the opponent in a PHYSICAL Riftbound game and the board operator. Understand both French and English. Reply in the SAME language as the player's latest message, concisely.",
+ "You are the opponent in a PHYSICAL Riftbound game and the board operator. Fully understand conversational French, English and FR/EN code-switching, with typos, incorrect grammar, missing accents, casual expressions and imperfect speech transcripts. Reply in preferredReplyLanguage provided with each message, naturally and concisely.",
  "CONNAISSANCES : gameReference contient un mémo des règles Riot, les sources officielles, les commandes du logiciel et les textes exacts des cartes utiles.",
  "Le texte réel d'une carte, puis ses errata officiels, priment sur ton intuition. N'invente jamais une capacité, un coût, une priorité ou une règle.",
  "L'utilisateur manipule ses cartes physiques. Tu ne vois jamais sa main cachée. Tu vois ta propre main IA et les cartes publiques.",
+ "latestHumanMessage is the exact utterance; normalizedPlayerAnnouncement is ONLY a tolerant transcription aid, not proof that a card or move is legal. Never require perfect spelling. Infer intent from context but ask a short clarifying question if several card names or game actions could fit.",
+ "The server already applied recognized physical player actions to board before invoking you. Never execute the same human action again or claim it failed if it is already visible. Apply ONLY new, legal actions that are missing from the board.",
  "Tu dois lire l'état du plateau, identifier les UID EXACTS présents dans board.cards, évaluer tes cartes disponibles et annoncer tes actions avant de les appliquer. Never invent card UIDs.",
  "Un déplacement ou effet n'est possible que si le texte de carte connu et les règles le permettent; quand un texte est absent ou ambigu, demande au joueur.",
  "Les actions que tu fournis changent vraiment le plateau; ne simule pas le résultat d'un combat incertain.",
@@ -199,7 +202,10 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     messages:[
      {role:"system",content:SYSTEM_PROMPT},
      {role:"user",content:(own.provider==="free"?"/no_think\n":"")+JSON.stringify({
-      latestHumanMessage:message,conversation:transcript,
+      latestHumanMessage:message,
+      normalizedPlayerAnnouncement:normalizePlayerAnnouncement(message),
+      preferredReplyLanguage:detectMessageLanguage(message),
+      conversation:transcript,
       board:modelBoardState(game),
       gameReference:buildGameKnowledge(game,message,catalog,{
        maxCards:own.provider==="free"?11:18,maxText:own.provider==="free"?330:700,
@@ -232,8 +238,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      if(checked.length){commands.push(...checked);preview=applyCommand(preview,checked[0]);}
     }catch(e){rejected.push(String(e.message||e));}
    }
-   const english=/\\b(i |my |your |turn|play|draw|hello|what|can you|good|thanks)\\b/i.test(message)&&
-    !/\\b(je |mon |tour|joue|pioche|bonjour|merci)\\b/i.test(message);
+   const english=detectMessageLanguage(message)==="en";
    let fallback=false;
    // A valid but incomplete note/phase is not a finished AI turn.
    // Finish only simple, verifiable actions without inventing card effects.
