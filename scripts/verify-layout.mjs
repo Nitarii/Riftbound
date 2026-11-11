@@ -75,6 +75,34 @@ try{
   await page.evaluate(()=>document.body.classList.remove("home-visible"));
   await page.waitForTimeout(180);
   let result=await evaluateLayout(page,viewport.width>890);
+  const structure=await page.evaluate(()=>{
+   const ai=document.querySelector("#game-app .side.opponent .playmat");
+   const player=document.querySelector("#game-app .side.player .playmat");
+   const rune=document.querySelector("#human-runes").closest(".panel").getBoundingClientRect();
+   const legend=document.querySelector("#human-legend").closest(".panel").getBoundingClientRect();
+   const history=document.querySelector("#game-app .live-history").getBoundingClientRect();
+   const tools=document.querySelector("#game-app #tab-setup").getBoundingClientRect();
+   return {
+    ai:getComputedStyle(ai).gridTemplateAreas,
+    player:getComputedStyle(player).gridTemplateAreas,
+    inlineTyping:document.querySelector("#chat-typing").parentElement.id==="chat-messages",
+    autoSend:document.querySelector("#voice-auto-send").checked,
+    hasJump:!!document.querySelector("#chat-jump"),
+    runeWidth:rune.width,legendWidth:legend.width,
+    historyHeight:history.height,toolsHeight:tools.height
+   };
+  });
+  ensure(structure.ai.includes('"runes runes runes hand trash"')&&
+    structure.player.includes('"legend champion base base piles"'),
+    "Both physical playmats must mirror each other");
+  ensure(structure.inlineTyping&&structure.autoSend&&structure.hasJump,
+    "Messenger typing, jump and hands-free controls missing");
+  if(viewport.width>=1200){
+   ensure(structure.runeWidth>structure.legendWidth*2,
+    "Rune row too narrow for visible cards");
+   ensure(structure.historyHeight>structure.toolsHeight,
+    "History should be larger than tool panel");
+  }
   ensure(await page.locator("#language-select").count()===1,"Missing language selector");
   await page.locator("#language-select").selectOption("en");
   ensure(await page.locator("html").getAttribute("lang")==="en","Language toggle failed");

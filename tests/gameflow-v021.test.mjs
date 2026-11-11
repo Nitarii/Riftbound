@@ -124,3 +124,17 @@ test("UI has voice auto-send toggle, in-thread typing and jump to new messages",
  assert.match(css,/chat-log-wrap/);
  assert.match(css,/voice-auto-send/);
 });
+
+test("two paid units spoken in one sentence are applied in order or rejected atomically",()=>{
+ let s=setup();
+ const speech="je canalise deux runes je pioche une carte j'en exhaust une et je joue loyal poro dans ma base puis j'en exhaust une et je joue loyal poro dans ma base";
+ const result=planPlayerSequence(speech,s,catalog);
+ assert.equal(result.error,undefined,result.error);
+ assert.equal(result.commands.filter(x=>x.type==="add").length,2);
+ for(const cmd of result.commands)s=applyCommand(s,cmd);
+ assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="base"&&c.name==="Loyal Poro").length,2);
+ assert.equal(s.cards.filter(c=>c.zone==="runes"&&c.exhausted).length,2);
+ const invalid=planPlayerSequence("je joue loyal poro dans ma base et je joue loyal poro dans ma base",setup(),catalog);
+ assert.ok(invalid.error);
+ assert.equal(invalid.commands.length,0);
+});

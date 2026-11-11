@@ -46,6 +46,31 @@ function extractMovement(text){
  if(m&& !/\bbase\b/.test(m[2]))return {full:m[0],field:m[2],unit:m[1],kind:"move"};
  return null;
 }
+// Parse repeated "I play / je joue" clauses in order, pairing each payment
+// with the card it pays for. The full batch remains atomic in the relay.
+function planBaseSequence(message,state,catalog){
+ const t=normalizePlayerAnnouncement(message);
+ const plays=[...t.matchAll(/\b(?:je|i)\s+(?:joue|play|pose|place|mets)\b/g)];
+ if(plays.length<2)return planHumanAnnouncement(message,state,catalog);
+ const bounds=[0];
+ for(let i=1;i<plays.length;i++){
+  const previous=plays[i-1].index,next=plays[i].index;
+  const between=t.slice(previous,next);
+  const spends=[...between.matchAll(/\b(?:j'en|j'|je|i)\s*(?:exhaust|epuise|tap|spend|utilise)\b/g)];
+  bounds.push(spends.length?previous+spends.at(-1).index:next);
+ }
+ bounds.push(t.length);
+ const commands=[];let preview=state;
+ for(let i=0;i<bounds.length-1;i++){
+  const chunk=t.slice(bounds[i],bounds[i+1]).replace(/^(?:et|and|puis|then)\s+/,"")
+   .replace(/\s+(?:et|and|puis|then)\s*$/,"").trim();
+  if(!chunk)continue;
+  const plan=planHumanAnnouncement(chunk,preview,catalog);
+  if(plan.error)return {...plan,commands:[]};
+  for(const command of plan.commands||[]){preview=applyCommand(preview,command);commands.push(command);}
+ }
+ return {commands,recognized:commands.length>0,summary:preview.message};
+}
 export function planPlayerSequence(message,state,catalog=[]){
  const text=normalizePlayerAnnouncement(message).slice(0,1200);
  if(!text||!state?.started)return {commands:[],recognized:false};
@@ -53,13 +78,13 @@ export function planPlayerSequence(message,state,catalog=[]){
  if(/[?]/.test(String(message))||/^(?:si je|if i|can i|est ce que|comment|how|pourquoi|why)\b/.test(text))
   return {commands:[],recognized:false};
  const movement=extractMovement(text);
- if(!movement)return planHumanAnnouncement(message,state,catalog);
+ if(!movement)return planBaseSequence(message,state,catalog);
  if(state.active!=="human")return {commands:[],recognized:true,error:"Ce n'est pas ton tour.",errorEN:"It's not your turn."};
  const wantsEnd=endTurn.test(text);
  const remainder=text.replace(movement.full," ").replace(endTurn," ").replace(/\b(?:et|and|puis|then)\s*$/," ").trim();
  let preliminary={commands:[],recognized:false},preview=state;
  if(remainder){
-  preliminary=planHumanAnnouncement(remainder,state,catalog);
+  preliminary=planBaseSequence(remainder,state,catalog);
   if(preliminary.error)return preliminary;
   for(const cmd of preliminary.commands||[])preview=applyCommand(preview,cmd);
  }
