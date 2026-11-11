@@ -248,6 +248,9 @@ async function copyAgentPrompt(){
    "Ne réclame pas ma main cachée. Attends mes déclarations de jeu oralement ou par écrit.",
    "Ne suppose jamais l'existence d'une carte ou la résolution d'un effet que tu n'as pas vérifié dans les règles officielles.",
    temporaryAccess?"URL HTTPS temporaire de mon plateau : "+base:"Mon plateau est local : "+base+". Cette adresse n'est pas directement accessible à une IA extérieure.",
+   temporaryAccess?"Console web à ouvrir avec un navigateur agent : "+base+"/agent/#access="+encodeURIComponent(remoteSession.agentToken):
+      "Aucune console distante n'est active. Un agent en environnement cloud ne peut pas utiliser localhost.",
+   "Si tu sais naviguer dans des pages web et cliquer sur des boutons, ouvre la console agent ci-dessus : tu pourras y lire le plateau et envoyer tes actions.",
    "Endpoints autorisés : GET /api/guide, GET /api/state, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
    temporaryAccess?"Authentification temporaire pour CETTE session : Authorization: Bearer "+remoteSession.agentToken:
       "Pour un accès direct, demande un lien HTTPS distant temporaire. N'utilise pas 127.0.0.1 dans un environnement cloud.",
