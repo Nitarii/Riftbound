@@ -24,7 +24,7 @@ export function createVoiceConversation({
 }={}){
  let enabled=false,current=null,epoch=0,seenFinal=new Set();
  let finalParts=[],interim="",flushTimer=null,restartTimer=null;
- let speaking=false,speechEnabled=true,spokenQueue=[],currentSpeech=null;
+ let speaking=false,speechEnabled=true,spokenQueue=[],currentSpeech=null,speechTimer=null;
  let noSpeech=0,networkFailures=0,hidden=false,phase="off",detail="";
  const state=()=>({enabled,phase,detail,speaking,listening:Boolean(current),
   speechEnabled,available:!!Recognition,noSpeech});
@@ -33,6 +33,7 @@ export function createVoiceConversation({
  };
  const clearFlush=()=>{if(flushTimer!==null)clearTimer(flushTimer);flushTimer=null;};
  const clearRestart=()=>{if(restartTimer!==null)clearTimer(restartTimer);restartTimer=null;};
+ const clearSpeechTimer=()=>{if(speechTimer!==null)clearTimer(speechTimer);speechTimer=null;};
  const preview=()=>onPreview(clean([...finalParts,interim].filter(Boolean).join(" ")).slice(0,1200));
  function flush(){
   clearFlush();
@@ -151,7 +152,7 @@ export function createVoiceConversation({
   return enabled;
  }
  function stop(){
-  enabled=false;clearFlush();clearRestart();
+  enabled=false;clearFlush();clearRestart();clearSpeechTimer();
   const rec=current;current=null;epoch++;
   finalParts=[];interim="";preview();
   spokenQueue=[];speaking=false;currentSpeech=null;
@@ -166,7 +167,10 @@ export function createVoiceConversation({
   }
   const text=spokenQueue.shift();
   speaking=true;clearRestart();
-  const rec=current;
+  // Detach the old recognizer immediately: some Chrome versions omit its
+  // final onend event after an abort, which would otherwise block resuming.
+  const rec=current;current=null;epoch++;
+  if(finalParts.length)flush();
   if(rec)try{rec.abort();}catch{}
   let utterance;
   try{
@@ -180,7 +184,7 @@ export function createVoiceConversation({
    let ended=false;
    const finish=()=>{
     if(ended||currentSpeech!==utterance)return;
-    ended=true;currentSpeech=null;speaking=false;
+    ended=true;clearSpeechTimer();currentSpeech=null;speaking=false;
     if(!enabled)return;
     if(spokenQueue.length)playNext();
     else retry(450);
@@ -188,9 +192,14 @@ export function createVoiceConversation({
    utterance.onend=finish;
    utterance.onerror=finish;
    emit("speaking","L'IA te répond à voix haute. Le micro reprendra juste après.");
+   // A failed speechSynthesis onend event must never mute the microphone forever.
+   speechTimer=setTimer(()=>{
+    try{synthesis.cancel();}catch{}
+    finish();
+   },Math.min(85000,Math.max(12000,text.length*130)));
    synthesis.speak(utterance);
   }catch{
-   speaking=false;currentSpeech=null;
+   clearSpeechTimer();speaking=false;currentSpeech=null;
    emit("waiting","La lecture vocale est indisponible ; la réponse reste dans la discussion.");
    retry(300);
   }
@@ -205,7 +214,7 @@ export function createVoiceConversation({
  function setSpeechEnabled(value){
   speechEnabled=Boolean(value);
   if(!speechEnabled){
-   spokenQueue=[];
+   spokenQueue=[];clearSpeechTimer();
    if(speaking&&synthesis)try{synthesis.cancel();}catch{}
    speaking=false;currentSpeech=null;
    if(enabled&&!hidden)retry(200);
@@ -216,7 +225,9 @@ export function createVoiceConversation({
   hidden=Boolean(value);
   if(!enabled)return;
   if(hidden){
-   clearRestart();clearFlush();
+   clearRestart();
+   if(finalParts.length)flush();
+   else clearFlush();
    const rec=current;current=null;epoch++;
    if(rec)try{rec.abort();}catch{}
    emit("waiting","Écoute en pause : reviens sur l'onglet Riftbound pour reprendre.");
