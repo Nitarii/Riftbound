@@ -122,7 +122,7 @@ const guide={
  },
  allCommandTypes:COMMANDS
 };
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","style.css"]);
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","style.css","assets/companion-icon.svg"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -131,7 +131,7 @@ function serveFile(req,res,url){
  const name=requested.slice(1);
  if(!WEB_ASSETS.has(name)){msg(res,404,"Not found",req);return;}
  const ext=path.extname(name);
- const mime=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":"text/plain";
+ const mime=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":ext===".svg"?"image/svg+xml":"text/plain";
  try{
   let bytes;
   if(packaged)bytes=Buffer.from(sea.getAsset(name));
