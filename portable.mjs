@@ -134,38 +134,14 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "Remove-Item -LiteralPath $m -Force",
   "try{Remove-Item -LiteralPath $r -ErrorAction SilentlyContinue}catch{}"
  ];
-
- const legacy=legacyDataFolder();
- if(resolved(legacy)!==resolved(root)&&!inside(resolved(legacy),resolved(root))){
-  // Cleanup is scoped to the fixed folder created by older versions only.
+ const old=legacyDataFolder();
+ if(resolved(old)!==resolved(root)&&!inside(resolved(old),resolved(root))){
   lines.push(
-   "$old="+quoted(legacy),
+   "$old="+quoted(old),
    "if(Test-Path -LiteralPath $old){",
    "foreach($n in @("+[...OWNED_DIRS,...OWNED_FILES].map(quoted).join(",")+")){"+
     "$p=Join-Path $old $n;if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Recurse -Force}}",
-   "Get-ChildItem -LiteralPath $old -File | Where-Object {$_.Name -match '^cloudflared-[0-9a-f]{16}[.]exe({root,exePath,staged,pid=process.pid}){
- const info=readMarker(root);
- if(!inside(resolved(root),resolved(staged))||resolved(staged)===resolved(exePath))
-  throw Error("Mise à jour hors du dossier choisi refusée.");
- return [
-  "$ErrorActionPreference='Stop'",
-  "$r="+quoted(root),"$exe="+quoted(exePath),"$staged="+quoted(staged),
-  "try{Wait-Process -Id "+Number(pid)+" -Timeout 50 -ErrorAction SilentlyContinue}catch{}",
-  "$m=Join-Path $r "+quoted(INSTALL_MARKER),
-  "if(!(Test-Path -LiteralPath $m)){exit 4}",
-  "$data=Get-Content -LiteralPath $m -Raw | ConvertFrom-Json",
-  "if($data.id -ne "+quoted(INSTALL_ID)+" -or $data.instance -ne "+quoted(info.instance)+" -or $data.path -ne $r){exit 5}",
-  "if(!(Test-Path -LiteralPath $staged)){exit 6}",
-  "Move-Item -LiteralPath $staged -Destination $exe -Force",
-  "Start-Process -FilePath $exe -WorkingDirectory $r"
- ].join("\n");
-}
-export function launchMaintenance(script,{env=process.env,spawnImpl=spawn}={}){
- const child=spawnImpl("powershell.exe",["-NoProfile","-NonInteractive","-EncodedCommand",
-  powershellEncoded(script)],{detached:true,windowsHide:true,stdio:"ignore",env});
- child.unref?.();return true;
-}
-} | ForEach-Object {Remove-Item -LiteralPath $_.FullName -Force}",
+   "Get-ChildItem -LiteralPath $old -File | Where-Object {$_.Name -match '^cloudflared-[0-9a-f]{16}[.]exe$'} | ForEach-Object {Remove-Item -LiteralPath $_.FullName -Force}",
    "try{Remove-Item -LiteralPath $old -ErrorAction SilentlyContinue}catch{}",
    "}"
   );
