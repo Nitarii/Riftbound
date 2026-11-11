@@ -51,8 +51,20 @@ test("official 40-card precons reconstruct exactly and set aside champion",()=>{
    assert.equal(s.cards.filter(c=>c.zone==="champion"&&c.owner==="ai").length,1);
  }
 });
+test("all printed preconstructed decks have expected champions and 40 + 12 cards",()=>{
+ assert.equal(PRECONS.length,9);
+ const ids=new Set(PRECONS.map(p=>p.id));
+ for(const id of ["jinx","viktor","lee-sin","fiora","rumble","vi","vex","shen","zed"])assert.ok(ids.has(id));
+ for(const p of PRECONS){
+  assert.equal(p.main.reduce((n,[,qty])=>n+qty,0),40,p.id);
+  assert.equal(p.runes.reduce((n,[,qty])=>n+qty,0),12,p.id);
+  assert.equal(p.battlefields.length,3,p.id);
+ }
+ const jinx=PRECONS.find(p=>p.id==="jinx");
+ assert.match(jinx.warning,/interdites/);
+});
 test("random precon selection is bounded",()=>{
- assert.equal(resolvePrecon(fakeCatalog(),"random",()=>0).id,"fiora");
+ assert.equal(resolvePrecon(fakeCatalog(),"random",()=>0).id,"jinx");
  assert.equal(resolvePrecon(fakeCatalog(),"random",()=>0.99).id,"rumble");
 });
 test("French declarations produce safe, explicit bookkeeping commands",()=>{
