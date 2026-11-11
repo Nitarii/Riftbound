@@ -12,6 +12,7 @@ test("integrated AI supports three fixed providers and rejects unsafe custom end
  assert.equal(a.apiKey,"test-key");
  assert.equal(validateAIConfig({provider:"ollama",model:"gpt-oss:20b"}).endpoint,"http://127.0.0.1:11434/v1");
  assert.equal(validateAIConfig({provider:"lmstudio",model:"my-model"}).apiKey,"");
+ assert.equal(validateAIConfig({provider:"free",model:"qwen3:0.6b"}).endpoint,"http://127.0.0.1:11435/v1");
  assert.equal(validateAIConfig({provider:"compatible",model:"openai/gpt-4o-mini",apiKey:"x",
   endpoint:"https://openrouter.ai/api/v1"}).endpoint,"https://openrouter.ai/api/v1");
  assert.throws(()=>validateAIConfig({provider:"openai",model:"gpt-4.1-mini"}),/Clé API/);
