@@ -2,7 +2,7 @@ import {createState,applyCommand,PHASES} from "./core.mjs";
 import {loadCatalog,importCatalog,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
-import {filteredPickerCards,randomExampleCards} from "./picker.mjs";
+import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName,isChosenChampion} from "./picker.mjs";
 const $=id=>document.getElementById(id);
 // Declare the loopback destination so Chrome/Edge can request the right permission.
 // Browsers that do not implement the option simply ignore it.
@@ -409,24 +409,41 @@ function hidePicker(id){
  $(id).removeAttribute("aria-activedescendant");
  if(pickerOpen.id===id)pickerOpen.id=null;
 }
-function markPickerSelection(kind,card){
+function markPickerSelection(kind,card,advance=true){
  const id="home-human-"+kind;
  pickerSelected.set(id,card);
- const input=$(id);input.value=card.name;input.setAttribute("aria-expanded","false");
+ const input=$(id);
+ const displayName=kind==="legend"?legendSearchName(card):card.name;
+ input.value=displayName;
+ input.setAttribute("aria-expanded","false");
  const container=$("picker-"+kind+"-selected");
- container.innerHTML='<img loading="lazy" alt="" src="'+esc(imageForDisplay(card.image))+'" data-fallback="'+esc(imageForDisplay(card.imageFallback))+'"><div><strong>'+esc(card.name)+'</strong><span>'+esc(card.code)+' · '+esc(card.set||card.type)+'</span></div><b aria-label="Carte choisie">✓</b>';
+ // Explicit image dimensions protect the layout even if a stale stylesheet is cached.
+ const preview=card.image?'<img loading="lazy" decoding="async" width="46" height="64" alt="" src="'+
+  esc(imageForDisplay(card.image))+'" data-fallback="'+esc(imageForDisplay(card.imageFallback))+'">':
+  '<span class="picker-selected-placeholder" aria-hidden="true">✦</span>';
+ container.innerHTML=preview+
+  '<div class="picker-selected-copy"><strong>'+esc(displayName)+'</strong><span>'+esc(card.code)+' · '+esc(card.set||card.type)+'</span></div>'+
+  '<b class="picker-selected-check" aria-label="Carte choisie">✓</b>';
  container.classList.add("is-selected");
  hidePicker(id);
  if(kind==="legend"){
-  // A champion must belong to the chosen Legend's champion, not an arbitrary unit.
   pickerSelected.delete("home-human-champion");
   const champion=$("home-human-champion");
   champion.value="";
   champion.disabled=false;
-  champion.placeholder="Ex. "+card.name.split(",")[0]+", …";
+  champion.placeholder="Cherche "+championIdentity(card)+"…";
   const preview=$("picker-champion-selected");
   preview.innerHTML="";preview.classList.remove("is-selected");
   hidePicker("home-human-champion");
+  if(advance){
+   // Show the selected Legend's compatible champions immediately.
+   queueMicrotask(()=>{champion.focus({preventScroll:true});renderPicker("champion","");});
+  }
+ }else if(kind==="champion"&&advance){
+  const battlefield=$("home-human-battlefield");
+  if(!pickerSelected.has("home-human-battlefield")){
+   queueMicrotask(()=>battlefield.focus({preventScroll:true}));
+  }
  }
 }
 function renderPicker(kind,term=""){
@@ -438,12 +455,14 @@ function renderPicker(kind,term=""){
  if(!catalog.length){
   target.innerHTML='<div class="picker-empty">Catalogue en cours de chargement…</div>';
  }else if(!results.length){
-  target.innerHTML='<div class="picker-empty">'+(kind==="champion"?"Aucune carte champion correspondante. Vérifie la légende.":"Aucune carte trouvée. Essaie un autre nom.")+'</div>';
+  target.innerHTML='<div class="picker-empty">'+(kind==="champion"?
+  "Aucun champion correspondant dans ce catalogue. Actualise les cartes si nécessaire.":
+  "Aucune carte trouvée. Essaie le nom du personnage (ex. Shen, Lillia).")+'</div>';
  }else{
   target.innerHTML=results.map((c,i)=>{
    const preview=c.image?'<img loading="lazy" src="'+esc(imageForDisplay(c.image))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback))+'" alt="">':'<span class="picker-no-image">✦</span>';
    return '<button type="button" class="picker-result '+(i===0?"is-active":"")+'" role="option" aria-selected="'+(i===0)+'" data-index="'+i+'" id="picker-option-'+kind+'-'+i+'">'+preview+
-    '<span class="picker-result-text"><strong>'+esc(c.name)+'</strong><small>'+esc(c.set||c.type)+' · '+esc(c.code)+'</small></span><span class="picker-result-pick">Choisir</span></button>';
+    '<span class="picker-result-text"><strong>'+esc(kind==="legend"?legendSearchName(c):c.name)+'</strong><small>'+esc(c.set||c.type)+' · '+esc(c.code)+'</small></span><span class="picker-result-pick">Choisir</span></button>';
   }).join("");
  }
  target.hidden=false;input.setAttribute("aria-expanded","true");
@@ -471,7 +490,7 @@ function initCardPickers(){
   });
   input.addEventListener("input",()=>{
    const original=pickerSelected.get(id);
-   if(!original||original.name!==input.value){
+   if(!original||(kind==="legend"?legendSearchName(original):original.name)!==input.value){
     pickerSelected.delete(id);
     const display=$("picker-"+kind+"-selected");
     display.innerHTML="";display.classList.remove("is-selected");
@@ -499,7 +518,7 @@ function initCardPickers(){
    const option=event.target.closest("button[data-index]");
    if(!option)return;
    const card=pickerOpen.id===id?pickerOpen.results[Number(option.dataset.index)]:null;
-   if(card){markPickerSelection(kind,card);input.focus({preventScroll:true});hidePicker(id);}
+   if(card){markPickerSelection(kind,card);}
   });
  }
  document.addEventListener("pointerdown",event=>{
@@ -510,7 +529,7 @@ function fillHomeCardSuggestions(){
  if(!catalog.length){$("home-catalog-count").textContent="Catalogue indisponible : réessaye ou importe un fichier JSON depuis Catalogue.";return;}
  const examples=randomExampleCards(catalog);
  const placeholder=(id,card,pre)=>{
-  if(!$(id).value&&card)$(id).placeholder=pre+card.name;
+  if(!$(id).value&&card)$(id).placeholder=pre+(id==="home-human-legend"?legendSearchName(card):card.name);
  };
  placeholder("home-human-legend",examples.legend,"Ex. ");
  placeholder("home-human-battlefield",examples.battlefield,"Ex. ");
@@ -522,18 +541,24 @@ function fillHomeCardSuggestions(){
   battlefield:state.battlefields?.[0]?.card
  };
  if(!pickerSelected.size){
-  if(selected.legend)markPickerSelection("legend",selected.legend);
-  if(selected.champion)markPickerSelection("champion",selected.champion);
-  if(selected.battlefield)markPickerSelection("battlefield",selected.battlefield);
+  if(selected.legend)markPickerSelection("legend",selected.legend,false);
+  if(selected.champion&&isChosenChampion(selected.champion,selected.legend))markPickerSelection("champion",selected.champion,false);
+  if(selected.battlefield)markPickerSelection("battlefield",selected.battlefield,false);
  }
 }
 function homeCard(id,type){
  const chosen=pickerSelected.get(id);
- if(chosen&&chosen.name===$(id).value)return chosen;
+ if(chosen&&(type==="legend"?legendSearchName(chosen):chosen.name)===$(id).value){
+  if(type==="champion"&&!isChosenChampion(chosen,selectedLegend()))
+   throw Error("Ce champion ne correspond pas à ta légende.");
+  return chosen;
+ }
  const entered=$(id).value.trim().toLowerCase();
  const matches=filteredPickerCards(catalog,type,entered,type==="champion"?selectedLegend():null,10);
- const exact=matches.find(c=>c.name.toLowerCase()===entered||c.code.toLowerCase()===entered);
- if(exact){markPickerSelection(type,exact);return exact;}
+ const exact=matches.find(c=>c.name.toLowerCase()===entered||
+  (type==="legend"&&legendSearchName(c).toLowerCase()===entered)||
+  c.code.toLowerCase()===entered);
+ if(exact){markPickerSelection(type,exact,false);return exact;}
  throw Error("Choisis une carte proposée pour "+(type==="legend"?"ta légende":type==="champion"?"ton champion":"ton champ de bataille")+".");
 }
 function renderDeckChoices(){
