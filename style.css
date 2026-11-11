@@ -1081,7 +1081,7 @@ body:not(.home-visible):has(#game-app:fullscreen)>header{display:none}
 }
 #game-app .rune-pile .pile-back{color:#b1e4c9;border-color:#4c9c85}
 #game-app .pile-label{font-size:8px;line-height:1.25;color:#d2e1e1;overflow-wrap:anywhere}
-#game-app.history-collapsed{
+body:not(.home-visible) #game-app.history-collapsed{
  grid-template-columns:45px minmax(0,1fr) clamp(282px,24vw,365px);
 }
 #game-app .live-history-heading #drawer-collapse{
@@ -1120,7 +1120,7 @@ body:not(.home-visible):has(#game-app:fullscreen)>header{display:none}
 @keyframes riftbound-card-enter{from{opacity:.35;transform:translateY(-15px) scale(.87)}to{opacity:1;transform:translateY(0) scale(1)}}
 .language-toggle select{background:#172b36;border:1px solid #6e765e;border-radius:5px;color:#e9d6a9;padding:5px 8px;font-weight:700}
 @media(max-width:1300px) and (min-width:891px){
- #game-app.history-collapsed{grid-template-columns:42px minmax(0,1fr) clamp(235px,24vw,310px)}
+ body:not(.home-visible) #game-app.history-collapsed{grid-template-columns:42px minmax(0,1fr) clamp(235px,24vw,310px)}
 }
 @media(max-width:1100px){
  #game-app .board>.side .rail{grid-template-columns:repeat(2,minmax(34px,calc(var(--game-card-width) + 8px))) minmax(58px,1fr) minmax(48px,70px) 58px}
@@ -1129,7 +1129,7 @@ body:not(.home-visible):has(#game-app:fullscreen)>header{display:none}
  #game-app .pile-label{font-size:7px}
 }
 @media(max-width:890px){
- #game-app.history-collapsed{grid-template-columns:minmax(0,1fr)}
+ body:not(.home-visible) #game-app.history-collapsed{grid-template-columns:minmax(0,1fr)}
  #game-app.history-collapsed .bottom>.drawer{padding:8px}
  #game-app .board>.side .rail{grid-template-columns:repeat(2,minmax(47px,calc(var(--game-card-width) + 12px))) minmax(68px,1fr) 70px 64px}
 }
