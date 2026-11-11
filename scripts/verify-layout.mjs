@@ -112,7 +112,8 @@ try{
      el.append(title);return el;
     };
     for(const id of ["ai-legend","ai-champion","human-legend","human-champion",
-      "ai-hand","human-base","human-hand","ai-runes","human-runes","ai-trash","human-trash"]){
+      "ai-hand","human-base","human-hand","ai-runes","human-runes","ai-trash","human-trash",
+      "bf-image-0","bf-image-1","units-0","units-1"]){
      const target=document.getElementById(id);
      if(!target)continue;
      const tapped=/runes|base/.test(id);
@@ -128,6 +129,14 @@ try{
        violations.push({zone:element.closest(".panel").dataset.zone,art:{
          top:art.top,bottom:art.bottom,left:art.left,right:art.right},
         panel:{top:zone.top,bottom:zone.bottom,left:zone.left,right:zone.right}});
+     }
+     for(const artElement of document.querySelectorAll("#game-app .battlefield .card-tile .card-art")){
+      const art=artElement.getBoundingClientRect();
+      const field=artElement.closest(".battlefield").getBoundingClientRect();
+      if(art.top<field.top-3||art.bottom>field.bottom+3 ||
+         art.left<field.left-3||art.right>field.right+3)
+       violations.push({zone:"battlefield",art:{top:art.top,bottom:art.bottom,left:art.left,right:art.right},
+        panel:{top:field.top,bottom:field.bottom,left:field.left,right:field.right}});
      }
     };inspect();return violations;
    });
