@@ -24,7 +24,7 @@ test("all homepage controls have unique IDs and handlers",()=>{
  }
 });
 test("direct Windows download is a single exe with no Node dependency for the player",()=>{
- assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion-v0\.10\.exe/);
+ assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion-v0\.11\.exe/);
  assert.match(html,/Aucune installation ni dépendance supplémentaire/);
  assert.match(html,/Logiciel non signé/);
  assert.doesNotMatch(html,/main\.zip/);
