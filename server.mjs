@@ -122,7 +122,7 @@ const guide={
  },
  allCommandTypes:COMMANDS
 };
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","style.css","assets/companion-icon.svg"]);
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","style.css","assets/companion-icon.svg"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
