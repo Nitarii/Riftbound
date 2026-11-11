@@ -48,7 +48,7 @@ test("fullscreen request is direct and can be exited",()=>{
 });
 test("chat still works with keyboard and transcription after layout change",()=>{
  assert.match(js,/event\.key==="Enter"&&!event\.shiftKey/);
- assert.match(js,/new SpeechAPI\(\)/);
+ assert.match(js,/createVoiceConversation\(/);
  assert.match(js,/\$\("send-note"\)\.onclick=sendNote/);
  assert.match(html,/id="chat-messages"/);
  assert.match(html,/id="voice-note"/);
