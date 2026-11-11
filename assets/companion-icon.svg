@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Riftbound Companion — portail de cartes">
+<defs>
+  <radialGradient id="bg" cx=".38" cy=".28" r=".85"><stop stop-color="#2c455c"/><stop offset=".55" stop-color="#0f1e32"/><stop offset="1" stop-color="#07111e"/></radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff1b6"/><stop offset=".35" stop-color="#f1c872"/><stop offset=".7" stop-color="#b17a2c"/><stop offset="1" stop-color="#fff1a0"/></linearGradient>
+  <linearGradient id="violet" x1=".1" y1=".1" x2=".95" y2=".9"><stop stop-color="#4fe1fc"/><stop offset=".48" stop-color="#7578fc"/><stop offset="1" stop-color="#c559ea"/></linearGradient>
+  <filter id="glow" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="4"/></filter>
+</defs>
+<rect x="5" y="5" width="246" height="246" rx="57" fill="url(#bg)" stroke="#42596c" stroke-width="3"/>
+<circle cx="128" cy="128" r="95" fill="none" stroke="#2a4156" stroke-width="2" opacity=".8"/>
+<path d="M44 155 C28 101 59 53 112 37 C157 23 193 42 216 80" fill="none" stroke="#49bbfe" stroke-width="17" stroke-linecap="round" opacity=".34" filter="url(#glow)"/>
+<path d="M210 99 C228 152 206 204 157 221 C105 237 64 211 42 169" fill="none" stroke="#aa69ff" stroke-width="17" stroke-linecap="round" opacity=".34" filter="url(#glow)"/>
+<path d="M42 155 A88 88 0 0 1 212 94" fill="none" stroke="url(#violet)" stroke-width="12" stroke-linecap="round"/>
+<path d="M214 104 A88 88 0 0 1 45 169" fill="none" stroke="url(#gold)" stroke-width="13" stroke-linecap="round"/>
+<path d="M194 54 L221 73 L201 95 L197 77 L178 76 Z" fill="#e8cb7c"/>
+<path d="M62 199 L37 180 L55 163 L59 179 L76 181 Z" fill="#67b7ee"/>
+<g transform="rotate(-7 128 128)">
+ <rect x="92" y="82" width="76" height="95" rx="8" fill="#152d42" stroke="#efd691" stroke-width="5"/>
+ <path d="M106 97 H154 V158 H106 Z" fill="#1e3e53" stroke="#4e7381" stroke-width="2"/>
+ <path d="M130 101 L139 119 L157 128 L139 136 L130 154 L121 136 L103 128 L121 119 Z" fill="url(#gold)"/>
+ <circle cx="130" cy="128" r="5" fill="#fff4c7"/>
+</g>
+<g fill="#f6d88f"><circle cx="69" cy="81" r="3"/><circle cx="186" cy="179" r="2.5"/><circle cx="160" cy="44" r="2"/></g>
+</svg>
