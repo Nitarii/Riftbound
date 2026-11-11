@@ -387,6 +387,9 @@ if(!SpeechAPI){
 }
 voiceButton.onclick=async()=>{
  if(voiceController.state().enabled){
+  // A final phrase recognized just before the user clicks "Stop" should
+  // still be sent, rather than silently discarded during the delay.
+  voiceController.flush();
   voiceController.stop();
   return;
  }
