@@ -12,7 +12,7 @@ import {execFile} from "node:child_process";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
-import {createRemoteAccess} from "./remote.mjs";
+import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
 const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
@@ -242,6 +242,15 @@ const server=http.createServer(async(req,res)=>{
   }
   msg(res,404,"Endpoint inconnu",req);
 });
+if(process.argv.includes("--verify-bundle")){
+ try{
+  const result=verifyEmbeddedTunnel();
+  console.log("Embedded cloudflared verified:",result.sha256,result.bytes,"bytes");
+ }catch(e){
+  console.error("Embedded cloudflared verification failed:",e.message);
+  process.exitCode=1;
+ }
+}else{
 server.on("error",err=>{
  console.error("Démarrage impossible :",err.code==="EADDRINUSE"?"Le port "+port+" est déjà utilisé. Ferme l'autre instance du module.":err.message);
  process.exitCode=1;
@@ -266,3 +275,5 @@ server.listen(port,host,()=>{
     }
   }
 });
+
+}
