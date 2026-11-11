@@ -358,7 +358,7 @@ function agentPromptText(includeAccess=true){
   "Si tu as un navigateur interactif, ouvre la console agent pour consulter le plateau et commander les cartes.",
   "API : GET /api/guide, GET /api/state, GET /api/messages?after=0, POST /api/messages {text}, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
   "La chatbox du joueur envoie ses textes et transcriptions vocales dans GET /api/messages. Relis-la régulièrement en augmentant after avec le dernier id.",
-  "Réponds au joueur par POST /api/messages avec le JSON {\\"text\\":\\"Ta réponse\\"}, puis utilise POST /api/command pour afficher les déplacements et autres changements réels.",
+  "Réponds au joueur par POST /api/messages avec le JSON {\"text\":\"Ta réponse\"}, puis utilise POST /api/command pour afficher les déplacements et autres changements réels.",
   "Le bouton « Passer mon tour » fait avancer le plateau et envoie une annonce dans les messages.",
   "Documentation standard de l'API pour les agents compatibles : "+(connected?base+"/openapi.json":"URL distante indisponible"),
   connected?"Authentification de CETTE session : Authorization: Bearer "+remoteSession.agentToken:
