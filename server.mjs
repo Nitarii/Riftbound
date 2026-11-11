@@ -165,6 +165,10 @@ const integratedAI=createIntegratedAI({
  userData,getState:()=>state,applyBatch:applyAgentBatch,
  sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:loadServerCatalog
 });
+// This release defaults to a strictly free local opponent. Old paid-provider
+// profiles are left on disk for migration but never auto-start after upgrade.
+if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
+ integratedAI.disable();
 const receiveHumanMessage=text=>{
  const entry=conversation.post("human",text);
  integratedAI.onHumanMessage(entry.text);
