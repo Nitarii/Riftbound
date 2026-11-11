@@ -5,7 +5,7 @@ import {applyCommand} from "./core.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
-const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:"qwen3:4b-instruct"};
+const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:"qwen3:0.6b"};
 const COMMANDS=new Set(["move","add","exhaust","ready","flip","damage","counter","score",
  "draw","channel","mulligan","phase","next-turn","note"]);
 function providerURL(source){
