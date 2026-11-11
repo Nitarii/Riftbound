@@ -28,13 +28,14 @@ images.forEach((png,i)=>{
  table.writeUInt32LE(png.length,o+8);
  table.writeUInt32LE(offset,o+12);offset+=png.length;
 });
+fs.writeFileSync(path.join(dist,"companion-icon-preview.png"),images[images.length-1]);
 const ico=path.join(dist,"companion.ico");
 fs.writeFileSync(ico,Buffer.concat([table,...images]));
 const exe=path.join(dist,"RiftboundCompanion.exe");
 await rcedit(exe,{
  icon:ico,
- "file-version":"0.4.0.0",
- "product-version":"0.4.0.0",
+ "file-version":"0.5.0.0",
+ "product-version":"0.5.0.0",
  "version-string":{
   ProductName:"Riftbound Companion",
   FileDescription:"Compagnon visuel pour parties physiques",
