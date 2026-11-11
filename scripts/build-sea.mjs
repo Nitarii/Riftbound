@@ -9,8 +9,22 @@ for(const name of ["index.html","style.css","app.mjs","core.mjs","catalog.mjs","
  if(!fs.existsSync(path.join(root,name)))throw Error("Asset missing: "+name);
  assets[name]=path.join(root,name);
 }
+// Bundle a compressed copy of the official cloudflared Windows client.
+// Compression happens once on CI, not when the player starts a game.
 const tunnelBinary=path.join(dist,"cloudflared.exe");
-if(fs.existsSync(tunnelBinary))assets["cloudflared.exe"]=tunnelBinary;
+if(!fs.existsSync(tunnelBinary))throw Error("Missing verified Cloudflare tunnel client");
+const zlib=await import("node:zlib");
+const raw=fs.readFileSync(tunnelBinary);
+const packed=zlib.brotliCompressSync(raw,{params:{
+ [zlib.constants.BROTLI_PARAM_QUALITY]:9,
+ [zlib.constants.BROTLI_PARAM_MODE]:zlib.constants.BROTLI_MODE_GENERIC
+}});
+const packedFile=path.join(dist,"cloudflared.exe.br");
+fs.writeFileSync(packedFile,packed);
+assets["cloudflared.exe.br"]=packedFile;
+console.log("Embedded Cloudflare client compressed:",(raw.length/1024/1024).toFixed(1),
+ "MiB ->",(packed.length/1024/1024).toFixed(1),"MiB");
+
 const conf={
  main:path.join(dist,"server.bundle.cjs"),
  mainFormat:"commonjs",
