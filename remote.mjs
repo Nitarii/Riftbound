@@ -104,6 +104,14 @@ export function createRemoteAccess({
  };
  function getBinary(){
   if(process.env.RIFTBOUND_CLOUDFLARED)return process.env.RIFTBOUND_CLOUDFLARED;
+  // A downloaded vendor EXE can simply sit beside RiftboundCompanion.exe.
+  // This avoids a system-wide installation when only one session is needed.
+  for(const folder of [path.dirname(process.execPath),userData]){
+   for(const name of ["cloudflared.exe","cloudflared-windows-amd64.exe"]){
+    const candidate=path.join(folder,name);
+    if(fs.existsSync(candidate))return candidate;
+   }
+  }
   if(!sea.isSea())return "cloudflared";
   // If a signed vendor binary is packaged in a future release it may be
   // extracted. Today the user installs cloudflared separately from Cloudflare.
@@ -167,7 +175,7 @@ export function createRemoteAccess({
   })().catch(err=>{
     stop();
     const absent=err?.code==="ENOENT";
-    throw absent?Error("Cloudflared n'est pas installé. Installe l'outil officiel de Cloudflare puis relance l'application."):err;
+    throw absent?Error("Cloudflared est introuvable. Télécharge cloudflared-windows-amd64.exe depuis Cloudflare et place-le dans le même dossier que RiftboundCompanion.exe."):err;
   }).finally(()=>{pending=null;});
   return pending;
  }
