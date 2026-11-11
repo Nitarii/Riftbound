@@ -91,8 +91,11 @@ jobs:
           Expand-Archive -LiteralPath "dist/whisper-bin-x64.zip" -DestinationPath "dist/whisper-smoke"
           $binary = Get-ChildItem "dist/whisper-smoke" -Filter "whisper-cli.exe" -File -Recurse | Select-Object -First 1
           if ($null -eq $binary) {throw "whisper-cli.exe missing from official archive"}
-          & $binary.FullName --help 2>&1 | Select-Object -First 12
-          if ($LASTEXITCODE -ne 0) {throw "Whisper CPU binary cannot run"}
+          # whisper-cli --help deliberately returns a nonzero exit code in this release.
+          # --version is the supported, zero-exit smoke test for binary dependencies.
+          $whisperVersion = & $binary.FullName --version 2>&1
+          if ($LASTEXITCODE -ne 0 -or !$whisperVersion) {throw "Whisper CPU binary cannot run"}
+          Write-Host $whisperVersion
           Remove-Item "dist/whisper-bin-x64.zip" -Force
           Remove-Item "dist/whisper-smoke" -Recurse -Force
       - name: Apply branded Windows icon
