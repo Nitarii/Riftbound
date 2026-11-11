@@ -96,7 +96,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.13.0",
+ name:"Riftbound Table Companion",version:"0.14.0",
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
@@ -229,7 +229,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.13.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.14.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -280,7 +280,7 @@ const server=http.createServer(async(req,res)=>{
     }
     try{
       const input=await body(req);
-      json(res,202,localFreeAI.start(input?.model||"qwen3:4b-instruct"),req);
+      json(res,202,localFreeAI.start(input?.model||"qwen3:0.6b"),req);
     }catch(e){msg(res,400,e.message,req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){
