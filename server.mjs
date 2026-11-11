@@ -15,7 +15,7 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
-import {planHumanAnnouncement} from "./player-actions.mjs";
+import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
 import {createFreeLocalAI} from "./free-ai.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 const packaged=sea.isSea();
@@ -98,7 +98,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.16.0",
+ name:"Riftbound Table Companion",version:"0.18.0",
  officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
@@ -182,8 +182,7 @@ const receiveHumanMessage=text=>{
   try{catalog=await loadServerCatalog();}catch{}
   const plan=planHumanAnnouncement(entry.text,state,catalog);
   if(plan.error){
-   const english=/\\b(i |my |your |play|draw|turn|channel|runes)\\b/i.test(entry.text)&&
-    !/\\b(je |mon |tour|joue|pioche|runes de)\\b/i.test(entry.text);
+   const english=detectMessageLanguage(entry.text)==="en";
    receiveAgentMessage(english?plan.errorEN:plan.error);
    return;
   }
@@ -251,7 +250,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.16.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.18.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.

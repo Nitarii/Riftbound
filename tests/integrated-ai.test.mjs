@@ -77,6 +77,11 @@ test("local opponent uses outbound chat completion, keeps credentials local and 
   assert.equal(requests.length,1);
   assert.equal(requests[0].options.headers.Authorization,"Bearer secret-test-api-key");
   assert.equal(requests[0].url,"https://api.openai.com/v1/chat/completions");
+  const modelPayload=JSON.parse(requests[0].options.body);
+  const userContext=JSON.parse(modelPayload.messages.find(m=>m.role==="user").content);
+  assert.equal(userContext.preferredReplyLanguage,"fr");
+  assert.ok(typeof userContext.normalizedPlayerAnnouncement==="string");
+  assert.match(modelPayload.messages[0].content,/code-switching|incorrect grammar/);
   assert.equal(ai.disable().enabled,false);
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
