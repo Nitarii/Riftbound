@@ -296,3 +296,29 @@ body.home-visible .header-actions > :not(.header-home){display:none!important}
 .remote-agent-status{margin:13px 0 0!important;font-size:12px!important;line-height:1.5!important;color:#c5d6cb!important}
 .remote-agent-panel button:disabled{opacity:.6;cursor:not-allowed}
 @media(max-width:650px){.remote-agent-panel{padding:12px}.remote-agent-top{align-items:flex-start}.remote-agent-glyph{width:34px;height:34px;flex-basis:34px;font-size:17px}}
+
+
+/* v0.8: one obvious action to connect and prompt the AI. */
+.remote-primary-actions{display:flex;align-items:center;gap:10px;margin-top:16px}
+.remote-primary-actions #home-start-remote{padding:13px 18px;min-height:48px;font-size:13px}
+.remote-primary-actions #home-stop-remote{padding:12px 16px;min-height:46px}
+.remote-ready{padding:13px 16px;margin-top:15px;border-radius:10px;border:1px solid #46866d;background:linear-gradient(110deg,#173b34,#152a31)}
+.remote-ready[hidden],.remote-manual[hidden]{display:none!important}
+.remote-ready-head{display:flex;align-items:center;flex-wrap:wrap;gap:12px;justify-content:space-between}
+.remote-ready-head strong{color:#b8e6cd;font-size:14px}
+.remote-ready-head span{font-size:11px;color:#a7c6b3}
+.remote-ready p{margin:7px 0;color:#c7dfd8;font-size:12px;line-height:1.5}
+.remote-ready button{font-weight:650}
+.remote-manual{padding:14px 15px;margin-top:12px;border-radius:8px;border:1px solid #8d7a53;background:#202b32}
+.remote-manual label{font-weight:650;color:#eddaad}
+.remote-manual textarea{resize:vertical;min-height:125px;max-height:250px;font-size:12px;line-height:1.5}
+.remote-manual button{margin-top:7px}
+.remote-extras{margin-top:16px;border-top:1px solid #34505c;padding-top:13px}
+.remote-extras summary{cursor:pointer;font-size:12px;color:#a9bdc7}
+.remote-extras[open] summary{color:#e6d2a5}
+.remote-extras p{font-size:12px;color:#a6bfca;line-height:1.55}
+@media(max-width:650px){
+ .remote-primary-actions{flex-direction:column;align-items:stretch}
+ .remote-primary-actions button{width:100%}
+ .remote-ready-head{flex-direction:column;align-items:flex-start;gap:3px}
+}
