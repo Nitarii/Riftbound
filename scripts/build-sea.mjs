@@ -9,6 +9,8 @@ for(const name of ["index.html","style.css","app.mjs","core.mjs","catalog.mjs","
  if(!fs.existsSync(path.join(root,name)))throw Error("Asset missing: "+name);
  assets[name]=path.join(root,name);
 }
+const tunnelBinary=path.join(dist,"cloudflared.exe");
+if(fs.existsSync(tunnelBinary))assets["cloudflared.exe"]=tunnelBinary;
 const conf={
  main:path.join(dist,"server.bundle.cjs"),
  mainFormat:"commonjs",
