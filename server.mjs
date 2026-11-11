@@ -208,7 +208,7 @@ const server=http.createServer(async(req,res)=>{
   // The local authenticated UI controls the only public-facing gateway.
   // This control endpoint is NOT exposed by the restricted gateway.
   if(req.method==="GET"&&url.pathname==="/api/remote/status"){
-    json(res,200,remoteAccess.status(),req);return;
+    json(res,200,remoteAccess.status(true),req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/remote/start"){
     try{json(res,200,await remoteAccess.start(),req);}
