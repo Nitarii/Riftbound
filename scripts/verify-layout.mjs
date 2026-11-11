@@ -5,6 +5,7 @@ import path from "node:path";
 import http from "node:http";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright-core";
+import {createState} from "../core.mjs";
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const contentType=file=>file.endsWith(".html")?"text/html":
@@ -188,6 +189,79 @@ try{
   console.log("PASS",viewport.width+"x"+viewport.height,"no page scroll; board/chat/history accessible");
   await page.close();
  }
+ // UI integration regression: the manager MUST show the updater screen
+ // before allowing game launch when an old release is installed.
+ const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
+ let upToDate=false;
+ const managerPayload=()=>({
+  version:upToDate?"0.22.0":"0.21.0",portable:true,
+  path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
+  canLaunch:upToDate,mustUpdate:!upToDate,
+  availableVersion:upToDate?null:"0.22.0",progress:0,
+  error:"",updating:false,shuttingDown:false
+ });
+ await managerPage.route("**/api/**",async route=>{
+  const pathname=new URL(route.request().url()).pathname;
+  const response=pathname==="/api/manager/status"?managerPayload():
+   pathname==="/api/ai/free/status"?{ready:false,running:false,message:"IA arrêtée"}:
+   pathname==="/api/speech/status"?{installed:false,running:false,message:"Whisper absent"}:{};
+  await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(response)});
+ });
+ const errors=[];
+ managerPage.on("pageerror",err=>errors.push(String(err)));
+ await managerPage.goto(url+"/manager.html#access=layout-qa",{waitUntil:"domcontentloaded"});
+ await managerPage.waitForFunction(()=>
+  document.querySelector("#startup-screen")?.hidden===false&&
+  document.querySelector("#startup-update")?.hidden===false);
+ ensure(await managerPage.locator("#manager-dashboard").isHidden(),
+  "Outdated companion exposes game launch controls instead of the updater");
+ ensure(await managerPage.locator("#manager-stop").isVisible(),
+  "Process stop must remain reachable before an update");
+ upToDate=true;
+ await managerPage.evaluate(()=>refresh());
+ ensure(await managerPage.locator("#manager-dashboard").isVisible(),
+  "Updated companion should expose its normal manager");
+ ensure(await managerPage.locator("#startup-screen").isHidden(),
+  "Updated companion should hide its update-only splash screen");
+ ensure(!errors.length,"Manager script errors: "+errors.join("; "));
+ console.log("PASS manager update-first screen and permanent process-stop button");
+ await managerPage.close();
+
+ // The hosted game's UI must refuse to open an outdated local companion.
+ const gamePage=await browser.newPage({viewport:{width:1440,height:900}});
+ let installedVersion="0.21.0";
+ const localState=createState();
+ await gamePage.route("http://127.0.0.1:8787/api/**",async route=>{
+  const pathname=new URL(route.request().url()).pathname;
+  const body=pathname==="/api/state"?{state:localState}:
+   pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
+   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.22.0",
+    updateState:installedVersion==="0.22.0"?"current":"outdated",
+    mustUpdate:installedVersion!=="0.22.0",availableVersion:"0.22.0"}:
+   pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
+   pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
+  await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
+   headers:{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,content-type"}});
+ });
+ const gameErrors=[];
+ gamePage.on("pageerror",err=>gameErrors.push(String(err)));
+ await gamePage.goto(url,{waitUntil:"domcontentloaded"});
+ await gamePage.evaluate(()=>{
+  document.querySelector("#relay-url").value="http://127.0.0.1:8787";
+  document.querySelector("#relay-token").value="layout-qa";
+  document.querySelector("#connect-relay").click();
+ });
+ await gamePage.waitForFunction(()=>!document.querySelector("#companion-version-gate")?.hidden,{timeout:10000});
+ ensure(await gamePage.locator("#home-next").isDisabled(),
+  "Outdated companion still permits skipping the install wizard");
+ ensure(await gamePage.locator("#manager-open").count()===1,
+  "Manager button missing from the main header");
+ installedVersion="0.22.0";
+ await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
+ await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
+ ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));
+ console.log("PASS site redirects old companion to first installation step");
+ await gamePage.close();
 }finally{
  await browser.close();
  await new Promise(resolve=>server.close(resolve));

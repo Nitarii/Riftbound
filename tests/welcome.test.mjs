@@ -57,7 +57,7 @@ test("wizard presents exactly one step at a time, with progress and back/next",(
 });
 test("wizard requires confirmation before advancing, with a preview route",()=>{
  assert.match(js,/if\(!status\[wizardStep-1\]\)\{/);
- assert.match(js,/\$\("home-next"\)\.disabled=!steps\[wizardStep-1\]/);
+ assert.match(js,/\$\("home-next"\)\.disabled=Boolean\(companionGate\)\|\|!steps\[wizardStep-1\]/);
  assert.match(js,/onboarding\.installed\|\|onboarding\.installSkipped/);
  assert.match(js,/onboarding\.installSkipped=true/);
  assert.match(js,/onboarding\.preview=true/);

@@ -29,6 +29,8 @@ jobs:
           node --check clarification.mjs
           node --check portable.mjs
           node --check portable-manager.mjs
+          node --check release-policy.mjs
+          node --check process-lifecycle.mjs
           node --check whisper-local.mjs
           node --check local-voice.mjs
           node --check ai-turn.mjs

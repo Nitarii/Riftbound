@@ -8,9 +8,13 @@ import {createVoiceConversation} from "./voice-session.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
+import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
 const i18n={
  "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
+ "Gestionnaire":"Manager","Ouvrir le gestionnaire":"Open manager",
+ "Mise à jour du compagnon nécessaire":"Companion update required",
+ "Télécharger la version récente":"Download latest version",
  "Historique":"History","Outils":"Tools","Sans quitter le plateau":"Without leaving the board",
  "Configuration":"Setup","Catalogue":"Card catalog","Agent IA":"AI agent",
  "ADVERSAIRE IA":"AI OPPONENT","TON PLATEAU · CARTES PHYSIQUES":"YOUR BOARD · PHYSICAL CARDS",
@@ -81,6 +85,25 @@ function saveOnboarding(){try{localStorage.setItem(onboardingStorage,JSON.string
 let wizardStep=Number.isInteger(onboarding.wizardStep)?Math.max(1,Math.min(4,onboarding.wizardStep)):1;
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
 let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
+let companionGate=null,companionGateBusy=false;
+const isLoopbackRelay=url=>/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(url||"");
+function openCompanionManager(){
+ if(relay?.token&&isLoopbackRelay(relay.url)){
+  // A real user gesture opens the authenticated loopback manager.
+  // Fragment credentials never reach the web server or external websites.
+  window.open(relay.url+"/manager.html#access="+encodeURIComponent(relay.token),
+   "_blank","noopener");
+  return true;
+ }
+ showHome();
+ wizardStep=1;renderWelcome();
+ notify("Connecte d'abord le compagnon Windows pour accéder à son gestionnaire.",true);
+ return false;
+}
+for(const id of ["manager-open","manager-open-play","version-open-manager"]){
+ $(id)?.addEventListener("click",openCompanionManager);
+}
+$("version-download").href=DOWNLOAD_URL;
 const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Thumbnail requests reduce bandwidth; full-resolution art remains available in the detail view.
@@ -195,6 +218,11 @@ function render(){
   applyUILanguage();
 }
 async function dispatch(command){
+  if(companionGate){
+   showHome();wizardStep=1;renderWelcome();
+   notify("Compagnon obsolète ou non vérifié : ouvre le gestionnaire pour continuer.",true);
+   return false;
+  }
   try{
     if(relay){
       const res=await fetch(relay.url+"/api/command",{...localFetchOptions(relay.url),method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(command)});
@@ -312,7 +340,16 @@ document.addEventListener("fullscreenchange",()=>{
  fullscreenButton.title=active?"Retour à la fenêtre":"Étendre le plateau sur tout l'écran";
 });
 function showHome(){document.body.classList.add("home-visible");renderWelcome();window.scrollTo({top:0,behavior:"smooth"});}
-function showGame(tab="setup"){setActiveTab(tab);document.body.classList.remove("home-visible");window.scrollTo({top:0,behavior:"smooth"});}
+function showGame(tab="setup"){
+ if(companionGate){
+  showHome();wizardStep=1;renderWelcome();
+  notify("Termine la vérification ou la mise à jour du compagnon avant de lancer le plateau.",true);
+  return;
+ }
+ setActiveTab(tab);
+ document.body.classList.remove("home-visible");
+ window.scrollTo({top:0,behavior:"smooth"});
+}
 $("go-home").onclick=showHome;
 for(const tab of document.querySelectorAll(".tab"))tab.onclick=()=>setActiveTab(tab.dataset.tab);
 $("setup-human").onclick=()=>{
@@ -1206,6 +1243,11 @@ async function attachLiveEvents(session){
   sse.onmessage=e=>{
    if(relay!==session)return;
    const data=JSON.parse(e.data);
+   if(data.shutdown){
+    disconnect();
+    notify("Le compagnon et ses moteurs IA ont été arrêtés depuis le gestionnaire.");
+    return;
+   }
    if(data.state&&data.state.revision>=lastSync){state=data.state;lastSync=state.revision;render();}
   };
   sse.onopen=()=>signalStatus("● Relais local connecté");
@@ -1224,6 +1266,44 @@ async function attachLiveEvents(session){
  }
 }
 $("disconnect-relay").onclick=disconnect;
+function versionGateReason(version,managerStatus){
+ if(companionNeedsUpdate(version,MINIMUM_COMPANION_VERSION))
+  return {kind:"outdated",installed:version||"?",latest:MINIMUM_COMPANION_VERSION};
+ if(managerStatus&&managerStatus.canLaunch===false){
+  const kind=managerStatus.mustUpdate||managerStatus.updateState==="outdated"?
+   "outdated":managerStatus.updateState==="unavailable"?"unavailable":"checking";
+  return {kind,installed:version||CURRENT_VERSION,
+   latest:managerStatus.availableVersion||MINIMUM_COMPANION_VERSION,
+   error:managerStatus.error||""};
+ }
+ return null;
+}
+async function refreshCompanionGate(session=relay){
+ if(!session||!isLoopbackRelay(session.url)||companionGateBusy)return;
+ companionGateBusy=true;
+ try{
+  const requestOptions={...localFetchOptions(session.url),cache:"no-store"};
+  const [health,managerResponse]=await Promise.all([
+   fetch(session.url+"/api/health",requestOptions),
+   fetch(session.url+"/api/manager/status",{
+    ...requestOptions,headers:{Authorization:"Bearer "+session.token}
+   })
+  ]);
+  if(!health.ok||!managerResponse.ok)return;
+  const info=await health.json(),manager=await managerResponse.json();
+  if(relay!==session)return;
+  const next=versionGateReason(info.version,manager);
+  const previous=companionGate;
+  companionGate=next;
+  if(next){
+   if(!previous||previous.kind!==next.kind){
+    wizardStep=1;showHome();
+   }else if(document.body.classList.contains("home-visible"))renderWelcome();
+  }else if(previous)renderWelcome();
+ }catch{/* An intermittent local network error is not proof of an old version. */}
+ finally{companionGateBusy=false;}
+}
+
 async function connectRelay(){
  const url=$("relay-url").value.trim().replace(/\/$/,""),token=$("relay-token").value.trim();
  const local=/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url);
@@ -1237,10 +1317,13 @@ async function connectRelay(){
   const res=await fetch(url+"/api/state",{...localFetchOptions(url),headers:{Authorization:"Bearer "+token}});
   if(!res.ok)throw Error("Accès refusé au relais");
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
+  if(local)await refreshCompanionGate(relay);
   resetChatView();syncChat();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
-  notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
+  notify(companionGate?
+   "Mise à jour ou vérification nécessaire. Utilise le gestionnaire.":"Relais synchronisé. Ne publie jamais ton jeton.",
+   Boolean(companionGate));renderWelcome();
   queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();refreshSpeech();refreshKnowledgeStatus();});
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
@@ -1249,7 +1332,7 @@ $("connect-relay").onclick=connectRelay;
 
 function wizardStatus(){
  return [
-  Boolean(onboarding.installed||onboarding.installSkipped),
+  !companionGate&&Boolean(onboarding.installed||onboarding.installSkipped),
   Boolean(relay||onboarding.preview),
   Boolean(state.players?.human?.legend&&state.players?.ai?.legend&&state.started),
   Boolean(onboarding.prompt)
@@ -1272,6 +1355,22 @@ function setWizardStep(index){
 }
 function renderWelcome(){
  if(!$("welcome-progress"))return;
+ const gate=$("companion-version-gate");
+ gate.hidden=!companionGate;
+ if(companionGate){
+  wizardStep=1;
+  const kind=companionGate.kind;
+  $("companion-version-title").textContent=kind==="outdated"?
+   "Mise à jour du compagnon nécessaire":kind==="checking"?
+   "Vérification du compagnon en cours":"Version du compagnon non vérifiée";
+  $("companion-version-info").textContent=kind==="outdated"?
+   "Compagnon "+companionGate.installed+" détecté · version requise "+
+    companionGate.latest+". Ouvre le gestionnaire pour télécharger la mise à jour avant de jouer.":
+    kind==="checking"?
+    "Le programme consulte les versions officielles. Le plateau ne démarrera pas tant que la vérification n'est pas terminée.":
+    "La vérification a échoué ("+(companionGate.error||"réseau indisponible")+
+     "). Réessaye ou confirme le mode hors ligne depuis le gestionnaire.";
+ }
  const steps=wizardStatus(),limit=availableWizardStep(steps);
  if(wizardStep>limit)wizardStep=limit;
  const count=steps.filter(Boolean).length;
@@ -1298,11 +1397,11 @@ function renderWelcome(){
  $("home-game-status").classList.toggle("complete",steps[2]);
  $("home-prompt-status").textContent=steps[3]?"✓ Prompt copié":"À copier";
  $("home-prompt-status").classList.toggle("complete",steps[3]);
- $("home-resume").hidden=!state.started;
+ $("home-resume").hidden=!state.started||Boolean(companionGate);
  $("home-resume").textContent=state.started?"Reprendre ma partie":"Voir le plateau";
 
  $("home-back").disabled=wizardStep===1;
- $("home-next").disabled=!steps[wizardStep-1];
+ $("home-next").disabled=Boolean(companionGate)||!steps[wizardStep-1];
  $("home-next").textContent=wizardStep===4?"Terminer et ouvrir le plateau →":"Valider et continuer →";
  const prompts=[
    "Lance le fichier .exe puis confirme, ou choisis un aperçu sans installation.",
@@ -1606,9 +1705,9 @@ async function autoBootstrapCompanion(){
    onboarding.installed=true;
    onboarding.installSkipped=false;
    onboarding.preview=false;
-   wizardStep=3;onboarding.wizardStep=3;
+   wizardStep=companionGate?1:3;onboarding.wizardStep=wizardStep;
    saveOnboarding();renderWelcome();
-   notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
+   if(!companionGate)notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
  }else{
    try{sessionStorage.removeItem(key);}catch{}
    notify("Connexion automatique impossible. Relance le compagnon Windows.",true);
@@ -1750,6 +1849,7 @@ renderWelcome();
 renderDeckChoices();
 updateRemoteUI();
 setInterval(()=>{if(relay?.token&&remoteSession)checkRemoteSession();},15000);
+setInterval(()=>{if(relay&&isLoopbackRelay(relay.url))refreshCompanionGate(relay);},6500);
 autoBootstrapCompanion();
 watchForLocalCompanion();
 loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{

@@ -1713,3 +1713,44 @@ body:not(.home-visible) #game-app.history-collapsed{
  min-width:var(--game-card-width);
 }
 #game-app .playmat .zone-trash .cards{gap:3px;padding:0 1px 3px}
+
+/* v0.22 — Always-visible Windows manager access + version-first onboarding. */
+.header-actions .header-manager{
+ display:inline-flex;align-items:center;justify-content:center;
+ padding:7px 10px;min-height:31px;white-space:nowrap;
+ color:#f4db9a;background:#18323c;border:1px solid #817954;border-radius:6px;
+ font-weight:700;
+}
+.header-actions .header-manager:hover{background:#294653;border-color:#ddbd70}
+#game-app #manager-open-play{display:none}
+#game-app:fullscreen #manager-open-play{
+ display:inline-flex;align-items:center;justify-content:center;
+ min-height:25px;border:1px solid #998451;background:#213d43;color:#efd9a7;
+}
+.companion-version-gate{
+ display:flex;align-items:flex-start;gap:16px;
+ border:1px solid #c3a16c;border-radius:12px;
+ background:linear-gradient(125deg,#24383c,#182a34);
+ padding:18px 22px;margin:14px 0 20px;
+ box-shadow:0 7px 20px rgba(0,0,0,.2);
+}
+.companion-version-gate[hidden]{display:none!important}
+.companion-version-gate .version-gate-icon{
+ display:grid;place-items:center;
+ background:#473a24;border:1px solid #9b814b;border-radius:8px;
+ color:#f5d59a;font-size:31px;min-width:50px;height:50px;
+}
+.companion-version-gate .version-gate-info{min-width:0;flex:1}
+.companion-version-gate h2{margin:0 0 6px;color:#efd091;font-size:24px}
+.companion-version-gate p{
+ font-size:13px;line-height:1.65;color:#d2dfdd;max-width:850px;margin:0 0 12px;
+}
+.companion-version-gate .version-gate-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.companion-version-gate .version-gate-actions button{padding:9px 13px;min-height:35px}
+.companion-version-gate .version-gate-actions a{font-size:12px}
+@media(max-width:740px){
+ .header-actions .header-manager{padding:5px 7px;font-size:10px}
+ .companion-version-gate{padding:14px 12px;gap:10px}
+ .companion-version-gate .version-gate-icon{min-width:34px;height:34px;font-size:23px}
+ .companion-version-gate h2{font-size:20px}
+}
