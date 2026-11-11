@@ -18,11 +18,24 @@ import {createIntegratedAI} from "./integrated-ai.mjs";
 import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI} from "./free-ai.mjs";
+import {createLocalWhisper} from "./whisper-local.mjs";
+import {createPortableManager,CURRENT_VERSION} from "./portable-manager.mjs";
+import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
-const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
-if(packaged)fs.mkdirSync(userData,{recursive:true});
+const installation=initializePortableInstall({packaged,exePath:process.execPath,sourceRoot:root});
+if(installation.launched)process.exit(0);
+const userData=installation.root;
+const portable=Boolean(installation.portable&&!installation.verify);
+if(portable){
+ Object.assign(process.env,portableEnvironment(userData));
+ // Existing v0.19 users: move only recognized companion files from old AppData
+ // to the explicitly selected location, without overriding newer files.
+ try{moveLegacyFiles(legacyDataFolder(),userData);}catch(error){
+  console.warn("Anciennes données non migrées :",error.message);
+ }
+}
 const port=Number(process.env.PORT||8787);
 const host="127.0.0.1";
 const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
@@ -234,6 +247,17 @@ const localFreeAI=createFreeLocalAI({
   integratedAI.configure({provider:"free",model,enabled:true});
  }
 });
+const speech=createLocalWhisper({userData});
+const manager=createPortableManager({
+ root:userData,exePath:process.execPath,portable,
+ shutdown:()=>{
+  try{remoteAccess.stop();}catch{}
+  try{localFreeAI.stop();}catch{}
+  try{speech.stop();}catch{}
+  server.close(()=>process.exit(0));
+  setTimeout(()=>process.exit(0),1500).unref();
+ }
+});
 const remoteAccess=createRemoteAccess({
  userData,
  getState:()=>state,
@@ -246,8 +270,8 @@ const remoteAccess=createRemoteAccess({
  markAgentPoll:()=>conversation.markAgentPoll()
 });
 // Closing the companion also terminates any optional public tunnel.
-process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();});
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
+const WEB_ASSETS=new Set(["index.html","manager.html","local-voice.mjs","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -282,7 +306,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.19.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:CURRENT_VERSION,packaged,portable},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -339,8 +363,58 @@ const server=http.createServer(async(req,res)=>{
     }
     try{
       const input=await body(req);
+      if(input?.confirmFolder!==userData)throw Error("Choisis et confirme le dossier d'installation dans le gestionnaire Windows.");
       json(res,202,localFreeAI.start(input?.model||"qwen3:0.6b"),req);
     }catch(e){msg(res,400,e.message,req);}return;
+  }
+
+  if(req.method==="GET"&&url.pathname==="/api/manager/status"){
+    json(res,200,manager.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/update/check"){
+    try{json(res,200,await manager.checkUpdate(),req);}
+    catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/update/apply"){
+    try{json(res,200,await manager.applyUpdate(),req);}
+    catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/uninstall"){
+    try{json(res,200,manager.uninstall(await body(req)),req);}
+    catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/speech/status"){
+    json(res,200,{...speech.status(),folder:userData},req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/speech/install"){
+    try{
+     const input=await body(req);
+     if(input?.confirmFolder!==userData)throw Error("Confirme le dossier choisi avant l'installation de Whisper.");
+     json(res,202,speech.begin(input?.model||"base"),req);
+    }catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/speech/transcribe"){
+    try{
+     if(!String(req.headers["content-type"]||"").startsWith("audio/wav"))
+      throw Error("La transcription nécessite un enregistrement WAV.");
+     const chunks=[];let size=0;
+     for await(const part of req){
+      size+=part.length;
+      if(size>4_000_000)throw Error("Audio trop long (limite 4 Mo).");
+      chunks.push(part);
+     }
+     let cards=[];
+     try{
+      const list=await loadServerCatalog();
+      cards=[
+       ...state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai").slice(0,18),
+       ...list.filter(c=>/poro|shen|jinx|vex|rumble|fiora/i.test(c.name||"")).slice(0,16)
+      ];
+     }catch{}
+     json(res,200,await speech.transcribe(Buffer.concat(chunks),{
+      language:"auto",cards
+     }),req);
+    }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){
     if(remoteAccess.status().active){msg(res,409,"Coupe d'abord l'accès IA distant pour éviter deux adversaires simultanés.",req);return;}
@@ -414,6 +488,15 @@ server.listen(port,host,()=>{
     console.log("Ouvre https://nitarii.github.io/Riftbound/ dans ton navigateur,");
     console.log("puis clique sur « Autoriser la connexion locale » à l'étape 2.");
     console.log("Le programme n'ouvre plus un nouvel onglet automatiquement.");
+    // The packaged executable opens the local management interface, where
+    // the user can activate/disable AI, launch the site, update or uninstall.
+    if(portable&&!process.argv.includes("--no-browser")&&
+       process.env.RIFTBOUND_NO_BROWSER!=="1"){
+      const managerURL="http://"+host+":"+port+"/manager.html#access="+encodeURIComponent(token);
+      execFile("powershell.exe",["-NoProfile","-NonInteractive","-WindowStyle","Hidden",
+       "-Command","Start-Process '"+managerURL+"'"],
+       {windowsHide:true,env:process.env},()=>{});
+    }
     // Explicit escape hatch for users without access to the hosted site.
     if(process.argv.includes("--open-browser")){
       const target="http://"+host+":"+port+"/#companion="+encodeURIComponent(token);

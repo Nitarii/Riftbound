@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.19.0"/></head>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.20.0"/></head>
 <body class="home-visible">
 <header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><label class="language-toggle" for="language-select"><select id="language-select" aria-label="Language / Langue"><option value="fr">FR</option><option value="en">EN</option></select></label><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
@@ -38,7 +38,7 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.19.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.20.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
         <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
@@ -145,6 +145,19 @@
           </div>
           <progress id="free-ai-progress" max="100" value="0" hidden aria-label="Progression de l'installation IA gratuite"></progress>
           <p id="free-ai-stage" class="integrated-status" role="status" aria-live="polite">Connecte ton programme Windows pour installer l'IA gratuite.</p>
+          <section class="speech-setup" aria-labelledby="speech-setup-heading">
+            <h4 id="speech-setup-heading">Reconnaissance vocale locale · Whisper</h4>
+            <p>Sans service Chrome : transcription FR/EN sur ton processeur, avec un vocabulaire Riftbound. Tous les fichiers restent dans ton dossier choisi.</p>
+            <div class="line">
+              <select id="speech-model-choice" aria-label="Modèle Whisper">
+                <option value="base">Base · léger · 148 Mo</option>
+                <option value="small">Small · précis · 488 Mo</option>
+              </select>
+              <button type="button" id="speech-install" class="primary">Installer Whisper</button>
+            </div>
+            <progress id="speech-progress" max="100" value="0" hidden></progress>
+            <p id="speech-stage" class="integrated-status" role="status" aria-live="polite">Optionnel : Chrome reste utilisable sans Whisper.</p>
+          </section>
           <div class="ai-knowledge-status">
             <strong>✓ Connaissances Riftbound préconfigurées</strong>
             <p id="ai-knowledge-cards" role="status" aria-live="polite">Règles de base et de tournoi · Commandes du plateau · Textes des cartes consultés automatiquement.</p>
@@ -294,6 +307,13 @@
     <button id="chat-pass-turn" type="button" title="Terminer ton tour et prévenir l'IA">Passer mon tour</button>
     <button id="send-note" type="button" class="primary">Envoyer <span aria-hidden="true">↵</span></button>
   </div>
+  <label class="voice-provider-choice">Reconnaissance vocale
+    <select id="speech-source" aria-label="Moteur de reconnaissance vocale">
+      <option value="auto">Automatique · Whisper local si installé</option>
+      <option value="local">Whisper local · hors ligne</option>
+      <option value="chrome">Chrome / Edge · service navigateur</option>
+    </select>
+  </label>
   <div class="voice-live" id="voice-live" data-voice-state="off" role="status" aria-live="polite">
     <span class="voice-dot" aria-hidden="true"></span>
     <span id="voice-live-text">Mode vocal éteint. Active-le pour parler librement à l'IA.</span>
@@ -320,4 +340,4 @@
   <p class="disclaimer">Compagnon de partie physique, non officiel. Un agent doit disposer d'un accès HTTP ou d'un navigateur compatible pour répondre ; les règles ne sont pas arbitrées automatiquement.</p>
 </section></aside>
 </main><dialog id="card-dialog"><div class="dialog-layout"><div id="detail-image"></div><div><h2 id="detail-name"></h2><p id="detail-text"></p><label>Propriétaire<select id="detail-owner"><option value="human">Joueur</option><option value="ai">IA</option></select></label><label>Zone<select id="detail-zone"><option value="base">Base</option><option value="battlefield">Champ de bataille</option><option value="hand">Main</option><option value="trash">Défausse</option><option value="banished">Bannissement</option><option value="runes">Runes</option></select></label><label>Battlefield<select id="detail-bf"><option value="0">Joueur</option><option value="1">IA</option></select></label><div class="line"><button id="detail-add" class="primary">Placer</button><button id="detail-close">Fermer</button></div></div></div></dialog>
-<script type="module" src="./app.mjs?v=0.19.0"></script></body></html>
+<script type="module" src="./app.mjs?v=0.20.0"></script></body></html>

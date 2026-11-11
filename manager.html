@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>Riftbound · Gestionnaire Windows</title>
+<style>
+:root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#eaf1f2;background:#09131b}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 60% 0%,#20433c 0%,#111f2b 35%,#09131b 90%)}
+main{max-width:900px;margin:auto;padding:clamp(18px,4vw,42px)}header{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+header img{width:50px;height:50px}header strong{font:800 30px 'Segoe UI',Arial,sans-serif;letter-spacing:.9px;color:#e9cf8c}
+header small{display:block;font-size:11px;color:#9ab7be;letter-spacing:1px;margin-top:3px}
+h2{font-size:20px;color:#efd49d;margin:0 0 6px}.lead{font-size:13px;color:#b7c9d0;line-height:1.5;margin:0 0 18px}
+.status{border:1px solid #496452;border-radius:12px;padding:14px;background:#1c3335;margin-bottom:18px}
+.status b{color:#b5e4c9}small{color:#aec6cb}.mono{font-family:Consolas,monospace;overflow-wrap:anywhere;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+section{border:1px solid #38525e;border-radius:12px;background:#10222eea;padding:19px;min-width:0}
+section.wide{grid-column:1/-1}p{font-size:13px;line-height:1.6;color:#afc3ca;margin:9px 0 14px}
+button,select{font:inherit;cursor:pointer;border:1px solid #567382;background:#263c4b;color:#f1efe5;padding:11px 13px;border-radius:7px;max-width:100%}
+button:hover:not(:disabled){background:#335362;border-color:#d5b77c}
+button:disabled{cursor:wait;opacity:.52}
+button.primary{background:linear-gradient(100deg,#bb9b61,#eed597);color:#122330;border-color:#e1c480;font-weight:750}
+button.danger{border-color:#b06665;background:#552b31;color:#ffe7e5}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+select{width:100%;margin-bottom:10px}progress{width:100%;height:12px;accent-color:#c9ab6f}
+progress[hidden]{display:none}
+.notice{min-height:28px;color:#bbddcd;font-size:12px;line-height:1.5;padding-top:8px}
+footer{font-size:11px;line-height:1.65;color:#91a8b2;margin:20px 0 0}
+@media(max-width:660px){.grid{grid-template-columns:1fr}section.wide{grid-column:auto}}
+</style>
+</head>
+<body>
+<main>
+<header><img src="/assets/companion-icon.svg" alt=""><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · GESTIONNAIRE PORTABLE</small></div></header>
+<p class="lead">Tous les modèles, téléchargements et fichiers temporaires du compagnon sont gérés dans le dossier choisi. Aucun logiciel supplémentaire n'est nécessaire.</p>
+<div class="status"><b id="connection">Connexion locale…</b>
+ <div class="mono" id="storage">Dossier : …</div><small id="version"></small></div>
+<div class="grid">
+ <section>
+  <h2>Plateau de jeu</h2><p>Ouvre Riftbound dans ton navigateur. Le serveur reste privé sur cet ordinateur.</p>
+  <div class="actions"><button class="primary" id="open-site">Ouvrir le site</button><button id="open-local">Plateau hors ligne</button></div>
+ </section>
+ <section>
+  <h2>Adversaire IA</h2><p>Qwen3 0.6B, gratuit et exécuté sur ton processeur. L'installation demande ton accord pour le dossier affiché.</p>
+  <div class="actions"><button class="primary" id="ai-install">Installer / activer</button><button id="ai-stop">Désactiver</button></div>
+  <div id="ai-info" class="notice"></div><progress hidden id="ai-progress" max="100"></progress>
+ </section>
+ <section>
+  <h2>Transcription vocale locale</h2><p>whisper.cpp, avec termes et cartes Riftbound. Le modèle Base convient aux PC modestes ; Small est facultatif.</p>
+  <label for="speech-model">Modèle de transcription</label>
+  <select id="speech-model"><option value="base">Whisper Base · 148 Mo</option><option value="small">Whisper Small · 488 Mo</option></select>
+  <button class="primary" id="speech-install">Installer la transcription locale</button>
+  <div id="speech-info" class="notice"></div><progress hidden id="speech-progress" max="100"></progress>
+ </section>
+ <section>
+  <h2>Mises à jour</h2><p>Vérification via le dépôt GitHub officiel et contrôle SHA-256 avant remplacement, sans installation ailleurs.</p>
+  <div class="actions"><button id="update-check">Rechercher une mise à jour</button><button id="update-apply" disabled>Installer la mise à jour</button></div>
+  <div id="update-info" class="notice"></div><progress hidden id="update-progress" max="100"></progress>
+ </section>
+ <section class="wide">
+  <h2>Désinstaller proprement</h2>
+  <p>Ferme les moteurs IA, supprime les modèles, téléchargements, fichiers temporaires, sauvegardes locales et l'exécutable dans le dossier dédié. Aucun document extérieur au dossier n'est supprimé.</p>
+  <button class="danger" id="uninstall">Désinstaller et supprimer les données du compagnon</button>
+  <div id="message" class="notice" role="status" aria-live="polite"></div>
+ </section>
+</div>
+<footer>Les données de navigation propres à Chrome/Edge (historique, cache ou stockage du site hébergé) et le fichier .exe téléchargé initialement en dehors du dossier choisi ne sont pas créés ni contrôlés par ce gestionnaire. La suppression Windows se limite aux fichiers appartenant au compagnon.</footer>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id),params=new URLSearchParams(location.hash.slice(1));
+const token=params.get("access")||"";history.replaceState(null,"",location.pathname);
+let root="",availableVersion="",busy=false;
+const api=async(url,method="GET",data)=>{
+ const response=await fetch(url,{method,cache:"no-store",headers:{
+  "Authorization":"Bearer "+token,...(data?{"Content-Type":"application/json"}:{})},
+  ...(data?{body:JSON.stringify(data)}:{})});
+ let payload={};
+ try{payload=await response.json();}catch{}
+ if(!response.ok)throw Error(payload.error||"Requête refusée : HTTP "+response.status);
+ return payload;
+};
+const report=(message,bad=false)=>{$("message").textContent=message;$("message").style.color=bad?"#f2aaa8":"#bcdfc9"};
+function progress(id,data){const el=$(id);el.hidden=!data?.running&&!data?.updating;el.value=data?.progress||0}
+function showStatus(id,text){$(id).textContent=text||""}
+async function refresh(){
+ if(!token){report("Jeton local absent. Relance le compagnon Windows.",true);return;}
+ try{
+  const [manager,ai,speech]=await Promise.all([
+   api("/api/manager/status"),api("/api/ai/free/status"),api("/api/speech/status")]);
+  root=manager.path;availableVersion=manager.availableVersion||"";
+  $("storage").textContent="Dossier exclusif : "+root;
+  $("version").textContent="Version "+manager.version;
+  $("connection").textContent="● Compagnon Windows connecté";
+  showStatus("ai-info",ai.message+(ai.error?" · "+ai.error:""));
+  progress("ai-progress",ai);
+  $("ai-install").disabled=!!ai.running;
+  $("ai-stop").disabled=!ai.ready;
+  showStatus("speech-info",speech.message+(speech.error?" · "+speech.error:""));
+  progress("speech-progress",speech);
+  $("speech-install").disabled=!!speech.running;
+  $("update-apply").disabled=!availableVersion||!!manager.updating;
+  progress("update-progress",manager);
+  if(manager.updating)showStatus("update-info","Téléchargement "+manager.progress+" %");
+ }catch(e){$("connection").textContent="● Compagnon indisponible";report(e.message,true)}
+}
+async function execute(handler){
+ if(busy)return;busy=true;
+ try{await handler()}catch(e){report(e.message,true)}
+ finally{busy=false;refresh()}
+}
+$("open-site").onclick=()=>window.open("https://nitarii.github.io/Riftbound/","_blank","noopener");
+$("open-local").onclick=()=>window.open("/#companion="+encodeURIComponent(token),"_blank","noopener");
+$("ai-install").onclick=()=>execute(async()=>{
+ if(!confirm("Installer/activer Qwen gratuitement dans ce dossier exclusivement ?\n"+root))return;
+ const r=await api("/api/ai/free/install","POST",{model:"qwen3:0.6b",confirmFolder:root});
+ report(r.message||"Installation IA démarrée.");
+});
+$("ai-stop").onclick=()=>execute(async()=>{await api("/api/ai/disable","POST");report("IA désactivée, fichiers conservés.")});
+$("speech-install").onclick=()=>execute(async()=>{
+ if(!confirm("Installer Whisper dans ce dossier exclusivement ?\n"+root))return;
+ await api("/api/speech/install","POST",{model:$("speech-model").value,confirmFolder:root});
+ report("Installation Whisper lancée. Les fichiers restent dans "+root);
+});
+$("update-check").onclick=()=>execute(async()=>{
+ const result=await api("/api/manager/update/check","POST");
+ availableVersion=result.availableVersion||"";
+ showStatus("update-info",result.message);
+});
+$("update-apply").onclick=()=>execute(async()=>{
+ if(!confirm("Télécharger, vérifier et installer la version "+availableVersion+" dans le même dossier ?"))return;
+ const result=await api("/api/manager/update/apply","POST");
+ showStatus("update-info",result.message);
+});
+$("uninstall").onclick=()=>execute(async()=>{
+ if(!confirm("Supprimer définitivement tous les fichiers gérés par Riftbound dans :\n"+root+" ?"))return;
+ if(!confirm("Cette opération supprimera aussi tes sauvegardes et les modèles téléchargés. Continuer ?"))return;
+ await api("/api/manager/uninstall","POST",{confirm:"DELETE_RIFTBOUND_DATA",folder:root});
+ report("Désinstallation lancée. Le compagnon va se fermer.");
+});
+refresh();setInterval(refresh,1500);
+</script>
+</body></html>

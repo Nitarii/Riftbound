@@ -5,6 +5,7 @@ import {parseNarration} from "./narration.mjs";
 import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName,isChosenChampion} from "./picker.mjs";
 import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 import {createVoiceConversation} from "./voice-session.mjs";
+import {createLocalVoiceConversation} from "./local-voice.mjs";
 const $=id=>document.getElementById(id);
 const i18n={
  "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
@@ -502,9 +503,9 @@ voiceController=createVoiceConversation({
 voiceController.setSpeechEnabled(voiceReadReplies.checked);
 voiceController.setLanguage(uiLanguage);
 voiceUI(voiceController.state());
-if(!SpeechAPI){
+if(!SpeechAPI&&!navigator.mediaDevices?.getUserMedia){
  voiceButton.disabled=true;
- voiceStatus.textContent="Reconnaissance vocale absente : utilise Chrome ou Edge à jour.";
+ voiceStatus.textContent="Reconnaissance vocale indisponible dans ce navigateur.";
 }
 voiceButton.onclick=async()=>{
  if(voiceController.state().enabled){
@@ -525,9 +526,56 @@ voiceButton.onclick=async()=>{
  if(!integratedAIStatus?.enabled&&!remoteSession?.url){
   notify("Le micro va fonctionner, mais active ton adversaire IA pour obtenir ses réponses.",true);
  }
- const started=voiceController.start();
+ let localReady=false;
+ try{
+  const response=await fetch(relay.url+"/api/speech/status",{
+   ...localFetchOptions(relay.url),
+   headers:{"Authorization":"Bearer "+relay.token},cache:"no-store"
+  });
+  if(response.ok)localReady=Boolean((await response.json()).installed);
+ }catch{}
+ const requested=$("speech-source").value;
+ if(requested==="local"&&!localReady){
+  notify("Whisper n'est pas encore installé. Installe-le dans le dossier choisi ou sélectionne Chrome.",true);
+  return;
+ }
+ if((requested==="auto"&&localReady)||requested==="local"){
+  voiceController=createLocalVoiceConversation({
+   onState:voiceUI,onPreview:showVoiceDraft,
+   onTranscript:async text=>{
+    displayHeard(text,true);
+    if(!await enqueuePlayerAnnouncement(text))notify("Transcription réussie, envoi au plateau impossible.",true);
+   },
+   sendAudio:async blob=>{
+    const response=await fetch(relay.url+"/api/speech/transcribe",{
+     ...localFetchOptions(relay.url),method:"POST",
+     headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"audio/wav"},
+     body:blob
+    });
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||"Whisper n'a pas pu transcrire l'audio.");
+    return result;
+   }
+  });
+ }else{
+  if(!SpeechAPI){notify("Chrome ne fournit pas de reconnaissance vocale. Installe Whisper.",true);return;}
+  voiceController=createVoiceConversation({
+   Recognition:SpeechAPI,synthesis:window.speechSynthesis||null,
+   Utterance:window.SpeechSynthesisUtterance||null,
+   onState:voiceUI,onPreview:showVoiceDraft,
+   onTranscript:async text=>{
+    displayHeard(text,true);
+    if(!await enqueuePlayerAnnouncement(text))notify("Message vocal non envoyé.",true);
+   },
+   silenceMs:1500,restartMs:700
+  });
+ }
+ voiceController.setSpeechEnabled(voiceReadReplies.checked);
+ voiceController.setLanguage(uiLanguage);
+ const started=await voiceController.start();
  if(started){voiceTranscript.hidden=true;voiceHeard.textContent="";}
- if(started)notify("Mode conversation activé. Parle, fais une courte pause et l'IA recevra ton message.");
+ if(started)notify(localReady&&requested!=="chrome"?
+  "Micro Whisper local activé · parole transcrite sur ton PC.":"Micro Chrome activé.");
 };
 voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);
 $("language-select").value=uiLanguage;
@@ -699,12 +747,22 @@ async function pollFreeAI(){
 $("free-ai-install").onclick=async()=>{
  if(!localAI()){notify("Connecte le programme Windows depuis l'étape 2.",true);return;}
  if(freeAILoading)return;
+ let folder="";
+ try{
+  const r=await fetch(relay.url+"/api/manager/status",{
+   ...localFetchOptions(relay.url),
+   headers:{"Authorization":"Bearer "+relay.token},cache:"no-store"
+  });
+  if(!r.ok)throw Error("Dossier portable introuvable.");
+  folder=(await r.json()).path;
+ }catch(e){notify(e.message,true);return;}
+ if(!confirm("Installer l'IA gratuite exclusivement dans le dossier choisi ?\n"+folder))return;
  freeAILoading=true;renderFreeAI();
  try{
   const reply=await fetch(relay.url+"/api/ai/free/install",{
    ...localFetchOptions(relay.url),method:"POST",
    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
-   body:JSON.stringify({model:$("free-ai-model").value})
+   body:JSON.stringify({model:$("free-ai-model").value,confirmFolder:folder})
   });
   const data=await reply.json();
   if(!reply.ok)throw Error(data.error||"Installation impossible");
@@ -722,6 +780,45 @@ $("free-ai-stop").onclick=async()=>{
 };
 renderFreeAI();
 setInterval(()=>{if(localAI()&&(freeAIInfo?.running||freeAIInfo?.ready))pollFreeAI();},1200);
+let speechInfo=null,speechBusy=false;
+async function refreshSpeech(){
+ if(!localAI())return;
+ try{
+  const result=await fetch(relay.url+"/api/speech/status",{
+   ...localFetchOptions(relay.url),headers:{"Authorization":"Bearer "+relay.token},cache:"no-store"
+  });
+  if(!result.ok)return;
+  speechInfo=await result.json();
+  const isBusy=Boolean(speechBusy||speechInfo.running);
+  const stage=$("speech-stage"),bar=$("speech-progress");
+  stage.textContent=speechInfo.message+(speechInfo.error?" "+speechInfo.error:"")+
+   (speechInfo.installed?" · Disponible dans Mode vocal.":"");
+  bar.hidden=!isBusy;bar.value=Number(speechInfo.progress)||0;
+  $("speech-install").disabled=isBusy;
+ }catch(e){$("speech-stage").textContent="Whisper : "+e.message;}
+}
+$("speech-install").onclick=async()=>{
+ if(!localAI()){notify("Connecte le programme Windows pour installer Whisper.",true);return;}
+ if(speechBusy)return;
+ const manager=await fetch(relay.url+"/api/manager/status",{
+  ...localFetchOptions(relay.url),headers:{"Authorization":"Bearer "+relay.token}
+ }).then(r=>r.json()).catch(()=>null);
+ if(!manager?.path){notify("Dossier portable non disponible.",true);return;}
+ if(!confirm("Installer Whisper "+$("speech-model-choice").value+" dans ce dossier uniquement ?\n"+manager.path))return;
+ speechBusy=true;
+ try{
+  const response=await fetch(relay.url+"/api/speech/install",{
+   ...localFetchOptions(relay.url),method:"POST",
+   headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
+   body:JSON.stringify({model:$("speech-model-choice").value,confirmFolder:manager.path})
+  });
+  const result=await response.json();
+  if(!response.ok)throw Error(result.error||"Impossible d'installer Whisper.");
+  notify("Téléchargement vocal lancé dans ton dossier.");
+ }catch(e){notify(e.message,true);}
+ finally{speechBusy=false;refreshSpeech();}
+};
+setInterval(()=>{if(localAI())refreshSpeech();},6000);
 let remoteSession=null;
 let remoteStarting=false;
 let remoteCopyArmed=null;
@@ -1053,7 +1150,7 @@ async function connectRelay(){
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
-  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();refreshKnowledgeStatus();});
+  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();refreshSpeech();refreshKnowledgeStatus();});
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
