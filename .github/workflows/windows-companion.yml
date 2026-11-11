@@ -61,6 +61,11 @@ jobs:
       - name: Create single executable with Node SEA
         shell: pwsh
         run: node --build-sea dist/sea-config.json
+      - name: Verify embedded vendor binary without network access
+        shell: pwsh
+        run: |
+          & ".\dist\RiftboundCompanion.exe" --verify-bundle
+          if ($LASTEXITCODE -ne 0) {throw "The EXE failed its embedded tunnel integrity check"}
       - name: Apply branded Windows icon
         shell: pwsh
         run: |
