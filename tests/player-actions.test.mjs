@@ -61,10 +61,10 @@ test("AI fallback uses only real UIDs and returns control to human",()=>{
  let s=setup();
  s=applyCommand(s,{type:"next-turn"});
  const commands=planSafeAITurn(s);
- assert.ok(commands.some(x=>x.type==="move"));
+ assert.ok(commands.some(x=>x.type==="play-paid"),"AI pays before playing a known card");
  assert.ok(commands.some(x=>x.type==="channel"));
  for(const command of commands)s=applyCommand(s,command);
  assert.equal(s.active,"human");
  assert.ok(s.cards.find(c=>c.owner==="ai"&&c.zone==="base"));
- assert.equal(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length,1);
+ assert.ok(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length>=1);
 });

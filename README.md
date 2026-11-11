@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.22.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.23.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.22.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.23.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,14 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.23 — IA conquérante et paiement des coûts complets
+
+- **Tour IA automatique avec objectif de victoire :** le moteur déterministe vérifie les unités prêtes dans la base puis les déplace vers les champs non contestés pour obtenir des points de Conquer ; les prochains tours peuvent rapporter des points de Hold. L'IA renforce ensuite les champs qu'elle occupe. Chaque mouvement apparaît sur le plateau et dans le journal, sans supposer un effet de carte inconnu.
+- **Deux coûts obligatoires par carte :** pour jouer une unité, le compagnon vérifie son Energy (runes prêtes à épuiser) **et** son Power (runes du domaine demandé à recycler). Il épuise d'abord les runes nécessaires puis recycle réellement les runes de la bonne couleur sous son Rune Deck, en réajustant les nombres de runes affichés. Une même rune peut être épuisée et recyclée dans le même paiement ; une carte impossible à payer reste en main.
+- **Paiement atomique sécurisé :** la commande interne `play-paid` vérifie les sources (main IA ou champion choisi), les coûts et les domaines. Aucune demi-exécution si l'énergie ou le Power manque. Le modèle linguistique Qwen est utilisé pour la conversation, pas pour inventer des coûts et points de victoire.
+- **Stratégie :** priorise les terrains libres plutôt que d'accumuler toutes les unités en base, vérifie les déplacements possibles, puis joue plusieurs unités si les ressources et le timing le permettent.
+- **Limite explicite :** le moteur ne simule pas encore une bataille complète sur un champ défendu, ni les réactions, capacités ou effets complexes. Il ne crédite jamais une conquête non résolue. Le joueur et l'IA devront résoudre les combats contestés selon les règles officielles.
 
 ## v0.22 — Gestionnaire permanent, arrêt complet et vérification au démarrage
 

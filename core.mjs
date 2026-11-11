@@ -1,5 +1,6 @@
 // Shared board state; automatic scoring only for uncontested fields, never card effects.
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
+import {planRunePayment} from "./rune-payment.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
 const OWNERS = new Set(["human","ai"]);
@@ -33,9 +34,9 @@ export function validateCard(card) {
     power:card.power==null||card.power===""?null:Number.isFinite(+card.power)?+card.power:null,might:card.might==null||card.might===""?null:Number.isFinite(+card.might)?+card.might:null,
     tags:Array.isArray(card.tags)?card.tags.slice(0,12).map(String):[]};
 }
-function place(state, p, c, zone, battlefield, faceDown) {
+function place(state, p, c, zone, battlefield, faceDown, stableUid=null) {
   if(!ZONES.has(zone)) throw Error("Zone inconnue");
-  const instance={uid:id(),owner:p,...validateCard(c),zone,battlefield:zone==="battlefield"?Math.max(0,Math.min(1,Number(battlefield)||0)):null,
+  const instance={uid:stableUid||id(),owner:p,...validateCard(c),zone,battlefield:zone==="battlefield"?Math.max(0,Math.min(1,Number(battlefield)||0)):null,
     exhausted:false,faceDown:!!faceDown,counters:{},damage:0};
   state.cards.push(instance);return instance;
 }
@@ -131,6 +132,39 @@ export function applyCommand(old, command) {
     if(v.zone==="hand")s.players[p].handCount++;
     if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
+  } else if(type==="play-paid") {
+    // One atomic, auditable payment+play, used by the AI. The full energy AND
+    // matching domain Power cost are checked before mutating any card.
+    if(!s.started||s.active!=="ai"||s.phase!=="Main")
+      throw Error("Jouer une carte payée nécessite la phase Main de l'IA.");
+    const v=getCard(s,string(c.uid,80));
+    if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||!/^unit$/i.test(v.type||""))
+      throw Error("La carte ne peut pas être jouée depuis cette zone.");
+    if(/\b(?:play only|can'?t play|cannot play|additional cost|pay an additional cost|ne peut etre jouee que)\b/i.test(v.text||""))
+      throw Error("Conditions de jeu supplémentaires : arbitrage manuel requis.");
+    const dest=c.zone||"base";
+    if(dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
+    const field=Number(c.battlefield);
+    if(dest==="battlefield"&&(!Number.isInteger(field)||field<0||field>=s.battlefields.length||
+      battlefieldController(s,field)!=="ai"))
+      throw Error("L'IA ne peut jouer directement qu'à un champ de bataille déjà contrôlé.");
+    const paid=planRunePayment(s,"ai",v);
+    if(paid.error)throw Error(paid.error);
+    for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
+    const removed=new Set(paid.recycleUids);
+    for(const uid of paid.recycleUids){
+      const rune=getCard(s,uid);
+      s.decks.ai.runes.push(deckCard(rune));
+    }
+    s.cards=s.cards.filter(card=>!removed.has(card.uid));
+    s.players.ai.runeCount=s.decks.ai.runes.length;
+    if(v.zone==="hand")s.players.ai.handCount--;
+    v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
+    v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
+    summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":"sur "+s.battlefields[field].card.name)+
+     " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
+     " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
+     paid.domains.join("/")+")";
   } else if(type==="move") {
     const v=getCard(s,string(c.uid,80)),zone=string(c.zone,40);
     if(!ZONES.has(zone))throw Error("Zone inconnue");
@@ -189,7 +223,12 @@ export function applyCommand(old, command) {
     if(p==="ai"){
       for(let i=0;i<n;i++){
         const card=s.decks.ai[stock].shift();if(!card)break;
-        place(s,p,card,dst);if(dst==="hand")s.players.ai.handCount++;
+        // The preview planner and committed reducer MUST agree on generated
+        // UIDs. Stable IDs prevent a later paid play referencing an unknown
+        // card drawn/channelled earlier in the same atomic batch.
+        const stableUid="c_auto_"+p+"_"+type+"_"+s.revision+"_"+i;
+        place(s,p,card,dst,undefined,false,stableUid);
+        if(dst==="hand")s.players.ai.handCount++;
       }
       s.players.ai.deckCount=s.decks.ai.main.length;
       s.players.ai.runeCount=s.decks.ai.runes.length;
@@ -219,7 +258,7 @@ export function applyCommand(old, command) {
   } else throw Error("Type de commande inconnu : "+type);
   // A unit creates automatic Conquer only when it establishes uncontested
   // control and this field has not scored for that player this turn.
-  if(s.started&&["add","move","remove"].includes(type)){
+  if(s.started&&["add","move","remove","play-paid"].includes(type)){
    for(let i=0;i<s.battlefields.length;i++){
     const owner=battlefieldController(s,i);
     if(owner===s.active){
@@ -231,4 +270,4 @@ export function applyCommand(old, command) {
   maybeRecord(s,summary);
   return s;
 }
-export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","flip","counter","damage","score","hand-count","draw","channel","mulligan","note"];
+export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note"];
