@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Riftbound Companion — Console agent</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Arial,sans-serif;background:#081723;color:#e9e7df}
+*{box-sizing:border-box}body{margin:0;padding:20px;max-width:1130px;margin:auto}
+h1,h2{margin:0 0 9px;font-weight:750}h1{font-size:27px;color:#f0d6a0}h2{font-size:17px}
+p{color:#a9c1cd;line-height:1.55;font-size:13px}small{color:#9baeba}
+main{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:16px}
+header{padding:18px 22px;background:linear-gradient(135deg,#20293d,#112b33);border:1px solid #4e6170;border-radius:12px}
+.panel{background:#142632;border:1px solid #365563;border-radius:11px;padding:17px;min-width:0}
+button,select,textarea{font:inherit;border:1px solid #5b7080;border-radius:7px;background:#233f4c;color:#e7eced;padding:9px}
+button{cursor:pointer}button:hover{border-color:#dfc17f}button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:#dcc085;color:#132735;border-color:#f0d49b;font-weight:700}
+.row{display:flex;gap:9px;flex-wrap:wrap;margin:10px 0;align-items:center}
+label{font-size:12px;color:#d0e0e5;display:flex;flex-direction:column;gap:6px}
+select{min-width:125px}textarea{resize:vertical;width:100%;min-height:125px;background:#0b1823}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#091923;padding:12px;border-radius:8px;max-height:320px;overflow:auto;color:#cbd8dd;font-size:11px}
+#status{font-weight:700;color:#b9e5c7}#error{color:#ffc5b8}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.stats span{background:#25423e;border:1px solid #497668;border-radius:7px;padding:7px 11px}
+#zone-list{max-height:300px;overflow:auto;font-size:12px;line-height:1.7}
+#zone-list li{margin:2px 0;border-bottom:1px solid #2b4654}
+footer{margin-top:20px;color:#8b9eac;font-size:11px}
+@media(max-width:750px){main{grid-template-columns:1fr}body{padding:10px}}
+</style></head>
+<body>
+<header><h1>✦ Riftbound Companion — Console de l'agent</h1>
+<p>Cette page est l'interface distante d'une partie <strong>physique</strong>. Tu joues le rôle de l'adversaire IA : lis l'état, annonce tes actions au joueur et applique les changements ici. Ne demande jamais sa main cachée.</p>
+<p id="status" role="status">Connexion…</p><p id="error" role="alert"></p>
+<div class="stats" id="stats"></div>
+<div class="row"><button id="refresh">Actualiser le plateau</button><button id="guide">Afficher le guide de commandes</button></div>
+</header>
+<main>
+<section class="panel"><h2>Actions rapides</h2>
+<p>Ces commandes enregistrent des changements de plateau ; elles ne valident pas automatiquement les règles de Riftbound.</p>
+<div class="row"><button id="draw">IA : piocher 1</button><button id="channel">IA : canaliser 1 rune</button><button id="next">Tour suivant</button></div>
+<div class="row"><button id="pickdeck">Préparer un deck IA aléatoire</button></div>
+<div class="row"><label>Joueur<select id="player"><option value="ai">IA</option><option value="human">Humain</option></select></label>
+<button id="scoreplus">+1 point</button><button id="scoreminus">−1 point</button></div>
+<h2>Éléments sur le plateau</h2><ul id="zone-list"></ul>
+</section>
+<section class="panel"><h2>Commande JSON</h2>
+<p>Pour déplacer une carte, relève son <code>uid</code> dans l'état puis envoie une commande <code>move</code>. Les identifiants officiels des cartes sont recherchables via l'API.</p>
+<label for="command">Action à envoyer</label>
+<textarea id="command" spellcheck="false">{"type":"note","text":"Je commence mon tour."}</textarea>
+<div class="row"><button id="send" class="primary">Exécuter sur le plateau</button></div>
+<h2>État complet de la partie</h2>
+<pre id="state">En attente…</pre>
+</section>
+</main><section class="panel" id="reference" hidden><h2>Guide API</h2><pre id="reference-json"></pre></section>
+<footer>Accès temporaire limité au jeu, révocable depuis le PC du joueur. Le lien contient un secret de session : ne le partage pas publiquement. Projet fan non affilié à Riot Games.</footer>
+<script src="/agent.js" defer></script>
+</body></html>
