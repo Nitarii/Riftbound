@@ -25,6 +25,13 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#091923;padding:12px;
 #zone-list li{margin:2px 0;border-bottom:1px solid #2b4654}
 footer{margin-top:20px;color:#8b9eac;font-size:11px}
 @media(max-width:750px){main{grid-template-columns:1fr}body{padding:10px}}
+.agent-chat-log{display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:280px;overflow-y:auto;
+ margin:10px 0 15px;padding:11px;border:1px solid #40605b;border-radius:8px;background:#0b1c25}
+.agent-chat-entry{padding:9px 11px;border-radius:8px;border:1px solid #4c6868;background:#1b333e;
+ max-width:94%;word-wrap:break-word}
+.agent-chat-entry.from-agent{align-self:flex-end;background:#28473b;border-color:#4d8270}
+.agent-chat-entry small{display:block;font-size:10px;color:#b3cacc}
+.agent-chat-entry p{white-space:pre-wrap;margin:5px 0 0;color:#e2e9e7}
 </style></head>
 <body>
 <header><h1>✦ Riftbound Companion — Console de l'agent</h1>
@@ -40,6 +47,14 @@ footer{margin-top:20px;color:#8b9eac;font-size:11px}
 <div class="row"><button id="pickdeck">Préparer un deck IA aléatoire</button></div>
 <div class="row"><label>Joueur<select id="player"><option value="ai">IA</option><option value="human">Humain</option></select></label>
 <button id="scoreplus">+1 point</button><button id="scoreminus">−1 point</button></div>
+<h2>Messages du joueur</h2>
+<p>Consulte régulièrement ce fil : ses actions dictées ou tapées arrivent ici. Réponds directement ; utilise ensuite les commandes du plateau pour appliquer les actions.</p>
+<div id="agent-chat-log" class="agent-chat-log" role="log" aria-live="polite">
+  <p>En attente des annonces du joueur…</p>
+</div>
+<label for="agent-reply">Répondre au joueur</label>
+<textarea id="agent-reply" rows="3" placeholder="Je canalise une rune puis je joue ma carte…" maxlength="1200"></textarea>
+<div class="row"><button id="agent-reply-send" type="button" class="primary">Envoyer la réponse ↵</button></div>
 <h2>Éléments sur le plateau</h2><ul id="zone-list"></ul>
 </section>
 <section class="panel"><h2>Commande JSON</h2>
