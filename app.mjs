@@ -461,7 +461,10 @@ function pickerMove(kind,direction){
 function initCardPickers(){
  for(const [id,kind] of Object.entries(pickerKindById)){
   const input=$(id),menu=$("picker-"+kind+"-results");
-  input.addEventListener("focus",()=>renderPicker(kind,input.value));
+  input.addEventListener("focus",()=>{
+   for(const other of Object.keys(pickerKindById))if(other!==id)hidePicker(other);
+   renderPicker(kind,input.value);
+  });
   input.addEventListener("input",()=>{
    const original=pickerSelected.get(id);
    if(!original||original.name!==input.value){
@@ -601,7 +604,7 @@ $("home-create-game").onclick=async()=>{
  try{
   if(catalog.length<20)throw Error("Le catalogue n'est pas chargé. Réessaie après le chargement ou importe le JSON dans Catalogue.");
   const legend=homeCard("home-human-legend","legend");
-  const champion=homeCard("home-human-champion","unit");
+  const champion=homeCard("home-human-champion","champion");
   const battlefield=homeCard("home-human-battlefield","battlefield");
   const deck=resolvePrecon(catalog,$("home-ai-deck").value);
   if(state.started&&!confirm("Remplacer la partie en cours par une nouvelle partie ?"))return;
