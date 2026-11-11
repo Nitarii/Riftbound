@@ -12,9 +12,9 @@ function providerURL(source){
  const url=new URL(String(source||""));
  if(url.protocol!=="https:"||url.username||url.password||url.search||url.hash||
    !url.hostname.includes(".")||/^[0-9.]+$/.test(url.hostname)||
-   !["/v1","/v1/"].includes(url.pathname))
+   !/^\/(?:[a-z0-9_-]+\/)*v1\/?$/i.test(url.pathname))
    throw Error("Le serveur personnalisé doit avoir une adresse HTTPS se terminant par /v1.");
- return url.origin+"/v1";
+ return url.origin+url.pathname.replace(/\/$/,"");
 }
 export function validateAIConfig(input,previous={}){
  if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Configuration IA invalide.");
