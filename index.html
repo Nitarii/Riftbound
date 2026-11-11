@@ -133,7 +133,7 @@
             <div><strong>Autoriser temporairement une IA distante</strong><p>Rend uniquement le plateau accessible à un agent disposant d'outils HTTP. L'accès est limité à 4 heures et peut être coupé immédiatement.</p></div>
           </div>
           <p class="remote-agent-caution">L'adresse Cloudflare sera publique, mais les commandes restent protégées par un jeton d'agent distinct de ton jeton local. Ne partage l'accès qu'avec un agent de confiance.</p>
-          <p class="remote-agent-dependency">Requiert <a href="https://developers.cloudflare.com/tunnel/downloads/" target="_blank" rel="noopener noreferrer">cloudflared (outil officiel Cloudflare)</a> installé sur Windows. Le tunnel n'est jamais démarré automatiquement.</p>
+          <p class="remote-agent-dependency">Pour l'accès distant uniquement : télécharge <a href="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" target="_blank" rel="noopener noreferrer">cloudflared-windows-amd64.exe (éditeur : Cloudflare)</a> et place ce fichier à côté de RiftboundCompanion.exe. Aucun réglage supplémentaire ; le tunnel n'est jamais lancé sans ton accord.</p>
           <div class="welcome-actions">
             <button id="home-start-remote" type="button" class="primary">Activer l'accès IA distant</button>
             <button id="home-stop-remote" type="button" disabled>Couper l'accès distant</button>
