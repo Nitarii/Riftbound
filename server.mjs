@@ -23,7 +23,6 @@ const stateFile=path.join(userData,".riftbound-local-state.json");
 const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
 let browserHandoff=false;
-let browserFallbackTimer=null;
 const isTrustedSiteOrigin=origin=>origin===allowedOrigin;
 const isAllowedLocalOrigin=origin=>/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin||"");
 
@@ -170,7 +169,6 @@ const server=http.createServer(async(req,res)=>{
     }
     // A successful handoff tells the launcher that the user already has a tab open.
     browserHandoff=true;
-    if(browserFallbackTimer){clearTimeout(browserFallbackTimer);browserFallbackTimer=null;}
     json(res,200,{ok:true,token,baseUrl:"http://127.0.0.1:"+port},req);
     return;
   }
@@ -221,18 +219,17 @@ server.listen(port,host,()=>{
   console.log("Site local : http://"+host+":"+port);
   console.log("Jeton local : "+token);
   console.log("L'API est réservée à 127.0.0.1. Ne publie pas le jeton.\n");
-  if(packaged&&process.platform==="win32"&&!process.argv.includes("--no-browser")&&process.env.RIFTBOUND_NO_BROWSER!=="1"){
-    // The GitHub Pages tab polls /api/health and POSTs /api/pair.
-    // Give it time to reuse that tab. Open a local tab ONLY when no existing tab paired.
-    browserFallbackTimer=setTimeout(()=>{
-      if(browserHandoff)return;
-      browserFallbackTimer=null;
+  if(packaged&&process.platform==="win32"){
+    console.log("Ouvre https://nitarii.github.io/Riftbound/ dans ton navigateur,");
+    console.log("puis clique sur « Autoriser la connexion locale » à l'étape 2.");
+    console.log("Le programme n'ouvre plus un nouvel onglet automatiquement.");
+    // Explicit escape hatch for users without access to the hosted site.
+    if(process.argv.includes("--open-browser")){
       const target="http://"+host+":"+port+"/#companion="+encodeURIComponent(token);
       execFile("powershell.exe",["-NoProfile","-NonInteractive","-WindowStyle","Hidden","-Command",
         "Start-Process '"+target+"'"],{windowsHide:true},err=>{
-          if(err)console.log("Ouvre ton navigateur à : http://"+host+":"+port);
+          if(err)console.log("Page locale : http://"+host+":"+port);
         });
-    },14000);
-    browserFallbackTimer.unref?.();
+    }
   }
 });
