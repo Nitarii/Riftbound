@@ -50,6 +50,9 @@ export function createRemoteAccess({
  getCatalog,
  getDecks,
  getGuide,
+ getMessages=()=>({messages:[],lastId:0}),
+ sendMessage=()=>{throw Error("Discussion indisponible");},
+ markAgentPoll=()=>{},
  onStatus=()=>{},
  launchTunnel=spawn,
  onGatewayReady=()=>{}
@@ -97,6 +100,33 @@ export function createRemoteAccess({
   catch{send(res,400,{error:"URL invalide"});return;}
   const name=url.pathname;
   try{
+   if(req.method==="GET"&&name==="/openapi.json"){
+    send(res,200,{
+     openapi:"3.0.3",
+     info:{title:"Riftbound Physical Game Agent API",version:"0.10.0",
+      description:"Requires a bearer token. This tracks a physical game, not a full rules engine."},
+     security:[{sessionToken:[]}],
+     components:{securitySchemes:{sessionToken:{type:"http",scheme:"bearer"}}},
+     paths:{
+      "/api/guide":{get:{summary:"Read supported game commands"}},
+      "/api/state":{get:{summary:"Read shared board and card state"}},
+      "/api/messages":{get:{summary:"Poll announcements from the physical player. Use after=lastId."},
+       post:{summary:"Send an AI reply to the player's chat box",requestBody:{
+        content:{"application/json":{schema:{type:"object",properties:{text:{type:"string"}}}}}}}},
+      "/api/decks":{get:{summary:"Available prebuilt AI decks"}},
+      "/api/catalog":{get:{summary:"Look up official card identifiers and effects"}},
+      "/api/command":{post:{summary:"Update the physical game's visual board (JSON command)"}}
+     }
+    });return;
+   }
+   if(req.method==="GET"&&name==="/api/messages"){
+    markAgentPoll();
+    send(res,200,getMessages(url.searchParams.get("after")||"0"));return;
+   }
+   if(req.method==="POST"&&name==="/api/messages"){
+    const input=await readInput(req);
+    send(res,200,{ok:true,message:sendMessage(input?.text)});return;
+   }
    if(req.method==="GET"&&name==="/api/state"){
     const state=getState();
     // Expose the in-game state only. Never reveal local service credentials.
@@ -105,7 +135,7 @@ export function createRemoteAccess({
    if(req.method==="GET"&&name==="/api/guide"){
     send(res,200,{...getGuide(),
       remote:true,
-      note:"Use this temporary remote URL. Bearer token is limited to this session; do not call localhost. No local admin, pairing, or tunnel controls are exposed."});return;
+      note:"Use this temporary HTTPS URL with Bearer token, never localhost. Poll GET /api/messages?after=ID for human actions. Respond via POST /api/messages and move cards with POST /api/command. No local admin or tunnel controls exposed."});return;
    }
    if(req.method==="GET"&&name==="/api/decks"){
     send(res,200,{decks:getDecks()});return;
