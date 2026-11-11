@@ -2,6 +2,7 @@ import {createState,applyCommand,PHASES} from "./core.mjs";
 import {loadCatalog,importCatalog,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
+import {filteredPickerCards,randomExampleCards} from "./picker.mjs";
 const $=id=>document.getElementById(id);
 const storage="riftbound-companion-state-v1";
 const onboardingStorage="riftbound-onboarding-v1";
@@ -136,7 +137,7 @@ $("setup-ai").onclick=()=>{
   try{
     const id=$("precon-select").value;
     const deck=resolvePrecon(catalog,id);
-    $("deck-info").textContent=deck.label+" · 40 cartes, 12 runes, 3 terrains · choisi aléatoirement : "+deck.battlefield.name;
+    $("deck-info").textContent=deck.label+" · 40 cartes, 12 runes, 3 terrains · terrain sélectionné : "+deck.battlefield.name+(deck.warning?" · ATTENTION : "+deck.warning:"");
     dispatch({type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
       main:deck.main,runes:deck.runes,battlefields:deck.battlefields,
       mainIncludesChampion:true,format:"preconstructed",deckName:deck.label});
@@ -386,29 +387,181 @@ $("home-next").onclick=()=>{
  if(wizardStep===4){showGame(state.started?"history":"setup");return;}
  setWizardStep(wizardStep+1);
 };
-function fillHomeCardSuggestions(){
- const lists=[
-  ["home-legends",catalog.filter(c=>c.type.toLowerCase()==="legend")],
-  ["home-champions",catalog.filter(c=>c.type.toLowerCase()==="unit")],
-  ["home-battlefields",catalog.filter(c=>c.type.toLowerCase().includes("battlefield"))]
- ];
- for(const [id,cards] of lists){
-  const target=$(id);target.textContent="";const fragment=document.createDocumentFragment(),seen=new Set();
-  for(const card of cards){
-   if(card.isVariant||seen.has(card.name))continue;
-   seen.add(card.name);fragment.appendChild(new Option(card.name,card.name));
-  }
-  target.appendChild(fragment);
+const pickerKindById={
+ "home-human-legend":"legend",
+ "home-human-champion":"champion",
+ "home-human-battlefield":"battlefield"
+};
+const pickerSelected=new Map();
+const pickerOpen={id:null,results:[],index:0};
+const pickerInput=kind=>$("home-human-"+(kind==="battlefield"?"battlefield":kind));
+const selectedLegend=()=>pickerSelected.get("home-human-legend")||null;
+function hidePicker(id){
+ const kind=pickerKindById[id];
+ if(!kind)return;
+ const panel=$("picker-"+kind+"-results");
+ panel.hidden=true;
+ $(id).setAttribute("aria-expanded","false");
+ $(id).removeAttribute("aria-activedescendant");
+ if(pickerOpen.id===id)pickerOpen.id=null;
+}
+function markPickerSelection(kind,card){
+ const id="home-human-"+kind;
+ pickerSelected.set(id,card);
+ const input=$(id);input.value=card.name;input.setAttribute("aria-expanded","false");
+ const container=$("picker-"+kind+"-selected");
+ container.innerHTML='<img loading="lazy" alt="" src="'+esc(imageForDisplay(card.image))+'" data-fallback="'+esc(imageForDisplay(card.imageFallback))+'"><div><strong>'+esc(card.name)+'</strong><span>'+esc(card.code)+' · '+esc(card.set||card.type)+'</span></div><b aria-label="Carte choisie">✓</b>';
+ container.classList.add("is-selected");
+ hidePicker(id);
+ if(kind==="legend"){
+  // A champion must belong to the chosen Legend's champion, not an arbitrary unit.
+  pickerSelected.delete("home-human-champion");
+  const champion=$("home-human-champion");
+  champion.value="";
+  champion.disabled=false;
+  champion.placeholder="Ex. "+card.name.split(",")[0]+", …";
+  const preview=$("picker-champion-selected");
+  preview.innerHTML="";preview.classList.remove("is-selected");
+  hidePicker("home-human-champion");
  }
- $("home-catalog-count").textContent=catalog.length?catalog.length+
-  " cartes disponibles. Choisis les noms dans les suggestions pour afficher les visuels.":"Catalogue indisponible : importe un JSON depuis l'onglet Catalogue.";
+}
+function renderPicker(kind,term=""){
+ const id="home-human-"+kind,input=$(id),target=$("picker-"+kind+"-results");
+ if(input.disabled){hidePicker(id);return;}
+ const legend=kind==="champion"?selectedLegend():null;
+ const results=filteredPickerCards(catalog,kind,term,legend,7);
+ pickerOpen.id=id;pickerOpen.results=results;pickerOpen.index=0;
+ if(!catalog.length){
+  target.innerHTML='<div class="picker-empty">Catalogue en cours de chargement…</div>';
+ }else if(!results.length){
+  target.innerHTML='<div class="picker-empty">'+(kind==="champion"?"Aucune carte champion correspondante. Vérifie la légende.":"Aucune carte trouvée. Essaie un autre nom.")+'</div>';
+ }else{
+  target.innerHTML=results.map((c,i)=>{
+   const preview=c.image?'<img loading="lazy" src="'+esc(imageForDisplay(c.image))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback))+'" alt="">':'<span class="picker-no-image">✦</span>';
+   return '<button type="button" class="picker-result '+(i===0?"is-active":"")+'" role="option" aria-selected="'+(i===0)+'" data-index="'+i+'" id="picker-option-'+kind+'-'+i+'">'+preview+
+    '<span class="picker-result-text"><strong>'+esc(c.name)+'</strong><small>'+esc(c.set||c.type)+' · '+esc(c.code)+'</small></span><span class="picker-result-pick">Choisir</span></button>';
+  }).join("");
+ }
+ target.hidden=false;input.setAttribute("aria-expanded","true");
+ if(results.length)input.setAttribute("aria-activedescendant","picker-option-"+kind+"-0");
+}
+function pickerMove(kind,direction){
+ const id="home-human-"+kind,results=pickerOpen.results;
+ if(pickerOpen.id!==id||!results.length){renderPicker(kind,$(id).value);return;}
+ pickerOpen.index=(pickerOpen.index+direction+results.length)%results.length;
+ const target=$("picker-"+kind+"-results");
+ for(const button of target.querySelectorAll(".picker-result")){
+  const active=Number(button.dataset.index)===pickerOpen.index;
+  button.classList.toggle("is-active",active);
+  button.setAttribute("aria-selected",String(active));
+  if(active)button.scrollIntoView({block:"nearest",behavior:"instant"});
+ }
+ $(id).setAttribute("aria-activedescendant","picker-option-"+kind+"-"+pickerOpen.index);
+}
+function initCardPickers(){
+ for(const [id,kind] of Object.entries(pickerKindById)){
+  const input=$(id),menu=$("picker-"+kind+"-results");
+  input.addEventListener("focus",()=>renderPicker(kind,input.value));
+  input.addEventListener("input",()=>{
+   const original=pickerSelected.get(id);
+   if(!original||original.name!==input.value){
+    pickerSelected.delete(id);
+    const display=$("picker-"+kind+"-selected");
+    display.innerHTML="";display.classList.remove("is-selected");
+    if(kind==="legend"){
+     pickerSelected.delete("home-human-champion");
+     $("home-human-champion").value="";
+     $("home-human-champion").disabled=true;
+     $("picker-champion-selected").innerHTML="";
+     $("picker-champion-selected").classList.remove("is-selected");
+     hidePicker("home-human-champion");
+    }
+   }
+   renderPicker(kind,input.value);
+  });
+  input.addEventListener("keydown",event=>{
+   if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+    event.preventDefault();pickerMove(kind,event.key==="ArrowDown"?1:-1);
+   }else if(event.key==="Enter"){
+    if(pickerOpen.id===id&&pickerOpen.results[pickerOpen.index]){
+     event.preventDefault();markPickerSelection(kind,pickerOpen.results[pickerOpen.index]);
+    }
+   }else if(event.key==="Escape"){hidePicker(id);}
+  });
+  menu.addEventListener("click",event=>{
+   const option=event.target.closest("button[data-index]");
+   if(!option)return;
+   const card=pickerOpen.id===id?pickerOpen.results[Number(option.dataset.index)]:null;
+   if(card){markPickerSelection(kind,card);input.focus({preventScroll:true});hidePicker(id);}
+  });
+ }
+ document.addEventListener("pointerdown",event=>{
+  if(!event.target.closest(".card-search-field"))for(const id of Object.keys(pickerKindById))hidePicker(id);
+ });
+}
+function fillHomeCardSuggestions(){
+ if(!catalog.length){$("home-catalog-count").textContent="Catalogue indisponible : réessaye ou importe un fichier JSON depuis Catalogue.";return;}
+ const examples=randomExampleCards(catalog);
+ const placeholder=(id,card,pre)=>{
+  if(!$(id).value&&card)$(id).placeholder=pre+card.name;
+ };
+ placeholder("home-human-legend",examples.legend,"Ex. ");
+ placeholder("home-human-battlefield",examples.battlefield,"Ex. ");
+ if(!selectedLegend())$("home-human-champion").placeholder=examples.champion?"Ex. "+examples.champion.name:"Choisis d'abord ta légende…";
+ $("home-catalog-count").textContent=catalog.length+" cartes chargées · recherche rapide avec visuels, 7 choix maximum à la fois.";
+ const selected={
+  legend:state.players?.human?.legend,
+  champion:state.players?.human?.champion,
+  battlefield:state.battlefields?.[0]?.card
+ };
+ if(!pickerSelected.size){
+  if(selected.legend)markPickerSelection("legend",selected.legend);
+  if(selected.champion)markPickerSelection("champion",selected.champion);
+  if(selected.battlefield)markPickerSelection("battlefield",selected.battlefield);
+ }
 }
 function homeCard(id,type){
- const value=$(id).value.trim();
- if(!value)throw Error("Complète les trois champs de ton deck physique.");
- return guess(value,type)||{code:"manual-"+value.toLowerCase().replace(/[^a-z0-9]+/g,"-"),
-  name:value,type:type==="legend"?"Legend":type==="battlefield"?"Battlefield":"Unit",image:""};
+ const chosen=pickerSelected.get(id);
+ if(chosen&&chosen.name===$(id).value)return chosen;
+ const entered=$(id).value.trim().toLowerCase();
+ const matches=filteredPickerCards(catalog,type,entered,type==="champion"?selectedLegend():null,10);
+ const exact=matches.find(c=>c.name.toLowerCase()===entered||c.code.toLowerCase()===entered);
+ if(exact){markPickerSelection(type,exact);return exact;}
+ throw Error("Choisis une carte proposée pour "+(type==="legend"?"ta légende":type==="champion"?"ton champion":"ton champ de bataille")+".");
 }
+function renderDeckChoices(){
+ const ids=["home-ai-deck","precon-select"];
+ const groups=new Map();
+ for(const deck of PRECONS){
+  const set=deck.label.split(" · ")[1]?.split(" (")[0]||"Autres";
+  if(!groups.has(set))groups.set(set,[]);
+  groups.get(set).push(deck);
+ }
+ for(const id of ids){
+  const el=$(id),previous=el.value;
+  el.innerHTML='<option value="random">🎲 Aléatoire parmi les '+PRECONS.length+' decks</option>';
+  for(const [group,decks] of groups){
+   const optgroup=document.createElement("optgroup");optgroup.label=group;
+   for(const deck of decks){const option=document.createElement("option");option.value=deck.id;option.textContent=deck.label.split(" · ")[0]+" · "+deck.label.match(/\(([^)]+)\)/)?.[1];optgroup.append(option);}
+   el.append(optgroup);
+  }
+  el.value=[...el.options].some(o=>o.value===previous)?previous:"random";
+ }
+ renderDeckPreview();
+}
+function renderDeckPreview(){
+ const id=$("home-ai-deck").value,target=$("home-deck-preview");
+ if(id==="random"){
+  target.textContent="🎲 L'IA choisira un deck complet au hasard parmi "+PRECONS.length+" listes préconstruites.";
+  return;
+ }
+ const deck=PRECONS.find(p=>p.id===id);
+ if(!deck){target.textContent="Deck introuvable.";return;}
+ const size=deck.main.reduce((sum,[,qty])=>sum+qty,0);
+ target.textContent=deck.label+" · "+size+" cartes, "+deck.runes.reduce((sum,[,qty])=>sum+qty,0)+" runes, "+deck.battlefields.length+" terrains. "+(deck.warning||"");
+}
+$("home-ai-deck").addEventListener("change",renderDeckPreview);
+initCardPickers();
 $("home-installed").onchange=e=>{
  onboarding.installed=e.target.checked;
  if(e.target.checked){onboarding.installSkipped=false;}
@@ -464,7 +617,7 @@ $("home-create-game").onclick=async()=>{
   $("human-battlefield-input").value=battlefield.name;
   $("precon-select").value=$("home-ai-deck").value;
   renderWelcome();
-  notify("Partie créée ! Deck IA : "+deck.label+". Tu peux maintenant copier le prompt, puis ouvrir le plateau.");
+  notify("Partie créée ! Deck IA : "+deck.label+(deck.warning?" · "+deck.warning:"")+". Tu peux maintenant copier le prompt puis ouvrir le plateau.");
  }catch(e){notify(e.message,true);}
  finally{button.disabled=false;button.textContent="Créer et démarrer ma partie";}
 };
@@ -557,6 +710,7 @@ function watchForLocalCompanion(){
 }
 render();
 renderWelcome();
+renderDeckChoices();
 autoBootstrapCompanion();
 watchForLocalCompanion();
 loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
