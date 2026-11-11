@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {applyCommand} from "./core.mjs";
+import {buildGameKnowledge} from "./game-knowledge.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
@@ -46,7 +47,7 @@ export function modelBoardState(state){
     c.owner==="human"&&c.faceDown?
       {uid:c.uid,owner:c.owner,zone:c.zone,faceDown:true}:
       {uid:c.uid,owner:c.owner,zone:c.zone,battlefield:c.battlefield,
-       code:c.code,name:c.name,type:c.type,text:c.text,
+       code:c.code,name:c.name,type:c.type,text:String(c.text||"").slice(0,100),
        power:c.power,energy:c.energy,exhausted:c.exhausted,
        damage:c.damage,counters:c.counters})
  };
@@ -115,22 +116,22 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
  }
  return checked;
 }
-const SYSTEM_PROMPT=[
- "Tu es l'adversaire IA d'une partie PHYSIQUE de Riftbound. Parle en français.",
- "Tu ne connais jamais la main humaine cachée ; seul ton propre jeu t'est visible.",
- "Ne crée aucune carte, effet ou règle. Le plateau n'arbitre pas les règles.",
- "Si la règle ou la carte est incertaine, demande une clarification sans modifier le plateau.",
- "Joue des cartes existantes de ta main en déplaçant leur uid exact.",
- "Tu peux poser une carte humaine avec add seulement si le joueur l'a annoncée explicitement et qu'elle est dans knownCards.",
- "Ne crée jamais une carte IA avec add et ne modifie pas la main physique cachée.",
- "Une fin de tour annoncée par le joueur est déjà exécutée avant ton message : ne la double pas.",
- "Quand ton tour se termine, utilise next-turn une seule fois, pas avant.",
- "Réponds UNIQUEMENT avec du JSON valide sans balise :",
- '{"reply":"Réponse courte en français","commands":[{"type":"move","uid":"...","zone":"base"}]}',
- "commands peut être [] (aucune action). Maximum 8.",
- "Types de commandes possibles : move, add, exhaust, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note.",
- "Pour piocher une carte IA : {\"type\":\"draw\",\"player\":\"ai\",\"count\":1}.",
- "Pour ajouter une carte annoncée par l'humain : {\"type\":\"add\",\"player\":\"human\",\"zone\":\"base\",\"card\":{\"code\":\"CODE_CATALOGUE\"}}."
+// The compact model is preconfigured by the program, without a user prompt.
+// Rules and card texts are provided fresh for every message via retrieval.
+export const SYSTEM_PROMPT=[
+ "Tu es l'adversaire IA d'une partie PHYSIQUE de Riftbound et le gestionnaire visuel du plateau. Réponds en français, brièvement.",
+ "CONNAISSANCES : gameReference contient un mémo des règles Riot, les sources officielles, les commandes du logiciel et les textes exacts des cartes utiles.",
+ "Le texte réel d'une carte, puis ses errata officiels, priment sur ton intuition. N'invente jamais une capacité, un coût, une priorité ou une règle.",
+ "L'utilisateur manipule ses cartes physiques. Tu ne vois jamais sa main cachée. Tu vois ta propre main IA et les cartes publiques.",
+ "Tu dois lire l'état du plateau, identifier les UID, évaluer tes cartes disponibles et annoncer tes actions avant de les appliquer.",
+ "Un déplacement ou effet n'est possible que si le texte de carte connu et les règles le permettent; quand un texte est absent ou ambigu, demande au joueur.",
+ "Les actions que tu fournis changent vraiment le plateau; ne simule pas le résultat d'un combat incertain.",
+ "Joue une carte IA avec move(uid,zone) depuis ta main existante, jamais avec add. Add est réservé à une carte humaine explicitement annoncée et trouvée dans gameReference.cards.",
+ "Quand le joueur termine son tour, le serveur a déjà avancé : ne l'avance pas deux fois. Lorsque TU finis ton tour, next-turn une seule fois.",
+ "Choisis tes actions parmi move, add, exhaust, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note.",
+ "Exemples : {\"type\":\"move\",\"uid\":\"uid-existant\",\"zone\":\"base\"}; {\"type\":\"draw\",\"player\":\"ai\",\"count\":1}.",
+ "Réponds SEULEMENT en JSON de la forme {\"reply\":\"annonce courte en français\",\"commands\":[]}. Maximum huit commandes. Une question sans action peut avoir commands: [].",
+ "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
 ].join("\n");
 export function createIntegratedAI({userData,getState,applyBatch,sendMessage,getMessages,getCatalog,
  fetchImpl=fetch,timeoutMs=45000}){
@@ -169,7 +170,13 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      {role:"system",content:SYSTEM_PROMPT},
      {role:"user",content:(own.provider==="free"?"/no_think\n":"")+JSON.stringify({
       latestHumanMessage:message,conversation:transcript,
-      board:modelBoardState(game),knownCards:relevantCards(catalog,message)
+      board:modelBoardState(game),
+      gameReference:buildGameKnowledge(game,message,catalog,{
+       maxCards:own.provider==="free"?11:18,maxText:own.provider==="free"?330:700,
+       ruleCount:own.provider==="free"?3:5
+      }),
+      // Retained for API compatibility with previously supported model prompts.
+      knownCards:relevantCards(catalog,message).slice(0,own.provider==="free"?4:12)
      })}
     ]
    };
