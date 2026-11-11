@@ -22,6 +22,11 @@ const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
 const stateFile=path.join(userData,".riftbound-local-state.json");
 const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
+let browserHandoff=false;
+let browserFallbackTimer=null;
+const isTrustedSiteOrigin=origin=>origin===allowedOrigin;
+const isAllowedLocalOrigin=origin=>/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin||"");
+
 const catalogFile=path.join(userData,".riftbound-catalog-cache.json");
 let catalogCache=null,catalogTime=0,catalogPending=null;
 async function loadServerCatalog(force=false) {
@@ -57,10 +62,10 @@ function json(res,status,obj,req){
 }
 function headers(res,req){
   const origin=req.headers.origin;
-  if(origin&&(origin===allowedOrigin||/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin))){
+  if(origin&&(isTrustedSiteOrigin(origin)||isAllowedLocalOrigin(origin))){
     res.setHeader("Access-Control-Allow-Origin",origin);
     res.setHeader("Vary","Origin");
-    res.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type");
+    res.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type,X-Riftbound-Pair");
     res.setHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");
     if(req.headers["access-control-request-private-network"]==="true")res.setHeader("Access-Control-Allow-Private-Network","true");
   }
@@ -152,7 +157,22 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.3.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.4.0",packaged},req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/pair"){
+    // Local browser handoff: only the exact hosted companion origin may request a token.
+    // This API is NOT a substitute for authenticating external agents. Never expose it
+    // to the public Internet; the HTTP server remains bound to 127.0.0.1.
+    const origin=req.headers.origin||"";
+    if(!isTrustedSiteOrigin(origin)||req.headers["x-riftbound-pair"]!=="1"||
+       !String(req.headers["content-type"]||"").startsWith("application/json")){
+      msg(res,403,"Association réservée au site officiel ouvert localement",req);return;
+    }
+    // A successful handoff tells the launcher that the user already has a tab open.
+    browserHandoff=true;
+    if(browserFallbackTimer){clearTimeout(browserFallbackTimer);browserFallbackTimer=null;}
+    json(res,200,{ok:true,token,baseUrl:"http://127.0.0.1:"+port},req);
+    return;
   }
   if(!authorized(req)){msg(res,401,"Jeton manquant ou incorrect",req);return;}
   if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
@@ -202,11 +222,17 @@ server.listen(port,host,()=>{
   console.log("Jeton local : "+token);
   console.log("L'API est réservée à 127.0.0.1. Ne publie pas le jeton.\n");
   if(packaged&&process.platform==="win32"&&!process.argv.includes("--no-browser")&&process.env.RIFTBOUND_NO_BROWSER!=="1"){
-    // URL fragment isn't sent in HTTP requests; the local UI consumes and removes it on load.
-    const target="http://"+host+":"+port+"/#companion="+encodeURIComponent(token);
-    execFile("powershell.exe",["-NoProfile","-NonInteractive","-WindowStyle","Hidden","-Command",
-      "Start-Process '"+target+"'"],{windowsHide:true},err=>{
-        if(err)console.log("Ouvre le site manuellement : http://"+host+":"+port);
-      });
+    // The GitHub Pages tab polls /api/health and POSTs /api/pair.
+    // Give it time to reuse that tab. Open a local tab ONLY when no existing tab paired.
+    browserFallbackTimer=setTimeout(()=>{
+      if(browserHandoff)return;
+      browserFallbackTimer=null;
+      const target="http://"+host+":"+port+"/#companion="+encodeURIComponent(token);
+      execFile("powershell.exe",["-NoProfile","-NonInteractive","-WindowStyle","Hidden","-Command",
+        "Start-Process '"+target+"'"],{windowsHide:true},err=>{
+          if(err)console.log("Ouvre ton navigateur à : http://"+host+":"+port);
+        });
+    },14000);
+    browserFallbackTimer.unref?.();
   }
 });
