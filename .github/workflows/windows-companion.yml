@@ -13,6 +13,8 @@ on:
       - 'index.html'
       - 'style.css'
       - 'scripts/build-sea.mjs'
+      - 'scripts/apply-icon.mjs'
+      - 'assets/companion-icon.svg'
       - '.github/workflows/windows-companion.yml'
 
 permissions:
@@ -40,6 +42,11 @@ jobs:
       - name: Create single executable with Node SEA
         shell: pwsh
         run: node --build-sea dist/sea-config.json
+      - name: Apply branded Windows icon
+        shell: pwsh
+        run: |
+          npm install --prefix dist/icon-tools --no-save --no-audit --no-fund @resvg/resvg-js@2.6.2 rcedit@5.0.2
+          node scripts/apply-icon.mjs
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
