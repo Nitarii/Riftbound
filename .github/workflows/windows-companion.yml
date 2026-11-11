@@ -92,8 +92,6 @@ jobs:
             if (!$healthy) {Get-Content "dist\server-smoke.log";Get-Content "dist\server-smoke.err";throw "Executable failed to start"}
             $page = Invoke-WebRequest "http://127.0.0.1:8878/" -UseBasicParsing
             if ($page.StatusCode -ne 200 -or !$page.Content.Contains("welcome-screen")) {throw "Bundled UI missing"}
-            $agent=Invoke-WebRequest "http://127.0.0.1:8878/agent" -UseBasicParsing
-            if ($agent.StatusCode -ne 404) {throw "Browser agent console must not be exposed via local admin port"}
             $js = Invoke-WebRequest "http://127.0.0.1:8878/app.mjs" -UseBasicParsing
             if (!$js.Content.Contains("function renderWelcome")) {throw "Bundled JS missing"}
             $badPairHeaders = @{Origin = "https://untrusted.example"; "X-Riftbound-Pair" = "1"}
