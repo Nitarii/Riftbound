@@ -6,16 +6,23 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import os from "node:os";
+import * as sea from "node:sea";
+import {execFile} from "node:child_process";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
-const root=path.dirname(fileURLToPath(import.meta.url)),port=Number(process.env.PORT||8787);
+const packaged=sea.isSea();
+const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
+const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
+if(packaged)fs.mkdirSync(userData,{recursive:true});
+const port=Number(process.env.PORT||8787);
 const host="127.0.0.1";
 const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
-const stateFile=path.join(root,".riftbound-local-state.json");
+const stateFile=path.join(userData,".riftbound-local-state.json");
 const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
-const catalogFile=path.join(root,".riftbound-catalog-cache.json");
+const catalogFile=path.join(userData,".riftbound-catalog-cache.json");
 let catalogCache=null,catalogTime=0,catalogPending=null;
 async function loadServerCatalog(force=false) {
   if(!catalogCache)try{
@@ -110,15 +117,24 @@ const guide={
  },
  allCommandTypes:COMMANDS
 };
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","style.css"]);
 function serveFile(req,res,url){
-  let relative=url.pathname==="/"?"/index.html":url.pathname;
-  if(!/^\/[a-z0-9._/-]+$/i.test(relative)||relative.includes("..")||relative.startsWith("/.")){msg(res,404,"Not found",req);return;}
-  const file=path.join(root,relative);
-  if(!["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","style.css"].includes(path.basename(file))||!fs.existsSync(file)){msg(res,404,"Not found",req);return;}
-  const ext=path.extname(file);
-  const contentType=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":"text/plain";
-  try{headers(res,req);res.writeHead(200,{"Content-Type":contentType+"; charset=utf-8"});fs.createReadStream(file).pipe(res);}
-  catch{msg(res,404,"Not found",req);}
+ const requested=url.pathname==="/"?"/index.html":url.pathname;
+ if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
+  msg(res,404,"Not found",req);return;
+ }
+ const name=requested.slice(1);
+ if(!WEB_ASSETS.has(name)){msg(res,404,"Not found",req);return;}
+ const ext=path.extname(name);
+ const mime=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":"text/plain";
+ try{
+  let bytes;
+  if(packaged)bytes=Buffer.from(sea.getAsset(name));
+  else bytes=fs.readFileSync(path.join(root,name));
+  headers(res,req);
+  res.writeHead(200,{"Content-Type":mime+"; charset=utf-8","Cache-Control":"no-cache"});
+  res.end(bytes);
+ }catch(e){console.error("Static file:",name,e.message);msg(res,404,"Not found",req);}
 }
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://127.0.0.1");
@@ -134,6 +150,9 @@ const server=http.createServer(async(req,res)=>{
     res.write("data: "+JSON.stringify({state})+"\n\n");clients.add(res);
     const heart=setInterval(()=>{try{res.write(":keepalive\n\n");}catch{}},15000);
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/health"){
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.3.0",packaged},req);return;
   }
   if(!authorized(req)){msg(res,401,"Jeton manquant ou incorrect",req);return;}
   if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
@@ -173,9 +192,21 @@ const server=http.createServer(async(req,res)=>{
   }
   msg(res,404,"Endpoint inconnu",req);
 });
+server.on("error",err=>{
+ console.error("Démarrage impossible :",err.code==="EADDRINUSE"?"Le port "+port+" est déjà utilisé. Ferme l'autre instance du module.":err.message);
+ process.exitCode=1;
+});
 server.listen(port,host,()=>{
   console.log("\nRIFTBOUND TABLE COMPANION");
   console.log("Site local : http://"+host+":"+port);
   console.log("Jeton local : "+token);
   console.log("L'API est réservée à 127.0.0.1. Ne publie pas le jeton.\n");
+  if(packaged&&process.platform==="win32"&&!process.argv.includes("--no-browser")&&process.env.RIFTBOUND_NO_BROWSER!=="1"){
+    // URL fragment isn't sent in HTTP requests; the local UI consumes and removes it on load.
+    const target="http://"+host+":"+port+"/#companion="+encodeURIComponent(token);
+    execFile("powershell.exe",["-NoProfile","-NonInteractive","-WindowStyle","Hidden","-Command",
+      "Start-Process '"+target+"'"],{windowsHide:true},err=>{
+        if(err)console.log("Ouvre le site manuellement : http://"+host+":"+port);
+      });
+  }
 });
