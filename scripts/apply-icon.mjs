@@ -34,8 +34,8 @@ fs.writeFileSync(ico,Buffer.concat([table,...images]));
 const exe=path.join(dist,"RiftboundCompanion.exe");
 await rcedit(exe,{
  icon:ico,
- "file-version":"0.5.0.0",
- "product-version":"0.5.0.0",
+ "file-version":"0.7.0.0",
+ "product-version":"0.7.0.0",
  "version-string":{
   ProductName:"Riftbound Companion",
   FileDescription:"Compagnon visuel pour parties physiques",
