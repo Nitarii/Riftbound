@@ -62,6 +62,9 @@ function relevantCards(catalog,text){
 }
 function extractJSON(raw){
  let value=String(raw||"").trim();
+ // Some small local Qwen models include a reasoning tag even when asked not to.
+ // Never display that tag to the player; parse only the final JSON.
+ if(value.includes("</think>"))value=value.slice(value.lastIndexOf("</think>")+8).trim();
  if(value.startsWith("~~~"))value=value.replace(/^~~~(?:json)?\s*/i,"").replace(/\s*~~~$/,"");
  if(value.startsWith(String.fromCharCode(96).repeat(3))){
   const ticks=String.fromCharCode(96).repeat(3);
@@ -160,11 +163,11 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const transcript=getMessages(0).messages.slice(-8).map(m=>({role:m.role,text:m.text}));
    const payload={
-    model:own.model,temperature:own.provider==="free"?0.1:0.3,max_tokens:1100,
+    model:own.model,temperature:own.provider==="free"?0.7:0.3,max_tokens:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
     messages:[
      {role:"system",content:SYSTEM_PROMPT},
-     {role:"user",content:JSON.stringify({
+     {role:"user",content:(own.provider==="free"?"/no_think\n":"")+JSON.stringify({
       latestHumanMessage:message,conversation:transcript,
       board:modelBoardState(game),knownCards:relevantCards(catalog,message)
      })}
