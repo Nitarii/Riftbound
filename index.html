@@ -38,19 +38,33 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.5.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
-        <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il démarre le serveur local et ouvre automatiquement le plateau dans ton navigateur. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
+        <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
       </div>
     </section>
 
     <section class="welcome-step" data-wizard-step="2" aria-labelledby="welcome-step-two" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">02</span>
-        <div><h2 id="welcome-step-two">Connecter ton compagnon</h2><p>Lorsque tu ouvres le .exe, une page locale apparaît et la connexion s'établit automatiquement.</p></div>
+        <div><h2 id="welcome-step-two">Autoriser la connexion au compagnon</h2><p>Le navigateur doit autoriser ce site à communiquer avec l'application installée sur <strong>ton propre ordinateur</strong>.</p></div>
         <span id="home-relay-status" class="welcome-state">Non connecté</span></div>
       <div class="welcome-step-body">
-        <div class="connection-feature"><div class="connection-feature-led" aria-hidden="true"></div><div><strong id="home-connection-label">En attente de l'application locale</strong><p>Tu peux aussi ouvrir <a href="http://127.0.0.1:8787/" target="_blank" rel="noopener noreferrer">le plateau local</a> si tu as fermé la fenêtre automatique.</p></div></div>
+        <div class="connection-feature"><div class="connection-feature-led" aria-hidden="true"></div><div><strong id="home-connection-label">En attente de l'application locale</strong><p>Connexion au programme Riftbound Companion, uniquement sur <code>127.0.0.1</code>.</p></div></div>
+        <div class="local-permission-panel" id="local-permission-panel">
+          <span class="local-permission-icon" aria-hidden="true">✦</span>
+          <div class="local-permission-content">
+            <strong>Autorisation du navigateur</strong>
+            <p>Pour utiliser le plateau dans cet onglet, autorise l'accès au serveur local. Ton navigateur peut afficher sa propre fenêtre de confirmation.</p>
+            <button type="button" class="primary" id="home-allow-local"><span aria-hidden="true">🔗</span> Autoriser la connexion locale</button>
+            <p id="home-permission-state" class="local-permission-status" role="status" aria-live="polite">Lance d'abord l'application Windows, puis clique sur Autoriser.</p>
+            <div id="home-permission-help" class="local-permission-help" hidden>
+              <strong>La demande n'apparaît pas ou a été refusée ?</strong>
+              <p>Dans Chrome ou Edge : clique sur l'icône des paramètres du site à gauche de l'adresse, puis autorise <strong>Accès au réseau local / Accès au bouclage</strong> pour ce site. Actualise ensuite la page et réessaie.</p>
+              <p>Vérifie également que le programme est toujours ouvert. Sur un navigateur ne proposant pas cette autorisation, la demande peut ne pas s'afficher.</p>
+            </div>
+          </div>
+        </div>
         <div class="welcome-actions">
           <button type="button" id="home-preview">Continuer en mode aperçu</button>
         </div>
@@ -61,7 +75,7 @@
           </div>
           <button type="button" id="home-connect" class="primary">Connecter manuellement</button>
         </details>
-        <p class="welcome-hint">Le mode aperçu ne donne pas de contrôle à une IA distante. Un agent externe doit disposer d'un accès réseau autorisé et d'un jeton privé. L'accès distant est optionnel.</p>
+        <p class="welcome-hint">Le bouton demande l'autorisation uniquement pour ce site et ton programme local. Si tu n'utilises pas le serveur, tu peux continuer en mode aperçu. Un agent distant nécessite toujours un accès séparé et autorisé.</p>
       </div>
     </section>
 
