@@ -356,7 +356,8 @@ function renderWelcome(){
  }
  $("home-installed").checked=Boolean(onboarding.installed);
  const status=$("home-relay-status");
- status.textContent=relay?"● Connecté":onboarding.preview?"Mode aperçu":"Non connecté";
+ status.textContent=relay?"✓ Connecté":onboarding.preview?"Mode aperçu":"Non connecté";
+ $("home-connection-label").textContent=relay?"✓ Module connecté automatiquement":onboarding.preview?"Aperçu sans serveur":"En attente du module Windows";
  status.classList.toggle("complete",steps[1]);
  $("home-game-status").textContent=steps[2]?"● Partie prête":"À préparer";
  $("home-game-status").classList.toggle("complete",steps[2]);
@@ -369,7 +370,7 @@ function renderWelcome(){
  $("home-next").disabled=!steps[wizardStep-1];
  $("home-next").textContent=wizardStep===4?"Terminer et ouvrir le plateau →":"Valider et continuer →";
  const prompts=[
-   "Coche « Module installé et lancé » ou choisis l'aperçu sans installation.",
+   "Lance le fichier .exe puis confirme, ou choisis un aperçu sans installation.",
    "Connecte réellement le serveur, ou choisis le mode aperçu.",
    "Renseigne les trois cartes et clique sur « Créer et démarrer ma partie ».",
    "Clique sur « Copier le prompt IA » pour valider la dernière étape."
@@ -423,7 +424,7 @@ $("home-skip-install").onclick=()=>{
  setWizardStep(2);
  notify("Mode aperçu sélectionné. Aucun serveur n'est requis pour voir le plateau, mais une IA distante ne pourra pas le piloter.");
 };
-$("home-download").onclick=()=>notify("Le ZIP contient start-local.bat. Coche « Installé » après l'avoir décompressé et lancé.");
+$("home-download").onclick=()=>notify("Téléchargement du .exe Windows. Double-clique sur ce seul fichier : il ouvre ton plateau local automatiquement.");
 $("home-connect").onclick=async()=>{
  $("relay-url").value=$("home-server-url").value.trim();
  $("relay-token").value=$("home-server-token").value.trim();
@@ -467,8 +468,40 @@ $("home-create-game").onclick=async()=>{
  }catch(e){notify(e.message,true);}
  finally{button.disabled=false;button.textContent="Créer et démarrer ma partie";}
 };
+// The Windows single-file app opens this page with a one-time login token
+// in the URL fragment (never sent to the server), which is consumed immediately.
+async function autoBootstrapCompanion(){
+ if(!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(location.origin))return;
+ const key="riftbound-local-connection-v1";
+ let localToken="";
+ if(location.hash.startsWith("#companion=")){
+   try{localToken=decodeURIComponent(location.hash.slice("#companion=".length));}catch{}
+   history.replaceState(null,"",location.pathname+location.search);
+   if(localToken)try{sessionStorage.setItem(key,localToken);}catch{}
+ }else{
+   try{localToken=sessionStorage.getItem(key)||"";}catch{}
+ }
+ if(!localToken)return;
+ $("relay-url").value=location.origin;
+ $("relay-token").value=localToken;
+ $("home-server-url").value=location.origin;
+ $("home-server-token").value=localToken;
+ const ok=await connectRelay();
+ if(ok){
+   onboarding.installed=true;
+   onboarding.installSkipped=false;
+   onboarding.preview=false;
+   wizardStep=3;onboarding.wizardStep=3;
+   saveOnboarding();renderWelcome();
+   notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
+ }else{
+   try{sessionStorage.removeItem(key);}catch{}
+   notify("Connexion automatique impossible. Relance le compagnon Windows.",true);
+ }
+}
 render();
 renderWelcome();
+autoBootstrapCompanion();
 loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
  $("catalog-status").textContent=e.message;
  $("home-catalog-count").textContent="Impossible de charger les cartes : "+e.message;
