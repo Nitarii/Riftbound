@@ -20,6 +20,7 @@ jobs:
           node --check manual-bridge.mjs
           node --check conversation.mjs
           node --check integrated-ai.mjs
+          node --check free-ai.mjs
           node --check app.mjs
           node --check server.mjs
           node --check remote.mjs
