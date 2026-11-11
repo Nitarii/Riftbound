@@ -356,7 +356,11 @@ function agentPromptText(includeAccess=true){
   connected?"Console web accessible avec un navigateur agent : "+base+"/agent/#access="+encodeURIComponent(remoteSession.agentToken):
     "Aucune console distante n'est activée. Ne prétends pas être connecté.",
   "Si tu as un navigateur interactif, ouvre la console agent pour consulter le plateau et commander les cartes.",
-  "API : GET /api/guide, GET /api/state, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
+  "API : GET /api/guide, GET /api/state, GET /api/messages?after=0, POST /api/messages {text}, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
+  "La chatbox du joueur envoie ses textes et transcriptions vocales dans GET /api/messages. Relis-la régulièrement en augmentant after avec le dernier id.",
+  "Réponds au joueur par POST /api/messages avec le JSON {\\"text\\":\\"Ta réponse\\"}, puis utilise POST /api/command pour afficher les déplacements et autres changements réels.",
+  "Le bouton « Passer mon tour » fait avancer le plateau et envoie une annonce dans les messages.",
+  "Documentation standard de l'API pour les agents compatibles : "+(connected?base+"/openapi.json":"URL distante indisponible"),
   connected?"Authentification de CETTE session : Authorization: Bearer "+remoteSession.agentToken:
     "Aucun jeton temporaire disponible. Propose des commandes JSON au joueur si tu n'as pas d'accès direct.",
   "Si tu es autorisé et capable d'envoyer des requêtes HTTP, commence par GET /api/guide puis GET /api/state. Utilise la console web sinon.",
