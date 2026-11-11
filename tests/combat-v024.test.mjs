@@ -184,6 +184,7 @@ test("voice pass ends a safe combat after both parties pass without requiring En
  s=attack(s,"human",0,["Human"]);
  const plan=planPlayerSequence("je passe",s,[]);
  assert.deepEqual(plan.commands,[{type:"combat-pass",player:"human"}]);
+ assert.deepEqual(planPlayerSequence("je passe ma réaction",s,[]).commands,plan.commands);
  for(const c of plan.commands)s=applyCommand(s,c);
  assert.equal(s.pendingCombat,null);
  assert.equal(s.players.human.score,1);

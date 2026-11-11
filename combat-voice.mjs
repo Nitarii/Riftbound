@@ -10,7 +10,7 @@ export function combatVoicePlan(message,state){
   return {recognized:true,commands:[{type:"combat-confirm-effects",confirm:true}]};
  if(/\b(?:resou[ds]|resol[uv]|resolv(?:e|ed)?|calcul(?:e|ons)|apply damage|infli(?:ge|ger))\b.*\b(?:combat|fight|damage|degats?)\b/.test(text))
   return {recognized:true,commands:[{type:"combat-resolve"}]};
- const passes=/^(?:je |j'|i |we |ok |okay |bon |allez |oui )?(?:passe|pass|no reaction|pas de reaction|aucune reaction|sans reaction|rien a jouer|nothing to play|go ahead|vas[- ]?y|tu peux resoudre)(?:[.! ]*)$/;
+ const passes=/^(?:je |j'|i |we |ok |okay |bon |allez |oui )?(?:passe|pass|no reaction|pas de reaction|aucune reaction|sans reaction|rien a jouer|nothing to play|go ahead|vas[- ]?y|tu peux resoudre)(?:\s+(?:(?:ma|my|la|the)\s+)?(?:reaction|priorite|priority))?[.! ]*$/;
  if(passes.test(text))return {recognized:true,commands:[{type:"combat-pass",player:"human"}]};
  return null;
 }

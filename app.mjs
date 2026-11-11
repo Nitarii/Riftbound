@@ -138,7 +138,7 @@ function cardHTML(c,show=true,large=false){
   turned?' data-card-state="exhausted" aria-label="'+title+' — exhausted"':
   ' data-card-state="ready" aria-label="'+title+' — ready"';
  const tile='<div class="card-tile '+(c.type?.toLowerCase().includes("battlefield")?"landscape ":"")+
-   (turned?"exhausted ":"")+(faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'" data-card-type="'+esc((c.type||"").toLowerCase())+'"'+status+'>'+
+   (turned?"exhausted ":"")+(faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'" data-card-type="'+esc((c.type||"").toLowerCase())+'" data-stunned="'+Boolean(c.stunned||c.counters?.stunned)+'"'+status+'>'+
    '<div class="card-art">'+(faceDown?'<div class="card-back">R</div>':art)+'</div>'+label+
    (c.damage?'<b class="damage">−'+c.damage+'</b>':'')+
    Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+
