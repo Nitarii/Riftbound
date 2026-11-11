@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.14.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.15.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.14.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+1. Télécharge et lance `RiftboundCompanion-v0.15.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -22,6 +22,18 @@ Le programme n'est pas signé numériquement; Windows SmartScreen peut afficher 
 **Sources et sécurité des téléchargements** :
 - moteur `ggml-org/llama.cpp`, release [b12277](https://github.com/ggml-org/llama.cpp/releases/tag/b12277), fichier Windows CPU, SHA-256 `5943df89ff76289e16fd9c9600a38871b47f20272c589c3b803eca2181f67a08` (licence MIT) ;
 - modèle officiel [Qwen3-0.6B Q8 GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q8_0.gguf), SHA-256 `9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031` (licence Apache 2.0).
+
+### IA préconfigurée : règles, cartes et commandes de jeu
+
+L'adversaire local Qwen3 0.6B n'a **aucune étape d'apprentissage à effectuer**. Au moment de chaque message, le serveur lui fournit automatiquement un petit guide des règles pertinentes, le fonctionnement des tours et de la chatbox, les commandes possibles avec UID et les textes des cartes nécessaires. Les références proviennent du [hub officiel Riot](https://playriftbound.com/fr-fr/rules-hub/) (règles de base et de tournoi du **9 octobre 2026**) et du catalogue déjà utilisé par le site. L'agent n'a pas besoin de sortir sur le Web.
+
+La sélection des cartes privilégie **la main de l'IA**, **les légendes/champions**, **les champs de bataille**, les unités visibles et les **cartes mentionnées par le joueur**. Le moteur cherche le code et le texte d'effet dans le catalogue, puis les injecte au modèle avec ses restrictions de commandes. Il n'envoie **jamais** la main physique humaine cachée. Pour rester compatible avec les petits PC et une fenêtre de contexte réduite, seuls les détails pertinents sont passés à chaque échange, sans tenter de charger toutes les cartes du jeu à la fois.
+
+**Références consultables** : `GET /api/ai/reference?q=nom` est disponible uniquement depuis l'API locale authentifiée. Il fournit les sources Riot, un mémo synthétique des règles, le fonctionnement du plateau et des fiches de cartes correspondantes, y compris leurs effets lorsque le catalogue les contient. L'écran de préparation de l'IA affiche automatiquement la révision des règles et la taille du catalogue accessible. Les PDF complets et errata doivent être consultés sur le hub officiel ; le projet ne les recopie pas.
+
+**Limites importantes** : le mémo est un résumé original, et non l'intégralité des 142 pages de règles compétitives. Le modèle Qwen3 0.6B peut se tromper malgré ces informations, notamment sur les capacités, réactions, timings, coûts et combats. Les données du catalogue peuvent être incomplètes ou antérieures à un errata. Dans ces situations, l'IA doit demander une vérification au joueur plutôt que déduire une règle non documentée.
+
+**Propriété intellectuelle et conformité :** les règles et cartes appartiennent à Riot Games. La [politique officielle des outils Riftbound](https://developer.riotgames.com/docs/riftbound) indique que l'utilisation d'actifs Riot dans une application nécessite une autorisation/API key appropriée et ne favorise pas actuellement les outils qui imposent automatiquement les règles. Un usage fan gratuit ne remplace pas ces autorisations. Cette version renvoie donc aux ressources officielles et utilise le catalogue existant sans embarquer de copie intégrale des règles ou des illustrations.
 
 ### Limite des règles
 
