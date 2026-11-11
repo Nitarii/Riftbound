@@ -3,11 +3,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import {createRequire} from "node:module";
+import {pathToFileURL} from "node:url";
 const require=createRequire(import.meta.url);
 const root=process.cwd(),dist=path.join(root,"dist");
 const {Resvg}=require(path.join(dist,"icon-tools","node_modules","@resvg","resvg-js"));
-const imported=require(path.join(dist,"icon-tools","node_modules","rcedit"));
-const rcedit=imported.rcedit||imported;
+const imported=await import(pathToFileURL(path.join(dist,"icon-tools","node_modules","rcedit","lib","index.js")).href);
+const rcedit=imported.rcedit||imported.default;
 if(typeof rcedit!=="function")throw Error("rcedit package did not expose an executable editor");
 const svg=fs.readFileSync(path.join(root,"assets","companion-icon.svg"));
 const sizes=[16,24,32,48,64,128,256];
