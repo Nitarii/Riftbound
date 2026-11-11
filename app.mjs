@@ -667,6 +667,7 @@ let pairingInProgress=false;
 let companionPairTimer=null;
 let permissionState="unknown";
 let permissionStatusObject=null;
+let lastPermissionError="";
 const localCompanionURL="http://127.0.0.1:8787";
 
 function permissionMessage(message,problem=false){
@@ -684,6 +685,7 @@ async function queryLoopbackPermission(){
   permissionStatusObject=await navigator.permissions.query({name:"loopback-network"});
   permissionStatusObject.onchange=()=>{
    permissionState=permissionStatusObject.state;
+   if(permissionState==="granted")lastPermissionError="";
    refreshBrowserPermissionUI();
    if(permissionState==="granted"&&!relay)pairExistingHostedTab(false);
   };
@@ -693,12 +695,16 @@ async function queryLoopbackPermission(){
 function refreshBrowserPermissionUI(){
  const button=$("home-allow-local");
  if(relay){
+  lastPermissionError="";
   button.disabled=true;button.textContent="✓ Connexion autorisée";
   permissionMessage("Le navigateur est autorisé et le serveur est connecté.");
   $("home-permission-help").hidden=true;
  }else if(permissionState==="denied"){
   button.disabled=false;button.textContent="Réessayer la connexion";
   permissionMessage("L'accès au serveur local est bloqué dans les paramètres de ce site.",true);
+ }else if(lastPermissionError){
+  button.disabled=false;button.textContent="Réessayer l'autorisation";
+  permissionMessage(lastPermissionError,true);
  }else if(permissionState==="granted"){
   button.disabled=false;button.textContent="Reconnecter mon compagnon";
   permissionMessage("Autorisation accordée. Lance le fichier .exe s'il n'est pas déjà ouvert.");
@@ -714,7 +720,7 @@ async function pairExistingHostedTab(userInitiated=false){
  if(!userInitiated&&permissionState!=="granted")return false;
  pairingInProgress=true;
  const button=$("home-allow-local");
- if(userInitiated){button.disabled=true;button.textContent="Connexion en cours…";}
+ if(userInitiated){lastPermissionError="";button.disabled=true;button.textContent="Connexion en cours…";}
  try{
   const health=await fetch(localCompanionURL+"/api/health",{
    ...localFetchOptions(localCompanionURL),cache:"no-store",signal:AbortSignal.timeout(3500)
@@ -752,10 +758,10 @@ async function pairExistingHostedTab(userInitiated=false){
   if(userInitiated){
    permissionState=await queryLoopbackPermission();
    const blocked=permissionState==="denied";
-   permissionMessage(blocked
-    ?"Ton navigateur bloque l'accès au serveur local. Modifie l'autorisation dans les paramètres du site."
-    :"Impossible de contacter le compagnon. Vérifie que le .exe est ouvert, puis réessaie. "+e.message,
-    true);
+   lastPermissionError=blocked
+    ?"Ton navigateur bloque l'accès au serveur local. Autorise l'accès au réseau local/bouclage dans les paramètres du site."
+    :"Impossible de contacter le compagnon. Vérifie que le .exe est ouvert, puis réessaie. "+e.message;
+   permissionMessage(lastPermissionError,true);
    notify("Connexion locale impossible : "+(blocked?"autorisation refusée.":"programme arrêté ou accès refusé."),true);
   }
   return false;
