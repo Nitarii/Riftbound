@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.23.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.24.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.23.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.24.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,16 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.24 — Moteur de confrontation Riftbound
+
+- Les assauts offensifs utilisent plusieurs unités prêtes de la base dans **une seule action**, en épuisant leurs cartes. L'IA peut sélectionner un combat intéressant contre un terrain défendu et ne clôt pas son tour avant sa résolution.
+- Une confrontation sur un champ défendu ouvre une **fenêtre de réactions** visible, dans le plateau central. L'IA passe sa priorité si aucune réaction entièrement prise en charge ne peut être appliquée, puis demande au joueur de jouer ses réactions ou de passer (y compris par la voix « je passe », « no reaction »).
+- Le calcul respecte la **Might actuelle**, les bonus comptés explicitement, Assault/Shield, Stun (zéro dégât infligé, mais Might conservée pour survivre), les exigences Tank/Backline pour l'assignation des dégâts, les dégâts déjà marqués et la répartition de dégâts **simultanée**.
+- Le joueur peut préciser la première cible des dégâts via le panneau de combat. Les unités létalement blessées sont placées dans la défausse ; si les défenseurs survivent, les attaquants survivants retournent dans leur base. Les unités sont soignées après la confrontation et à la fin du tour ; Stun et bonus temporaires expirent selon leur durée.
+- Les scores de conquête sont appliqués seulement après la résolution et seulement si le contrôleur du champ change. Aucun point n'est donné pour une attaque non résolue ni une égalité où les deux camps meurent.
+- **Important :** les sorts, capacités spécifiques, réactions, substitutions de dégâts et déclenchements de cartes Riot ne sont PAS tous modélisables à partir du texte libre sans script vérifié. Les cartes et terrains concernés sont signalés et **la résolution automatique se bloque jusqu'à la confirmation explicite des effets appliqués**. Les interactions inconnues ne sont jamais inventées.
+- Règles de référence : **Riftbound Core Rules du 9 octobre 2026**, notamment 143, 144, 466 à 468, 471 à 473, 807, 814 et 815. Voir https://playriftbound.com/fr-fr/rules-hub/
 
 ## v0.23 — IA conquérante et paiement des coûts complets
 

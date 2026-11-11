@@ -210,6 +210,15 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   try{
    const game=getState(),revision=game.revision;
    const stillCurrent=()=>getMessages(0).session===session;
+   if(game.pendingCombat){
+    // The local opponent has already passed priority in the base combat
+    // engine. Never call Qwen to fabricate a reaction or to skip the user's.
+    if(stillCurrent())sendMessage(
+     "Confrontation en cours sur "+game.battlefields[game.pendingCombat.battlefield]?.card?.name+
+     ". Je passe ma réaction. Tu peux annoncer un effet puis passer, ou utiliser les boutons Combat."
+    );
+    return;
+   }
    // The deterministic engine owns the AI's turn. An untrusted 0.6B model
    // must not select imaginary payments, score without a capture, or end its
    // turn before moving ready units onto a battlefield.

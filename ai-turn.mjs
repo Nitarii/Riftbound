@@ -3,6 +3,7 @@
 import {applyCommand} from "./core.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
+import {previewCombat} from "./combat-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const extraRestrictions=c=>/\b(?:play only|can't play|cannot play|additional cost|as an additional cost|when you play this, pay)\b/i.test(c?.text||"");
 const own=(view,zone)=>view.cards.filter(c=>c.owner==="ai"&&c.zone===zone);
@@ -27,6 +28,7 @@ function targetForReinforcement(view){
 }
 export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  if(!state?.started||state.active!=="ai")return {commands:[],state,summary:""};
+ if(state.pendingCombat)return {commands:[],state,summary:"Combat : réactions en attente.",waitingForCombat:true};
  const commands=[];let view=state;
  const enacted=[],refused=[];
  const apply=command=>{view=applyCommand(view,command);commands.push(command);};
@@ -62,6 +64,42 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
    }
   }
   moveUncontested();
+  // If both fields are occupied, evaluate an actual multi-unit assault. It
+  // creates a showdown and pauses the AI turn for the human's reactions.
+  function attackDefended(){
+   const ready=own(view,"base").filter(c=>isUnit(c)&&!c.exhausted&&
+    Number.isFinite(Number(c.might))&&c.might!==null).slice(0,8);
+   if(!ready.length)return false;
+   const fields=emptyBattlefieldTargets(view).filter(x=>x.enemy>0);
+   const options=[];
+   for(const field of fields){
+    // Start with one unit and expand up to all available attackers. Compare
+    // simulated simultaneous combat damage (no reactions assumed).
+    const ranked=[...ready].sort((a,b)=>(Number(b.might)||0)-(Number(a.might)||0));
+    for(let size=1;size<=ranked.length;size++){
+     const units=ranked.slice(0,size);
+     try{
+      const hypothetical=applyCommand(view,{type:"combat-attack",player:"ai",
+       battlefield:field.i,uids:units.map(u=>u.uid)});
+      const preview=previewCombat(hypothetical,field.i,"ai");
+      if(!preview.ready)continue;
+      const enemyDead=preview.damage.filter(c=>c.owner==="human"&&c.dead).length;
+      const ownDead=preview.damage.filter(c=>c.owner==="ai"&&c.dead).length;
+      const worth=(preview.winner==="ai"?100:0)+enemyDead*9-ownDead*6-units.length;
+      if(enemyDead||preview.winner==="ai")options.push({field:field.i,units,worth,preview});
+     }catch{}
+    }
+   }
+   options.sort((a,b)=>b.worth-a.worth||a.units.length-b.units.length);
+   const best=options[0];
+   if(!best)return false;
+   apply({type:"combat-attack",player:"ai",battlefield:best.field,
+    uids:best.units.map(x=>x.uid)});
+   enacted.push("attaqué "+view.battlefields[best.field].card.name+" avec "+
+    best.units.map(x=>x.name).join(", ")+" ("+
+    best.preview.attackingMight+" Might contre "+best.preview.defendingMight+" avant réactions)");
+   return true;
+  }
   // Only units with fully known printed costs, including domain-coloured Power,
   // are eligible. Do not guess spells/gear/effects requiring custom timing.
   for(let played=0;played<maxUnits;played++){
@@ -84,14 +122,17 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
   }
+  if(!view.pendingCombat)attackDefended();
   const before=state.players.ai.score,after=view.players.ai.score;
   if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
   const contested=emptyBattlefieldTargets(view).every(f=>f.enemy>0);
   if(contested&&own(view,"base").some(c=>isUnit(c)&&!c.exhausted)){
    refused.push("Les champs sont défendus : un combat avec réactions doit être résolu avant de compter une conquête.");
   }
-  apply({type:"phase",phase:"Ending"});
-  apply({type:"next-turn"});
+  if(!view.pendingCombat){
+   apply({type:"phase",phase:"Ending"});
+   apply({type:"next-turn"});
+  }
   return {commands,state:view,enacted,refused,summary:enacted.join(", ")};
  }catch(error){
   // Do not return a partial turn: the caller commits the entire batch or none.
@@ -105,6 +146,11 @@ export function describeAITurn(result,{english=false}={}){
   "Je ne peux pas terminer mon tour de manière sûre : vérifie les cartes et les règles.";
  const actions=result.enacted||[];
  const notes=result.refused||[];
+ if(result.state?.pendingCombat)return english?
+  "I "+(actions.length?actions.join(", "):"declared an attack")+
+   ". Combat showdown is open. You may play a reaction or pass; no damage has been dealt yet.":
+  "J'ai "+(actions.length?actions.join(", "):"déclaré un assaut")+
+   ". Confrontation ouverte : tu peux jouer une réaction ou passer. Les dégâts ne sont pas encore infligés.";
  if(english)return "I "+(actions.length?actions.join(", "):"completed my turn")+
   ". "+(notes.length?"Combat requires your confirmation. ":"")+"Your turn.";
  return "J'ai "+(actions.length?actions.join(", "):"terminé mon tour")+

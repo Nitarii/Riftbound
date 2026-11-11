@@ -8,6 +8,7 @@ import {createVoiceConversation} from "./voice-session.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
+import {previewCombat} from "./combat-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
 const i18n={
@@ -159,6 +160,102 @@ function adjustRuneCards(){
  }
 }
 window.addEventListener("resize",()=>requestAnimationFrame(adjustRuneCards),{passive:true});
+function renderCombatPanel(){
+ const panel=$("combat-panel"),battle=state.pendingCombat,attackBtn=$("combat-attack-button");
+ if(!panel)return;
+ const canAttack=state.started&&state.active==="human"&&state.phase==="Main"&&
+  state.cards.some(c=>c.owner==="human"&&c.zone==="base"&&
+   /^unit$/i.test(c.type||"")&&!c.exhausted);
+ panel.hidden=!battle&&!canAttack;
+ attackBtn.hidden=!!battle;attackBtn.disabled=!canAttack;
+ $("combat-pass-button").hidden=!battle||battle.passes?.human;
+ $("combat-effects-button").hidden=!battle||!battle.warnings?.length||battle.confirmedEffects;
+ $("combat-order-button").hidden=!battle;
+ if(!battle){
+  $("combat-title").textContent=uiLanguage==="en"?"BATTLEFIELDS":"CHAMPS DE BATAILLE";
+  $("combat-details").textContent=uiLanguage==="en"?
+   "Select ready units to launch a simultaneous attack.":"Déclare un assaut avec plusieurs unités prêtes en une seule action.";
+  $("combat-preview").textContent="";
+  return;
+ }
+ $("combat-choices").hidden=true;
+ $("combat-title").textContent="⚔ "+(state.battlefields[battle.battlefield]?.card?.name||"Combat");
+ let result;
+ try{result=previewCombat(state,battle.battlefield,battle.attacker,battle.orders);}
+ catch(e){result={ready:false,error:e.message};}
+ $("combat-preview").textContent=result.ready?
+  result.attackingMight+" Might ATK / "+result.defendingMight+" Might DEF":
+  result.error||"Dégâts à vérifier";
+ const waiting=battle.passes?.human?
+  "Réaction du joueur passée. ":"Réactions possibles : annonce un effet, puis passe. ";
+ const risk=(battle.warnings||[]).length?
+   "Vérification avant résolution : "+battle.warnings.join(" · "):
+   "Attribution des dégâts simultanée, Tank et Backline respectés.";
+ const dead=result.ready&&result.dead.length?
+  " · "+result.dead.length+" unité(s) seraient vaincues":"";
+ $("combat-details").textContent=waiting+risk+dead;
+}
+function selectCombatTargets(){
+ const container=$("combat-choices");
+ const units=state.cards.filter(c=>c.owner==="human"&&c.zone==="base"&&
+  /^unit$/i.test(c.type||"")&&!c.exhausted);
+ if(!units.length){notify("Aucune unité prête dans ta base.",true);return;}
+ container.replaceChildren();
+ const field=document.createElement("select");field.id="combat-target-field";
+ for(const [i,b] of state.battlefields.entries()){
+  if(!b.card)continue;
+  const option=document.createElement("option");option.value=String(i);
+  option.textContent=b.card.name;field.append(option);
+ }
+ container.append(field);
+ for(const unit of units){
+  const label=document.createElement("label");label.className="combat-unit-choice";
+  const checkbox=document.createElement("input");checkbox.type="checkbox";
+  checkbox.value=unit.uid;checkbox.checked=units.length===1;
+  label.append(checkbox,document.createTextNode(unit.name+" ("+(unit.might??"?")+" Might)"));
+  container.append(label);
+ }
+ const confirm=document.createElement("button");confirm.type="button";confirm.className="primary";
+ confirm.textContent=uiLanguage==="en"?"Declare attack":"Déclarer l'assaut";
+ confirm.onclick=()=>{
+  const uids=[...container.querySelectorAll('input[type="checkbox"]:checked')].map(x=>x.value);
+  if(!uids.length){notify("Choisis au moins une unité.",true);return;}
+  container.hidden=true;dispatch({type:"combat-attack",player:"human",
+   battlefield:Number(field.value),uids});
+ };
+ container.append(confirm);container.hidden=false;
+}
+$("combat-attack-button").onclick=selectCombatTargets;
+$("combat-pass-button").onclick=()=>dispatch({type:"combat-pass",player:"human"});
+$("combat-effects-button").onclick=()=>{
+ if(!state.pendingCombat)return;
+ const warnings=state.pendingCombat.warnings||[];
+ const confirmed=confirm("Les effets de cartes sont-ils réellement résolus ?\\n"+
+  warnings.join("\\n")+"\\n\\nConfirme uniquement après avoir appliqué les capacités et réactions.");
+ if(confirmed)dispatch({type:"combat-confirm-effects",confirm:true});
+};
+$("combat-order-button").onclick=()=>{
+ const battle=state.pendingCombat;
+ if(!battle)return;
+ const enemies=state.cards.filter(c=>c.zone==="battlefield"&&
+  c.battlefield===battle.battlefield&&c.owner==="ai"&&/^unit$/i.test(c.type||""));
+ if(!enemies.length)return;
+ const container=$("combat-choices");
+ container.replaceChildren();
+ const select=document.createElement("select");
+ for(const enemy of enemies){
+  const option=document.createElement("option");option.value=enemy.uid;
+  option.textContent=enemy.name+" ("+(enemy.might??"?")+" Might)";
+  select.append(option);
+ }
+ const confirm=document.createElement("button");confirm.type="button";
+ confirm.textContent="Prioriser cette cible";confirm.className="primary";
+ confirm.onclick=()=>{
+  const uids=[select.value,...enemies.map(x=>x.uid).filter(uid=>uid!==select.value)];
+  container.hidden=true;dispatch({type:"combat-order",player:"human",uids});
+ };
+ container.append(select,confirm);container.hidden=false;
+};
 let previousCardLocations=new Map();
 function render(){
   $("turn").textContent=state.started?(uiLanguage==="en"?"TURN ":"TOUR ")+state.turn+" · "+(state.active==="human"?(uiLanguage==="en"?"PLAYER":"JOUEUR"):"AI")+" · "+state.phase.toUpperCase():(uiLanguage==="en"?"GAME NOT STARTED":"PARTIE NON COMMENCÉE");
@@ -194,6 +291,7 @@ function render(){
     $("bf-image-"+i).innerHTML=cardHTML(b.card);
     $("units-"+i).innerHTML=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i).map(c=>cardHTML(c)).join("");
   });
+  renderCombatPanel();
   const historyEntries=Array.isArray(state.history)?state.history:[];
   const historyHTML=h=>'<li><small>#'+h.revision+' · '+
     new Date(h.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})+
@@ -285,7 +383,7 @@ function showInstance(c) {
   $("detail-zone").value=["base","battlefield","hand","trash","banished","runes"].includes(c.zone)?c.zone:"base";
   $("detail-bf").value=String(c.battlefield||0);$("detail-add").textContent="Déplacer";
   let bar=$("detail-card-actions");if(!bar){bar=document.createElement("div");bar.id="detail-card-actions";bar.className="line";$("detail-add").parentElement.after(bar);}
-  bar.innerHTML='<button data-action="exhaust">Épuiser</button><button data-action="ready">Redresser</button><button data-action="damage">+1 dégât</button><button data-action="remove">Retirer</button>';
+  bar.innerHTML='<button data-action="exhaust">Épuiser</button><button data-action="ready">Redresser</button><button data-action="damage">+1 dégât</button><button data-action="heal">Soigner 1</button><button data-action="stun">Étourdir</button><button data-action="remove">Retirer</button>';
   $("card-dialog").showModal();
 }
 $("detail-close").onclick=()=>$("card-dialog").close();
@@ -303,7 +401,7 @@ $("card-dialog").addEventListener("close",()=>{
 });
 $("card-dialog").addEventListener("click",e=>{
   const action=e.target.dataset.action;if(!action||!selected?.uid)return;
-  $("card-dialog").close();dispatch({type:action,uid:selected.uid,...(action==="damage"?{value:1}:{})});
+  $("card-dialog").close();dispatch({type:action,uid:selected.uid,...(["damage","heal"].includes(action)?{value:1}:{})});
 });
 function setActiveTab(name){
  const target=$("tab-"+name);

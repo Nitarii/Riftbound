@@ -34,6 +34,8 @@ jobs:
           node --check whisper-local.mjs
           node --check local-voice.mjs
           node --check ai-turn.mjs
+          node --check combat-engine.mjs
+          node --check combat-voice.mjs
           node --check rune-payment.mjs
           node --check voice-session.mjs
           node --check app.mjs
