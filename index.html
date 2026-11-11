@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.7.0"/></head>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.8.0"/></head>
 <body class="home-visible">
 <header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
@@ -38,7 +38,7 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.7.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.8.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
         <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
@@ -130,21 +130,35 @@
         <div class="remote-agent-panel">
           <div class="remote-agent-top">
             <span class="remote-agent-glyph" aria-hidden="true">🔒</span>
-            <div><strong>Autoriser temporairement une IA distante</strong><p>Rend uniquement le plateau accessible à un agent disposant d'outils HTTP. L'accès est limité à 4 heures et peut être coupé immédiatement.</p></div>
+            <div>
+              <strong>Connecter l'IA à ton plateau</strong>
+              <p>Tout est déjà inclus dans l'application Windows. Aucun autre logiciel à installer, aucun compte à créer.</p>
+            </div>
           </div>
-          <p class="remote-agent-caution">L'adresse Cloudflare sera publique, mais les commandes restent protégées par un jeton d'agent distinct de ton jeton local. Ne partage l'accès qu'avec un agent de confiance.</p>
-          <p class="remote-agent-dependency">Pour l'accès distant uniquement : télécharge <a href="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" target="_blank" rel="noopener noreferrer">cloudflared-windows-amd64.exe (éditeur : Cloudflare)</a> et place ce fichier à côté de RiftboundCompanion.exe. Aucun réglage supplémentaire ; le tunnel n'est jamais lancé sans ton accord.</p>
-          <div class="welcome-actions">
-            <button id="home-start-remote" type="button" class="primary">Activer l'accès IA distant</button>
-            <button id="home-stop-remote" type="button" disabled>Couper l'accès distant</button>
+          <p class="remote-agent-caution">En activant l'accès, tu autorises temporairement un agent extérieur à lire et modifier la partie. L'adresse HTTPS est publique, mais les actions exigent une clé distincte et temporaire. **Transmets le prompt uniquement en privé à un agent de confiance.** L'accès expire sous 4 heures maximum.</p>
+          <div class="welcome-actions remote-primary-actions">
+            <button id="home-start-remote" type="button" class="primary"> <span aria-hidden="true">✦</span> Activer l'accès et copier le prompt IA</button>
+            <button id="home-stop-remote" type="button" disabled> <span aria-hidden="true">⏹</span> Couper l'accès</button>
           </div>
-          <p id="home-remote-status" class="remote-agent-status" role="status" aria-live="polite">Accès distant désactivé. Aucune connexion Internet ouverte.</p>
+          <p id="home-remote-status" class="remote-agent-status" role="status" aria-live="polite">Accès distant fermé.</p>
+          <div id="home-remote-ready" class="remote-ready" hidden>
+            <div class="remote-ready-head"><strong>✓ Ton accès IA est prêt</strong><span id="home-remote-expiry"></span></div>
+            <p>Colle le prompt dans ta conversation privée avec l'IA. Si la copie automatique est bloquée, utilise le bouton ci-dessous.</p>
+            <div class="welcome-actions">
+              <button id="home-copy-prompt" type="button">Copier le prompt IA</button>
+            </div>
+          </div>
+          <div id="home-prompt-manual" class="remote-manual" hidden>
+            <label for="home-prompt-text">Prompt à copier manuellement</label>
+            <textarea id="home-prompt-text" rows="5" readonly></textarea>
+            <button id="home-select-prompt" type="button">Sélectionner tout</button>
+          </div>
+          <details class="remote-extras">
+            <summary>Utiliser sans connexion distante</summary>
+            <p>Un agent sans navigateur ni appels HTTP ne peut pas accéder directement au plateau. Tu peux lui fournir des instructions pour jouer avec des commandes JSON manuelles.</p>
+            <button id="home-copy-offline" type="button">Copier les instructions sans accès</button>
+          </details>
         </div>
-        <div class="welcome-actions">
-          <button id="home-copy-prompt" type="button" class="primary">Copier le prompt IA</button>
-        </div>
-        <p class="welcome-hint">Si l'accès distant est actif, le prompt contient un jeton temporaire (pas le jeton local). Il faut le partager uniquement dans une conversation privée. Une IA sans outil HTTP ne pourra toujours pas se connecter.</p>
-        <p class="welcome-hint">Le prompt ne révèle jamais le jeton administrateur local. Si un accès distant est actif, il contient un jeton IA temporaire : à partager seulement dans une conversation privée. Un chat IA sans navigateur interactif ni requêtes HTTP ne pourra pas se connecter.</p>
       </div>
     </section>
   </div>
@@ -168,4 +182,4 @@
 <div class="tabcontent hidden" id="tab-history"><h2>Journal de partie</h2><ol id="history-log"></ol></div></section>
 <section class="controls"><h2>Commandes rapides</h2><div class="line"><select id="who"><option value="human">Joueur</option><option value="ai">IA</option></select><button id="score-minus">−1 PV</button><button id="score-plus">+1 PV</button><button id="draw">Piocher</button><button id="channel">Canaliser</button></div><label>Action ou compte-rendu de ton tour<textarea id="notes" rows="3" placeholder="Ex. : Je déploie mon unité sur le battlefield de l'IA."></textarea></label><div class="line"><button id="send-note">Ajouter au journal</button><button id="interpret-note" class="primary">Interpréter & placer</button><button id="voice-note" type="button">🎙 Dicter une action</button><label class="inline-check"><input id="voice-auto" type="checkbox">Appliquer automatiquement les commandes vocales reconnues</label></div><p id="notice">Prêt.</p><p class="disclaimer">Compagnon non officiel, sans affiliation à Riot Games. Les actions et règles sont à confirmer par les joueurs; aucun effet de carte n'est automatiquement arbitré.</p></section></aside>
 </main><dialog id="card-dialog"><div class="dialog-layout"><div id="detail-image"></div><div><h2 id="detail-name"></h2><p id="detail-text"></p><label>Propriétaire<select id="detail-owner"><option value="human">Joueur</option><option value="ai">IA</option></select></label><label>Zone<select id="detail-zone"><option value="base">Base</option><option value="battlefield">Champ de bataille</option><option value="hand">Main</option><option value="trash">Défausse</option><option value="banished">Bannissement</option><option value="runes">Runes</option></select></label><label>Battlefield<select id="detail-bf"><option value="0">Joueur</option><option value="1">IA</option></select></label><div class="line"><button id="detail-add" class="primary">Placer</button><button id="detail-close">Fermer</button></div></div></div></dialog>
-<script type="module" src="./app.mjs?v=0.7.0"></script></body></html>
+<script type="module" src="./app.mjs?v=0.8.0"></script></body></html>
