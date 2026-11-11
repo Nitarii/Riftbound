@@ -23,7 +23,7 @@ export function selectOfficialUpdate(release,current=CURRENT_VERSION){
 export function createPortableManager({
  root,exePath=process.execPath,portable=false,fetchImpl=fetch,
  download=downloadVerified,launch=launchMaintenance,shutdown=()=>{},
- current=CURRENT_VERSION,skipStartupCheck=false
+ current=CURRENT_VERSION,skipStartupCheck=false,onOutdated=()=>{}
 }={}){
  let phase="idle",progress=0,error="",available=null,updating=false,shuttingDown=false;
  let updateState=portable&&!skipStartupCheck?"checking":"current";
@@ -54,6 +54,7 @@ export function createPortableManager({
     available=selectOfficialUpdate(await fetchRelease(),current);
     checkedAt=new Date().toISOString();
     updateState=available?"outdated":"current";
+    if(available)onOutdated();
     return {...status(),message:available?
       "Version "+available.version+" obligatoire avant de lancer une partie.":
       "Compagnon à jour. Tu peux lancer le plateau."};

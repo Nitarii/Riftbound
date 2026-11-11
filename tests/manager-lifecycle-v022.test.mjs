@@ -28,8 +28,9 @@ test("the site and Windows app share a minimum version",()=>{
  assert.equal(selectOfficialUpdate(release("0.23.0"),CURRENT_VERSION).version,"0.23.0");
 });
 test("on first launch an outdated portable EXE cannot launch the board or bypass via offline",async()=>{
+ let stoppedProcesses=0;
  const manager=createPortableManager({root:"/test/root",portable:true,current:"0.21.0",
-  fetchImpl:fetchRelease(release("0.22.0"))});
+  onOutdated:()=>{stoppedProcesses++;},fetchImpl:fetchRelease(release("0.22.0"))});
  assert.equal(manager.status().updateState,"checking");
  assert.equal(manager.status().canLaunch,false);
  const result=await manager.startupCheck();
@@ -37,6 +38,7 @@ test("on first launch an outdated portable EXE cannot launch the board or bypass
  assert.equal(result.mustUpdate,true);
  assert.equal(result.canLaunch,false);
  assert.equal(result.availableVersion,"0.22.0");
+ assert.equal(stoppedProcesses,1,"Outdated installs must stop their previously running engines");
  assert.throws(()=>manager.continueOffline(),/hors ligne/);
  assert.deepEqual((await manager.checkUpdate()).mustUpdate,true);
 });

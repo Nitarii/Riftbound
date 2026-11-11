@@ -156,6 +156,7 @@ const deckDescriptions=()=>PRECONS.map(p=>({id:p.id,label:p.label,source:p.sourc
  battlefields:p.battlefields}));
 async function executeGameCommand(input){
  // Shared between local authenticated server and restricted remote agent gateway.
+ if(!manager.status().canLaunch)throw Error("Mets à jour ou vérifie le compagnon avant de modifier la partie.");
  if(Number.isInteger(input.ifRevision)&&input.ifRevision!==state.revision)
   throw Error("Version obsolète; recharge /api/state");
  let command=input;
@@ -174,6 +175,7 @@ async function executeGameCommand(input){
 const readMessages=after=>conversation.list(after);
 const receiveAgentMessage=text=>conversation.post("ai",text);
 function applyAgentBatch(actions,revision){
+ if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
  let next=state;
  for(const cmd of actions)next=applyCommand(next,cmd);
@@ -269,6 +271,11 @@ const manager=createPortableManager({
  root:userData,exePath:process.execPath,portable,
  skipStartupCheck:process.env.RIFTBOUND_PORTABLE_TEST==="1"||
   process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
+ onOutdated:()=>{
+  try{localFreeAI.stop();}catch{}
+  try{remoteAccess.stop();}catch{}
+  try{speech.stop();}catch{}
+ },
  shutdown:shutdownAll
 });
 const remoteAccess=createRemoteAccess({
@@ -340,7 +347,8 @@ const server=http.createServer(async(req,res)=>{
   // Allow reading and maintenance during updates, but never start or mutate a
   // physical game from an unverified or confirmed outdated Windows executable.
   if(req.method==="POST"&&["/api/messages","/api/command",
-      "/api/ai/config","/api/speech/transcribe"].includes(url.pathname)&&
+      "/api/ai/config","/api/speech/install","/api/speech/transcribe",
+      "/api/remote/start"].includes(url.pathname)&&
      !manager.status().canLaunch){
    msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
    return;
