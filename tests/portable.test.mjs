@@ -100,6 +100,9 @@ test("version update accepts only a newer official release and verified digests"
   size:130000000,digest:"sha256:"+"a".repeat(64)}]};
  assert.equal(selectOfficialUpdate(candidate,"0.20.0").version,"0.21.0");
  assert.equal(selectOfficialUpdate(candidate,"0.21.0"),null);
+ const twoPart={assets:[{...candidate.assets[0],name:"RiftboundCompanion-v0.21.exe",
+  browser_download_url:"https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.21.exe"}]};
+ assert.equal(selectOfficialUpdate(twoPart,"0.20.0").version,"0.21.0");
  assert.throws(()=>selectOfficialUpdate({assets:[{...candidate.assets[0],
-  browser_download_url:"https://fake.org/bad.exe"}]}),/non officielle/);
+  browser_download_url:"https://fake.org/bad.exe"}]},"0.20.0"),/non officielle/);
 });

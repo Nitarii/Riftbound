@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.20.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.21.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.20.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.21.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,18 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.21 — Chat, jeu physique, score et plateau miroir
+
+- **Chat lisible** : lorsqu'on remonte volontairement dans la conversation, les synchronisations ne forcent plus le retour en bas. Un bouton « Nouveaux messages ↓ » permet de revenir instantanément aux nouveaux échanges.
+- **Réflexion IA** : les trois points animés apparaissent comme une bulle dans le fil de conversation, sous le dernier message, et non dans l'en-tête.
+- **Micro mains libres** : l'envoi automatique des phrases vocales est **activé par défaut** et peut être désactivé grâce à une case à cocher persistante. Sans envoi automatique, la transcription reste dans le champ de saisie et le joueur choisit quand envoyer. Compatible Whisper local et Chrome.
+- **Nouvelle partie** : les commandes `start` et `reset` effacent les messages de la partie précédente. Chaque conversation porte un identifiant de session ; une réponse de génération provenant d'une session périmée ne peut plus être publiée dans la nouvelle partie.
+- **Plateau miroir** : l'IA a ses runes/sa main côté extérieur et sa base côté champs de bataille ; la base du joueur reste du côté de ses champs, ses runes et sa petite main physique côté extérieur. Cases légende/champion rapprochées de la taille des illustrations, historique gauche plus haut, outils plus petits.
+- **Runes dynamiques** : leur largeur s'adapte au nombre de cartes prêtes/épuisées et à la largeur disponible, pour en voir le maximum sans découpe.
+- **Main physique** : le programme n'invente pas les cartes cachées ; il affiche un éventail compact de dos de cartes et le compte connu.
+- **Mouvements et points** : annonces composées comme « je canalise deux runes, je pioche une carte, je conquiers le Grove avec mon Loyal Poro puis je termine mon tour » ; le joueur déplace une unité **déjà visible en base et prête** vers le champ désigné. Si elle établit un contrôle non contesté, **Conquer** marque une fois par terrain et par tour ; **Hold** marque au début du tour suivant si le contrôle est conservé. La règle restrictive du huitième point d'une conquête est prise en compte ; les combats et effets complexes exigent toujours une vérification humaine.
+- **Respect des règles** : une unité épuisée, un terrain ambigu ou une unité absente ne déclenchent jamais de déplacement inventé. Le serveur conserve des batches atomiques : une annonce illégale ne fait pas bouger la moitié du plateau.
 
 ## v0.20 — Gestionnaire portable, Whisper et désinstallation
 

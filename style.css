@@ -1459,3 +1459,257 @@ body:not(.home-visible) #game-app.history-collapsed{
 #game-app .speech-setup progress{width:100%;accent-color:#bda66a}
 #game-app .voice-provider-choice{display:flex;gap:5px;flex:0 0 auto;font-size:10px;margin:0;color:#acc7c6}
 #game-app .voice-provider-choice select{padding:5px 7px;font-size:11px;width:100%;max-width:100%}
+
+
+/* v0.21 — true mirrored playmats, more rune visibility, compact physical hand. */
+#game-app .board>.side .playmat{
+ grid-template-columns:
+  calc(var(--game-card-width) + 8px)
+  calc(var(--game-card-width) + 8px)
+  minmax(0,1fr)
+  minmax(70px,10%)
+  minmax(65px,9%);
+ grid-template-rows:repeat(2,minmax(0,1fr));
+ gap:4px;
+}
+#game-app .board>.side.player .playmat{
+ grid-template-areas:
+  "legend champion base base piles"
+  "runes runes runes hand trash";
+}
+#game-app .board>.side.opponent .playmat{
+ grid-template-areas:
+  "runes runes runes hand trash"
+  "legend champion base base piles";
+}
+#game-app .playmat .panel.legend,
+#game-app .playmat .panel.champion{
+ padding:2px;
+ justify-content:flex-start;
+ background:#0b222b;
+ border-color:#64766c;
+}
+#game-app .playmat .panel.legend h3,
+#game-app .playmat .panel.champion h3{
+ font-size:8px;
+ letter-spacing:.15px;
+ text-align:center;
+ margin:0 0 2px;
+}
+#game-app .playmat .panel.legend .cardholder,
+#game-app .playmat .panel.champion .cardholder{
+ overflow:hidden;
+ justify-content:center;
+ align-items:flex-start;
+ padding:0;
+}
+#game-app .playmat .panel.legend .card-tile,
+#game-app .playmat .panel.champion .card-tile{
+ max-width:calc(100% - 2px);
+ margin:0 auto;
+}
+#game-app .playmat .zone-runes{
+ min-width:0;
+ border:1px solid #54826c;
+}
+#game-app .playmat .zone-runes .cards{gap:4px;scrollbar-width:thin}
+#game-app .playmat .zone-runes .card-tile{margin:0;max-width:none}
+#game-app .playmat .zone-base{
+ flex:1 1 auto;
+ min-width:0;
+}
+#game-app .playmat .zone-hand .cards{
+ display:flex;
+ flex-wrap:nowrap;
+ gap:0;
+ align-items:flex-start;
+ overflow-x:auto;
+}
+#game-app .board>.side.player .zone-hand .card-tile{
+ --game-card-width:33px;
+ --playmat-card-height:46px;
+ width:33px;
+ min-width:33px;
+ flex:0 0 33px;
+ margin-right:-20px;
+ opacity:.86;
+}
+#game-app .board>.side.player .zone-hand .card-tile:last-of-type{margin-right:2px}
+#game-app .board>.side.player .zone-hand .card-art{
+ width:var(--game-card-width);
+ height:var(--playmat-card-height);
+}
+#game-app .board>.side.player .zone-hand .card-back{
+ width:100%;
+ height:100%;
+}
+#game-app .hand-extra{
+ padding:4px 2px;
+ color:#f5d58a;
+ font-size:11px;
+ align-self:flex-end;
+}
+#game-app .board>.side.opponent .zone-hand .cards{
+ gap:0;
+ overflow-x:auto;
+}
+#game-app .board>.side.opponent .zone-hand .card-tile{
+ --game-card-width:clamp(31px,3.5vw,48px);
+ --playmat-card-height:calc(var(--game-card-width) * 1.3965);
+ flex:0 0 var(--game-card-width);
+ width:var(--game-card-width);
+ min-width:var(--game-card-width);
+ margin-right:-24px;
+}
+#game-app .board>.side.opponent .zone-hand .card-tile:last-child{margin-right:0}
+#game-app .playmat .deck-visuals{
+ min-width:0;
+ min-height:0;
+ flex:1 1 auto;
+}
+#game-app .field-control{
+ margin-left:auto;
+ font-size:9px;
+ font-weight:750;
+ line-height:1.2;
+ padding:3px 5px;
+ border-radius:4px;
+ white-space:nowrap;
+ border:1px solid transparent;
+}
+#game-app .field-control:empty{display:none}
+#game-app .field-control[data-control="human"]{
+ color:#acd8ef;
+ background:rgba(44,84,109,.55);
+ border-color:#447f9a;
+}
+#game-app .field-control[data-control="ai"]{
+ color:#b8e3be;
+ background:rgba(47,92,62,.55);
+ border-color:#448a68;
+}
+#game-app .field-control[data-control="contested"]{
+ color:#efd6ab;
+ background:rgba(112,68,35,.4);
+ border-color:#ae814f;
+}
+/* History receives most of the expandable left column; tools keep their own scrollbar. */
+#game-app .bottom>.drawer{gap:5px;padding:7px}
+#game-app .live-history{
+ flex:1 1 70%;
+ min-height:140px;
+ max-height:none;
+ padding:7px;
+}
+#game-app .tools-heading{flex:0 0 auto}
+#game-app .tools-heading h2{font-size:14px}
+#game-app .drawer>.tabs{padding-bottom:3px}
+#game-app .drawer>.tabcontent{
+ flex:0 1 25%;
+ max-height:32%;
+ min-height:68px;
+ overflow-y:auto;
+}
+#game-app .drawer .tabcontent.hidden{display:none!important}
+/* The typing indicator belongs to the scrollable conversation, not the header. */
+#game-app .chat-log-wrap{
+ flex:1 1 auto;
+ position:relative;
+ display:flex;
+ min-height:0;
+ min-width:0;
+}
+#game-app .chat-log-wrap>.chat-messages{
+ display:flex;
+ flex:1 1 auto;
+ height:100%;
+ min-height:0;
+ max-height:none;
+ width:100%;
+ overflow-y:auto;
+ overflow-x:hidden;
+ scroll-behavior:auto!important;
+ overscroll-behavior-y:contain;
+ gap:9px;
+}
+#game-app .chat-messages .chat-typing{
+ display:flex;
+ position:relative;
+ align-self:flex-start;
+ flex:0 0 auto;
+ margin:0;
+ min-height:31px;
+ max-width:92%;
+ border-radius:12px;
+ border-bottom-left-radius:3px;
+ padding:8px 12px;
+}
+#game-app .chat-messages .chat-typing[hidden]{display:none!important}
+#game-app .chat-jump{
+ position:absolute;
+ bottom:10px;
+ left:50%;
+ transform:translateX(-50%);
+ z-index:10;
+ max-width:90%;
+ padding:7px 13px;
+ min-height:30px;
+ font-size:11px;
+ color:#fff0cd;
+ background:#254457;
+ border:1px solid #a9b89b;
+ border-radius:17px;
+ box-shadow:0 4px 18px rgba(0,0,0,.65);
+}
+#game-app .chat-jump[hidden]{display:none!important}
+#game-app .voice-auto-send{
+ padding:4px 6px;
+ border:1px solid #547260;
+ background:#152e32;
+ border-radius:5px;
+}
+#game-app .voice-auto-send input{accent-color:#d1b57a}
+@media(max-width:1200px){
+ #game-app .board>.side .playmat{
+  grid-template-columns:
+   calc(var(--game-card-width) + 4px)
+   calc(var(--game-card-width) + 4px)
+   minmax(0,1fr)
+   minmax(58px,10%)
+   minmax(52px,9%);
+  gap:3px;
+ }
+}
+@media(max-width:890px){
+ #game-app .board>.side .playmat{
+  grid-template-columns:
+   calc(var(--game-card-width) + 4px)
+   calc(var(--game-card-width) + 4px)
+   minmax(0,1fr)
+   minmax(48px,9%)
+   minmax(47px,9%);
+ }
+ #game-app .live-history{flex:1 1 auto}
+ #game-app .drawer>.tabcontent{max-height:38%;flex:0 1 32%}
+}
+@media(max-width:600px){
+ #game-app .board>.side.player .zone-hand .card-tile{
+  --game-card-width:27px;
+  --playmat-card-height:38px;
+  flex-basis:27px;
+  width:27px;
+  min-width:27px;
+  margin-right:-17px;
+ }
+ #game-app .field-control{font-size:8px;padding:2px 3px}
+}
+
+/* Keep discard cards entirely within the narrow right-hand column. */
+#game-app .playmat .zone-trash .card-tile{
+ --game-card-width:clamp(29px,2.8vw,38px);
+ --playmat-card-height:calc(var(--game-card-width) * 1.3965);
+ flex:0 0 var(--game-card-width);
+ width:var(--game-card-width);
+ min-width:var(--game-card-width);
+}
+#game-app .playmat .zone-trash .cards{gap:3px;padding:0 1px 3px}

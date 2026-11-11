@@ -204,11 +204,12 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   if(config)configure({...config,enabled:false});
   return status();
  }
- async function respond(message){
-  if(!config?.enabled)return;
+ async function respond(message,session){
+  if(!config?.enabled||getMessages(0).session!==session)return;
   const own=config;processing=true;lastError="";
   try{
    const game=getState(),revision=game.revision;
+   const stillCurrent=()=>getMessages(0).session===session;
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";
@@ -260,6 +261,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
       {role:"user",content:"/no_think\\n"+JSON.stringify(smallContext)}]
     });
    }
+   if(!stillCurrent())return;
    if(!response.ok)throw Error(modelHTTPError(response.status,own.provider));
    const packet=await response.json();
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
@@ -282,6 +284,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     const safe=planSafeAITurn(preview);
     if(safe.length){commands.push(...safe);fallback=true;}
    }
+   if(!stillCurrent())return;
    if(commands.length){
     try{await applyBatch(commands,revision);}
     catch(e){sendMessage((english?"Board unchanged: ":"Plateau inchangé : ")+String(e.message||e).slice(0,200));return;}
@@ -292,8 +295,9 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     reply=(english?"Some suggested moves were not executed: ":"Certains déplacements proposés n'ont pas été exécutés : ")+
      [...new Set(rejected)].slice(0,2).join("; ")+(commands.length?"":"");
    }
-   sendMessage(groundedReply(reply,commands,game,english));
+   if(stillCurrent())sendMessage(groundedReply(reply,commands,game,english));
   }catch(e){
+   if(getMessages(0).session!==session)return;
    lastError=e?.name==="TimeoutError"?"Délai de réponse dépassé.":String(e?.message||e).slice(0,250);
    // Invalid JSON from a very small model must not freeze the AI turn.
    const current=getState();
@@ -312,7 +316,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }
  function onHumanMessage(text){
   if(!config?.enabled)return;
-  queue=queue.then(()=>respond(text)).catch(e=>{lastError=String(e?.message||e);processing=false;});
+  const session=getMessages(0).session;
+  queue=queue.then(()=>respond(text,session)).catch(e=>{lastError=String(e?.message||e);processing=false;});
  }
  return {configure,disable,status,onHumanMessage};
 }

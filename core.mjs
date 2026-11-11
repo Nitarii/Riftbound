@@ -1,4 +1,5 @@
-// Shared, dependency-free board state. Never auto-adjudicates Riftbound card text.
+// Shared board state; automatic scoring only for uncontested fields, never card effects.
+import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
 const OWNERS = new Set(["human","ai"]);
@@ -12,7 +13,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -97,16 +98,27 @@ export function applyCommand(old, command) {
     }
     summary=(who==="ai"?"IA":"Joueur")+" : "+s.players[who].legend.name+" / "+s.players[who].champion.name;
   } else if(type==="start") {
-    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0};s.phase="Awaken";s.turn=1;s.started=true;
+    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
     s.turnActions={channeled:0,drawn:0};
-    // Ready cards as the new turn starts; human rune exhaustion is displayed too.
+    s.scoredFields??={human:[],ai:[]};
+    s.scoredFields[s.active]=[];
+    // Awaken precedes Beginning. Ready the active player's cards, then
+    // automatically mark obvious uncontested Hold scores; card effects stay manual.
     for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
-    s.phase="Awaken";s.started=true;
-    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+". Phases à résoudre manuellement.";
+    s.phase="Beginning";s.started=true;
+    const holds=[];
+    for(let i=0;i<s.battlefields.length;i++){
+      if(battlefieldController(s,i)===s.active){
+        const scored=scoreControlledBattlefield(s,s.active,i,"hold");
+        if(scored)holds.push(scored);
+      }
+    }
+    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
+     (holds.length?". "+holds.join(" · "):". Beginning résolu, phases restantes à jouer.");
   } else if(type==="phase") {
     const phase=string(c.phase,30);
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
@@ -205,6 +217,17 @@ export function applyCommand(old, command) {
   } else if(type==="note") {
     summary=string(c.text,600);
   } else throw Error("Type de commande inconnu : "+type);
+  // A unit creates automatic Conquer only when it establishes uncontested
+  // control and this field has not scored for that player this turn.
+  if(s.started&&["add","move","remove"].includes(type)){
+   for(let i=0;i<s.battlefields.length;i++){
+    const owner=battlefieldController(s,i);
+    if(owner===s.active){
+     const scored=scoreNewControl(old,s,owner,i);
+     if(scored)summary+=" · "+scored;
+    }
+   }
+  }
   maybeRecord(s,summary);
   return s;
 }

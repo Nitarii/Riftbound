@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {downloadVerified} from "./free-ai.mjs";
 import {inside,readMarker,uninstallScript,updateScript,launchMaintenance} from "./portable.mjs";
-export const CURRENT_VERSION="0.20.0";
+export const CURRENT_VERSION="0.21.0";
 export const OFFICIAL_RELEASE="https://api.github.com/repos/Nitarii/Riftbound/releases/tags/companion-latest";
 const ver=value=>String(value||"").split(".").map(n=>Number(n)||0);
 export function compareVersions(a,b){
@@ -13,8 +13,8 @@ export function compareVersions(a,b){
 }
 export function selectOfficialUpdate(release,current=CURRENT_VERSION){
  const candidates=(release?.assets||[]).map(a=>{
-  const match=/^RiftboundCompanion-v(\d+\.\d+\.\d+)\.exe$/i.exec(a.name||"");
-  return match?{version:match[1],asset:a}:null;
+  const match=/^RiftboundCompanion-v(\d+\.\d+(?:\.\d+)?)\.exe$/i.exec(a.name||"");
+  return match?{version:match[1].split(".").length===2?match[1]+".0":match[1],asset:a}:null;
  }).filter(Boolean).sort((a,b)=>compareVersions(b.version,a.version));
  const item=candidates[0];
  if(!item||compareVersions(item.version,current)<=0)return null;
