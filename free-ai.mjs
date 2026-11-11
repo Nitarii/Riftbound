@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import {spawn} from "node:child_process";
+import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import {once} from "node:events";
 
 const ENGINE_RELEASE="b12277";
@@ -89,11 +90,7 @@ function failure(error){
 export function createFreeLocalAI({
  userData,onReady=async()=>{},
  fetchImpl=fetch,spawnImpl=spawn,
- extract=async(archive,directory)=>{
-  const process=spawn("tar",["-xf",archive,"-C",directory],{windowsHide:true,stdio:"ignore"});
-  const [code]=await once(process,"close");
-  if(code!==0)throw Error("L'extraction du moteur CPU a échoué (code "+code+").");
- },
+ extract=null,
  platform=process.platform
 }){
  const root=path.join(userData,"free-opponent");
@@ -102,7 +99,19 @@ export function createFreeLocalAI({
  const zipFile=path.join(root,"downloads",ENGINE_FILE);
  const modelFile=path.join(modelFolder,MODEL_FILE);
  const marker=path.join(engineFolder,".verified.json");
- let active=null,job=null;
+ let active=null,job=null,extractProcess=null,stopping=false;
+ const ensureRunning=()=>{if(stopping)throw Error("Installation IA interrompue : fermeture du compagnon.");};
+ async function unpack(archive,directory){
+  if(extract){await extract(archive,directory);return;}
+  const child=spawnImpl("tar",["-xf",archive,"-C",directory],{
+   windowsHide:true,stdio:"ignore",env:process.env
+  });
+  extractProcess=child;
+  try{
+   const [code]=await once(child,"close");
+   if(code!==0)throw Error("L'extraction du moteur CPU a échoué (code "+code+").");
+  }finally{if(extractProcess===child)extractProcess=null;}
+ }
  let info={phase:"idle",progress:0,transferred:0,total:0,message:"IA gratuite CPU non installée.",
   error:"",model:MODEL_NAME,installed:false,ready:false};
  function set(partial){info={...info,...partial};}
@@ -132,8 +141,10 @@ export function createFreeLocalAI({
   set({phase:"engine",message:"Téléchargement du petit moteur CPU (25 Mo)…",progress:0,transferred:0,total:0});
   await downloadVerified(ENGINE_URL,zipFile,ENGINE_SHA256,(bytes,total)=>
    set({transferred:bytes,total,progress:total?Math.round(bytes/total*100):0}),fetchImpl);
+  ensureRunning();
   set({phase:"extracting",message:"Extraction du moteur CPU…",progress:0});
-  await extract(zipFile,engineFolder);
+  await unpack(zipFile,engineFolder);
+  ensureRunning();
   if(!findServer(engineFolder))throw Error("Le fichier llama-server.exe est absent de l'archive officielle.");
   fs.writeFileSync(marker,JSON.stringify({engine:ENGINE_SHA256,version:ENGINE_RELEASE}),{mode:0o600});
   try{fs.rmSync(zipFile,{force:true});}catch{}
@@ -149,8 +160,10 @@ export function createFreeLocalAI({
   await downloadVerified(MODEL_URL,modelFile,MODEL_SHA256,(bytes,total)=>
    set({transferred:bytes,total:total||EXPECTED_MODEL_SIZE,
     progress:Math.min(99,Math.round(bytes/(total||EXPECTED_MODEL_SIZE)*100))}),fetchImpl);
+  ensureRunning();
  }
  async function runServer(){
+  ensureRunning();
   if(active&&await probe())return;
   // Never attach to another process bound to the reserved port.
   if(!active&&await probe())throw Error("Le port local 11435 est déjà utilisé. Ferme l'autre serveur et réessaie.");
@@ -163,6 +176,7 @@ export function createFreeLocalAI({
   active.once("error",error=>set({phase:"error",error:failure(error)}));
   active.once("exit",()=>{active=null;});
   for(let i=0;i<150;i++){
+   ensureRunning();
    if(await probe(1400))return;
    if(!active)throw Error("Le moteur CPU s'est arrêté au démarrage. Vérifie l'architecture Windows.");
    await new Promise(resolve=>setTimeout(resolve,450));
@@ -182,14 +196,18 @@ export function createFreeLocalAI({
    if(!download)throw Error("Le modèle n'est pas valide ; relance l'installation.");
    await downloadModel();
   }
+  ensureRunning();
   set({phase:"starting",message:"Démarrage du modèle sur le processeur…",progress:99});
   await runServer();
+  ensureRunning();
   await onReady(MODEL_NAME);
+  ensureRunning();
   set({phase:"ready",ready:true,installed:true,progress:100,transferred:0,total:0,
    message:"✓ IA gratuite prête, sans GPU, abonnement ni requête payante."});
  }
  function begin(download){
   if(job)return status();
+  stopping=false;
   const promise=prepare({download}).catch(error=>set({phase:"error",ready:false,
    installed:installed(),error:failure(error),message:"Installation inachevée."}))
   .finally(()=>{if(job===promise)job=null;});
@@ -199,7 +217,9 @@ export function createFreeLocalAI({
  function start(model=MODEL_NAME){freeModelID(model);return begin(true);}
  function resume(model=MODEL_NAME){freeModelID(model);return job?status():installed()?begin(false):status();}
  function stop(){
-  if(active){try{active.kill();}catch{}active=null;}
+  stopping=true;
+  if(extractProcess){stopOwnedProcess(extractProcess);extractProcess=null;}
+  if(active){stopOwnedProcess(active);active=null;}
   set({phase:"idle",ready:false,progress:0,message:"IA locale arrêtée."});
  }
  set({installed:installed(),message:installed()?"Moteur CPU installé. Active l'IA gratuite.":"IA gratuite CPU non installée."});

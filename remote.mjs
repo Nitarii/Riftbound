@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {spawn} from "node:child_process";
+import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import * as sea from "node:sea";
 import {brotliDecompressSync} from "node:zlib";
 
@@ -67,7 +68,7 @@ export function createRemoteAccess({
  function stop(){
   if(expiryTimer)clearTimeout(expiryTimer);
   expiryTimer=null;
-  if(child){try{child.kill();}catch{}child=null;}
+  if(child){stopOwnedProcess(child);child=null;}
   if(gateway){try{gateway.close();}catch{}gateway=null;}
   active=null;onStatus(status());
  }

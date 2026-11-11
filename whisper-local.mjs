@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import {spawn} from "node:child_process";
+import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import {once} from "node:events";
 import {downloadVerified} from "./free-ai.mjs";
 
@@ -71,16 +72,24 @@ export function validateWAV(audio){
 }
 export function createLocalWhisper({
  userData,fetchImpl=fetch,spawnImpl=spawn,platform=process.platform,download=downloadVerified,
- extract=async(zip,dir,env)=>{
-  const proc=spawn("tar",["-xf",zip,"-C",dir],{stdio:"ignore",windowsHide:true,env});
-  const [status]=await once(proc,"close");
-  if(status!==0)throw Error("Extraction de whisper.cpp impossible.");
- }
+ extract=null
 }){
  const root=path.join(userData,"speech"),engineDir=path.join(root,"engine"),
   downloads=path.join(root,"downloads"),models=path.join(root,"models"),temp=path.join(root,"temp");
  const stamp=path.join(engineDir,".verified.json"),preferences=path.join(root,".speech-preferences.json");
- let selected="base",running=null,job=null,transcribing=false,activeProc=null;
+ let selected="base",running=null,job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false;
+ const ensureRunning=()=>{if(stopping)throw Error("Installation vocale interrompue : fermeture du compagnon.");};
+ async function unpack(zip,dir,env){
+  if(extract){await extract(zip,dir,env);return;}
+  const proc=spawnImpl("tar",["-xf",zip,"-C",dir],{
+   stdio:"ignore",windowsHide:true,env
+  });
+  extractProc=proc;
+  try{
+   const [status]=await once(proc,"close");
+   if(status!==0)throw Error("Extraction de whisper.cpp impossible.");
+  }finally{if(extractProc===proc)extractProc=null;}
+ }
  try{const saved=JSON.parse(fs.readFileSync(preferences,"utf8"));
   if(WHISPER_OPTIONS[saved.selected])selected=saved.selected;
  }catch{}
@@ -107,8 +116,10 @@ export function createLocalWhisper({
    const zip=path.join(downloads,WHISPER_ARCHIVE);
    await download(WHISPER_ENGINE_URL,zip,WHISPER_ENGINE_SHA,
     (n,total)=>{info.progress=total?Math.round(n/total*100):0;},fetchImpl);
+   ensureRunning();
    info={...info,phase:"extracting",message:"Extraction du moteur vocal…"};
-   await extract(zip,engineDir,env);
+   await unpack(zip,engineDir,env);
+   ensureRunning();
    if(!findWhisper(engineDir))throw Error("whisper-cli.exe absent de l'archive officielle.");
    fs.writeFileSync(stamp,JSON.stringify({release:WHISPER_RELEASE,sha256:WHISPER_ENGINE_SHA}),{mode:0o600});
    try{fs.rmSync(zip,{force:true});}catch{}
@@ -116,21 +127,27 @@ export function createLocalWhisper({
   info={phase:"model",progress:0,error:"",message:"Téléchargement de "+config.label+"…"};
   await download(config.url,modelPath(id),config.sha256,
    (n,total)=>{info.progress=total?Math.round(n/total*100):Math.round(n/config.bytes*100);},fetchImpl);
+  ensureRunning();
   fs.writeFileSync(preferences,JSON.stringify({selected:id}),{mode:0o600});
   info={phase:"ready",progress:100,error:"",message:"Whisper "+id+" prêt, 100 % local."};
  }
  function begin(id="base"){
   if(job)return status();
   if(!WHISPER_OPTIONS[id])throw Error("Modèle Whisper inconnu.");
-  selected=id;
+  selected=id;stopping=false;
   const promise=prepare(id).catch(e=>{info={phase:"error",error:String(e.message||e).slice(0,250),
    message:"Installation vocale interrompue.",progress:0};}).finally(()=>{if(job===promise)job=null;});
   job=promise;return status();
  }
  function stop(){
-  try{activeProc?.kill();}catch{}activeProc=null;transcribing=false;
+  stopping=true;
+  if(extractProc)stopOwnedProcess(extractProc);
+  extractProc=null;
+  if(activeProc)stopOwnedProcess(activeProc);
+  activeProc=null;transcribing=false;
  }
  async function transcribe(buffer,{language="auto",cards=[]}={}){
+  if(stopping)throw Error("Whisper arrêté.");
   if(!installed(selected))throw Error("Whisper n'est pas installé. Installe le modèle dans le compagnon.");
   if(transcribing)throw Error("Une transcription est déjà en cours.");
   validateWAV(buffer);

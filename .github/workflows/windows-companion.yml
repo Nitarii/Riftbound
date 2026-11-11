@@ -24,6 +24,8 @@ on:
       - 'whisper-local.mjs'
       - 'portable.mjs'
       - 'portable-manager.mjs'
+      - 'release-policy.mjs'
+      - 'process-lifecycle.mjs'
       - 'local-voice.mjs'
       - 'manager.html'
       - 'voice-session.mjs'
@@ -126,7 +128,7 @@ jobs:
           $bmp.Dispose()
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.21.exe" -Force
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.22.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -151,9 +153,11 @@ jobs:
             if (!$portableStatus.portable -or $portableStatus.path -ne $env:RIFTBOUND_DATA_DIR) {throw "Windows companion wrote outside user-selected portable root"}
             if (!(Test-Path (Join-Path $portableStatus.path ".riftbound-install.json"))) {throw "Missing portable installation manifest"}
             $managerPage = Invoke-WebRequest "http://127.0.0.1:8878/manager.html" -UseBasicParsing
+            if (!$managerPage.Content.Contains("manager-stop") -or !$managerPage.Content.Contains("startup-screen")) {throw "Version gate / process stop UI missing"}
             if ($managerPage.StatusCode -ne 200 -or !$managerPage.Content.Contains("Désinstaller")) {throw "Bundled manager UI missing"}
             $speechJS = Invoke-WebRequest "http://127.0.0.1:8878/local-voice.mjs" -UseBasicParsing
             if (!$speechJS.Content.Contains("audioToWav")) {throw "Bundled offline speech UI missing"}
+            if (!$portableStatus.canLaunch -or $portableStatus.updateState -ne "current") {throw "Latest portable companion should be startable"}
             $speechStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/speech/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
             if ($speechStatus.folder -ne $env:RIFTBOUND_DATA_DIR) {throw "Speech model folder is not portable"}
             $page = Invoke-WebRequest "http://127.0.0.1:8878/" -UseBasicParsing
@@ -176,7 +180,21 @@ jobs:
             if ($null -eq $state.state.players.human) {throw "Authenticated state missing"}
             $cmd = Invoke-RestMethod "http://127.0.0.1:8878/api/command" -Method POST -Headers $head -ContentType "application/json" -Body '{"type":"note","text":"Windows smoke test"}'
             if (!$cmd.ok -or $cmd.state.revision -lt 1) {throw "API command failed"}
-            Write-Host "PASS: executable serves UI, state and actions"
+            $invalidStop = $false
+            try {
+              Invoke-RestMethod "http://127.0.0.1:8878/api/manager/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"confirm":"NO"}' | Out-Null
+            } catch { $invalidStop = $true }
+            if (!$invalidStop) {throw "Stop must require explicit confirmation"}
+            $stopped = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"confirm":"STOP_RIFTBOUND"}'
+            if (!$stopped.ok) {throw "Process stop endpoint did not acknowledge shutdown"}
+            $gone = $false
+            for ($i=0; $i -lt 35; $i++) {
+              Start-Sleep -Milliseconds 200
+              $process = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
+              if ($null -eq $process -or $process.HasExited) {$gone = $true; break}
+            }
+            if (!$gone) {throw "The Windows companion was not fully terminated"}
+            Write-Host "PASS: executable serves UI, state and actions, then exits cleanly"
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
@@ -185,7 +203,7 @@ jobs:
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.21.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.21.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.22.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.22.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -197,5 +215,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.21.exe" "dist/RiftboundCompanion-v0.21.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.22.exe" "dist/RiftboundCompanion-v0.22.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}

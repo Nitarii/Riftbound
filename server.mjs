@@ -112,7 +112,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.21.0",
+ name:"Riftbound Table Companion",version:CURRENT_VERSION,
  officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
@@ -248,15 +248,28 @@ const localFreeAI=createFreeLocalAI({
  }
 });
 const speech=createLocalWhisper({userData});
+let serverClosing=false;
+function shutdownAll(){
+ if(serverClosing)return;
+ serverClosing=true;
+ try{remoteAccess.stop();}catch{}
+ try{localFreeAI.stop();}catch{}
+ try{speech.stop();}catch{}
+ for(const connection of clients){
+  try{connection.write("data: "+JSON.stringify({shutdown:true})+"\n\n");connection.end();}catch{}
+ }
+ clients.clear();
+ try{
+  server.close(()=>process.exit(0));
+  server.closeAllConnections?.();
+ }catch{process.exitCode=0;}
+ setTimeout(()=>process.exit(0),2200).unref();
+}
 const manager=createPortableManager({
  root:userData,exePath:process.execPath,portable,
- shutdown:()=>{
-  try{remoteAccess.stop();}catch{}
-  try{localFreeAI.stop();}catch{}
-  try{speech.stop();}catch{}
-  server.close(()=>process.exit(0));
-  setTimeout(()=>process.exit(0),1500).unref();
- }
+ skipStartupCheck:process.env.RIFTBOUND_PORTABLE_TEST==="1"||
+  process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
+ shutdown:shutdownAll
 });
 const remoteAccess=createRemoteAccess({
  userData,
@@ -271,7 +284,8 @@ const remoteAccess=createRemoteAccess({
 });
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
-const WEB_ASSETS=new Set(["index.html","manager.html","local-voice.mjs","app.mjs","core.mjs","battlefield-rules.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","battlefield-rules.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -323,6 +337,14 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
   if(!authorized(req)){msg(res,401,"Jeton manquant ou incorrect",req);return;}
+  // Allow reading and maintenance during updates, but never start or mutate a
+  // physical game from an unverified or confirmed outdated Windows executable.
+  if(req.method==="POST"&&["/api/messages","/api/command",
+      "/api/ai/config","/api/speech/transcribe"].includes(url.pathname)&&
+     !manager.status().canLaunch){
+   msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
+   return;
+  }
   if(req.method==="GET"&&url.pathname==="/api/messages"){
     try{json(res,200,readMessages(url.searchParams.get("after")||"0"),req);}
     catch(e){msg(res,400,e.message,req);}return;
@@ -362,6 +384,7 @@ const server=http.createServer(async(req,res)=>{
       msg(res,409,"Désactive d'abord l'autre fournisseur IA.",req);return;
     }
     try{
+      if(!manager.status().canLaunch)throw Error("Termine la mise à jour ou la vérification avant de démarrer l'IA.");
       const input=await body(req);
       if(input?.confirmFolder!==userData)throw Error("Choisis et confirme le dossier d'installation dans le gestionnaire Windows.");
       json(res,202,localFreeAI.start(input?.model||"qwen3:0.6b"),req);
@@ -370,6 +393,18 @@ const server=http.createServer(async(req,res)=>{
 
   if(req.method==="GET"&&url.pathname==="/api/manager/status"){
     json(res,200,manager.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/stop"){
+    try{json(res,200,manager.requestStop(await body(req)),req);}
+    catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/offline/continue"){
+    try{
+      const status=manager.continueOffline();
+      json(res,200,status,req);
+      // A player explicitly opted to launch despite a failed network check.
+      resumeLocalOpponent();
+    }catch(e){msg(res,409,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/manager/update/check"){
     try{json(res,200,await manager.checkUpdate(),req);}
@@ -474,11 +509,19 @@ server.on("error",err=>{
  console.error("Démarrage impossible :",err.code==="EADDRINUSE"?"Le port "+port+" est déjà utilisé. Ferme l'autre instance du module.":err.message);
  process.exitCode=1;
 });
+function resumeLocalOpponent(){
+ if(manager.status().canLaunch&&integratedAI.status().provider==="free"&&
+    integratedAI.status().enabled){
+  // Reuse installed weights; a confirmed outdated build must not run the model.
+  localFreeAI.resume(integratedAI.status().model);
+ }
+}
 server.listen(port,host,()=>{
-  if(integratedAI.status().provider==="free"&&integratedAI.status().enabled){
-   // Reuse installed weights after restart; never download anything silently.
-   localFreeAI.resume(integratedAI.status().model);
-  }
+  // Background network verification only. The manager shows a startup screen
+  // until verification is complete and does not launch the game early.
+  manager.startupCheck().then(result=>{
+   if(result.canLaunch)resumeLocalOpponent();
+  }).catch(e=>console.warn("Vérification de version :",e.message));
   console.log("\nRIFTBOUND TABLE COMPANION");
   console.log("Site local : http://"+host+":"+port);
   console.log("Jeton local : "+token);

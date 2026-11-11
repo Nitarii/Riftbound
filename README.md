@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.21.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.22.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.21.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.22.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,15 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.22 — Gestionnaire permanent, arrêt complet et vérification au démarrage
+
+- **Gestionnaire permanent :** bouton **⚙ Gestionnaire** dans l'en-tête du site (et en mode plein écran). Il ouvre une page locale authentifiée, accessible également automatiquement au lancement de l'exécutable Windows. Les jetons restent dans le fragment URL local et la session navigateur.
+- **Quitter totalement :** bouton **■ Quitter et arrêter les processus** dans le gestionnaire. Ferme le relais HTTP, Qwen/llama-server, les transcriptions Whisper en cours et le tunnel Cloudflare éventuel. L'arrêt est limité aux identifiants des processus lancés par le compagnon (Windows `taskkill /PID ... /T /F`) ; les modèles et sauvegardes sont conservés. Fermer un simple onglet du navigateur ne suffit pas : utilise ce bouton pour stopper le serveur.
+- **Vérification de version :** au lancement, l'exécutable consulte sa release officielle. Tant que la vérification n'est pas terminée, aucune partie ni moteur Qwen n'est lancé. Si la version installée est ancienne, l'écran **Mise à jour nécessaire** remplace les actions de lancement et propose de télécharger/installer la version plus récente dans le même dossier, après vérification SHA-256.
+- **Site synchronisé :** le site déployé compare la version du compagnon local à celle attendue, et consulte son état de mise à jour. Un compagnon trop ancien renvoie automatiquement à la **première étape d'installation**, avec un lien vers le gestionnaire et l'exécutable actuel ; les commandes de partie sont refusées côté serveur pendant la vérification.
+- **Sans Internet :** lorsqu'une vérification échoue, le gestionnaire propose de réessayer ou de choisir explicitement **Continuer sans vérification réseau**. Cette option n'est pas disponible si une mise à jour est déjà confirmée comme nécessaire.
+- **Aucune désinstallation automatique** ni suppression de données lors de la fermeture : le bouton « Désinstaller » reste une action distincte avec confirmation.
 
 ## v0.21 — Chat, jeu physique, score et plateau miroir
 
