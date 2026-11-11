@@ -40,7 +40,9 @@ async function evaluateLayout(page,expectDesktop){
   return {
    width:innerWidth,height:innerHeight,
    rootScrollHeight:document.documentElement.scrollHeight,
+   rootScrollWidth:document.documentElement.scrollWidth,
    bodyScrollHeight:document.body.scrollHeight,
+   view:document.getElementById("game-app").dataset.workspaceView,
    board:read("#game-app .board"),
    history:read("#game-app .bottom>.drawer"),
    chat:read("#game-app .bottom>.chat-panel"),
@@ -50,7 +52,9 @@ async function evaluateLayout(page,expectDesktop){
  ensure(result.rootScrollHeight<=result.height+2,
   "Document scrolls at "+result.width+"px: scrollHeight="+result.rootScrollHeight+" viewport="+result.height);
  ensure(result.bodyScrollHeight<=result.height+2,"Body scrolls at "+result.width+"px");
- for(const panel of [result.topbar,...(expectDesktop?[result.history,result.board,result.chat]:[result.board])]){
+ ensure(result.rootScrollWidth<=result.width+2,"Document scrolls horizontally at "+result.width+"px");
+ const active=result.view==="chat"?result.chat:result.view==="history"?result.history:result.board;
+ for(const panel of [result.topbar,...(expectDesktop?[result.history,result.board,result.chat]:[active])]){
   ensure(panel.visible&&panel.y>=-1&&panel.bottom<=result.height+2,
    "Panel clipped offscreen at "+result.width+"px: "+JSON.stringify(panel));
  }
@@ -63,6 +67,8 @@ async function evaluateLayout(page,expectDesktop){
 try{
  for(const viewport of [{width:1440,height:900},{width:1280,height:720},{width:1024,height:768},{width:390,height:844}]){
   const page=await browser.newPage({viewport,deviceScaleFactor:1});
+  await page.route("https://fonts.googleapis.com/**",route=>route.abort());
+  await page.route("https://fonts.gstatic.com/**",route=>route.abort());
   await page.goto(url,{waitUntil:"domcontentloaded"});
   await page.evaluate(()=>document.body.classList.remove("home-visible"));
   await page.waitForTimeout(180);
