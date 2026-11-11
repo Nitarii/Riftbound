@@ -83,6 +83,52 @@ $("pickdeck").onclick=()=>{
 };
 $("scoreplus").onclick=()=>command({type:"score",player:$("player").value,value:1});
 $("scoreminus").onclick=()=>command({type:"score",player:$("player").value,value:-1});
-refresh();
+let agentChatCursor=0,agentChatEntries=[],agentChatBusy=false;
+async function refreshAgentChat(){
+ if(agentChatBusy)return;
+ agentChatBusy=true;
+ try{
+  const result=await call("/api/messages?after="+agentChatCursor);
+  const known=new Set(agentChatEntries.map(x=>x.id));
+  for(const entry of result.messages||[]){
+   if(!entry||!Number.isInteger(entry.id)||!["human","ai"].includes(entry.role))continue;
+   if(!known.has(entry.id)){agentChatEntries.push(entry);known.add(entry.id);}
+   agentChatCursor=Math.max(agentChatCursor,entry.id);
+  }
+  agentChatEntries=agentChatEntries.slice(-60);
+  const list=$("agent-chat-log");list.replaceChildren();
+  for(const entry of agentChatEntries){
+   const bubble=document.createElement("div");
+   bubble.className="agent-chat-entry "+(entry.role==="ai"?"from-agent":"from-human");
+   const header=document.createElement("small");
+   header.textContent=(entry.role==="ai"?"IA":"Joueur")+" · "+new Date(entry.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+   const text=document.createElement("p");text.textContent=entry.text;
+   bubble.append(header,text);list.append(bubble);
+  }
+  if(!agentChatEntries.length){
+   const placeholder=document.createElement("p");
+   placeholder.textContent="Le joueur n'a pas encore envoyé de message.";
+   list.append(placeholder);
+  }
+  list.scrollTop=list.scrollHeight;
+ }catch(e){message("Messages indisponibles : "+e.message,true);}
+ finally{agentChatBusy=false;}
+}
+async function replyToPlayer(){
+ const editor=$("agent-reply"),text=editor.value.trim();
+ if(!text)return;
+ $("agent-reply-send").disabled=true;
+ try{
+  await call("/api/messages","POST",{text});
+  editor.value="";
+  await refreshAgentChat();
+ }catch(e){message("Réponse non envoyée : "+e.message,true);}
+ finally{$("agent-reply-send").disabled=false;}
+}
+$("agent-reply-send").onclick=replyToPlayer;
+$("agent-reply").addEventListener("keydown",e=>{
+ if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();replyToPlayer();}
+});
+refresh();refreshAgentChat();
 // Quick tunnels do not carry SSE. Keep a low-frequency, single-flight poll.
-setInterval(()=>{if(!document.hidden)refresh();},3000);
+setInterval(()=>{if(!document.hidden){refresh();refreshAgentChat();}},2500);
