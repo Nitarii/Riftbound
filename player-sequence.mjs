@@ -41,7 +41,7 @@ function extractMovement(text){
  let m=t.match(conquer);
  if(m)return {full:m[0],field:m[1],unit:m[2],kind:"conquer"};
  // "je déplace / joue mon poro sur le Grove / mon champ de bataille"
- const to=/\b(?:deplace|deplacer|move|mets|place|envoie|send|joue|play|pose)\s+(?:(?:mon|ma|my|le|la|the|un|une)\s+)?(.+?)\s+(?:vers|sur|dans|au|in|into|onto|on|to)\s+(?:(?:mon|my|le|la|the)\s+)?(.+?)\s*$/;
+ const to=/\b(?:deplace|deplacer|move|mets|place|envoie|send|joue|play|pose)\s+(?:(?:mon|ma|my|le|la|the|un|une)\s+)?(.+?)\s+(?:vers|sur|dans|au|in|into|onto|on|to)\s+(.+?)\s*$/;
  m=t.match(to);
  if(m&& !/\bbase\b/.test(m[2]))return {full:m[0],field:m[2],unit:m[1],kind:"move"};
  return null;
