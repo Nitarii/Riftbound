@@ -8,6 +8,7 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {spawn} from "node:child_process";
 import * as sea from "node:sea";
+import {brotliDecompressSync} from "node:zlib";
 
 const LIVE_MS=4*60*60*1000;
 const MAX_JSON=100000;
@@ -121,33 +122,36 @@ export function createRemoteAccess({
    send(res,404,{error:"Route distante indisponible"});return;
   }catch(e){send(res,400,{error:e.message||"Erreur de commande"});}
  };
+ // Pinned vendor release verified during GitHub Actions. Also verified here
+ // before extracting or running. No runtime download and no user installation.
+ const CLOUDFLARED_HASH="2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343";
  function getBinary(){
-  if(process.env.RIFTBOUND_CLOUDFLARED)return process.env.RIFTBOUND_CLOUDFLARED;
-  // A downloaded vendor EXE can simply sit beside RiftboundCompanion.exe.
-  // This avoids a system-wide installation when only one session is needed.
-  for(const folder of [path.dirname(process.execPath),userData]){
-   for(const name of ["cloudflared.exe","cloudflared-windows-amd64.exe"]){
-    const candidate=path.join(folder,name);
-    if(fs.existsSync(candidate))return candidate;
-   }
+  if(!sea.isSea()){
+   // Source/developer mode can still use locally installed cloudflared.
+   return process.env.RIFTBOUND_CLOUDFLARED||"cloudflared";
   }
-  if(!sea.isSea())return "cloudflared";
-  // If a signed vendor binary is packaged in a future release it may be
-  // extracted. Today the user installs cloudflared separately from Cloudflare.
-  let asset;
-  try{asset=sea.getAsset("cloudflared.exe");}
-  catch{return "cloudflared";}
-  const bundled=Buffer.from(asset);
-  const checksum=crypto.createHash("sha256").update(bundled).digest("hex").slice(0,16);
-  const output=path.join(userData,"cloudflared-"+checksum+".exe");
-  let valid=false;
+  let compressed;
+  try{compressed=Buffer.from(sea.getAsset("cloudflared.exe.br"));}
+  catch{
+   throw Error("Ce module est incomplet : le tunnel distant n'a pas été inclus lors de la compilation.");
+  }
+  const bundleHash=crypto.createHash("sha256").update(compressed).digest("hex").slice(0,16);
+  const output=path.join(userData,"cloudflared-"+bundleHash+".exe");
+  const verify=data=>crypto.createHash("sha256").update(data).digest("hex")===CLOUDFLARED_HASH;
   try{
-   const current=fs.readFileSync(output);
-   valid=current.length===bundled.length&&
-    crypto.createHash("sha256").update(current).digest("hex")===
-    crypto.createHash("sha256").update(bundled).digest("hex");
+   const installed=fs.readFileSync(output);
+   if(verify(installed))return output;
   }catch{}
-  if(!valid)fs.writeFileSync(output,bundled,{mode:0o700});
+  const raw=brotliDecompressSync(compressed);
+  if(!verify(raw))throw Error("Le composant distant intégré a échoué au contrôle d'intégrité.");
+  // Write atomically. Never execute an existing unverified userData file.
+  const temp=output+"-"+crypto.randomBytes(5).toString("hex")+".tmp";
+  try{
+   fs.writeFileSync(temp,raw,{flag:"wx",mode:0o700});
+   fs.renameSync(temp,output);
+  }finally{
+   try{fs.unlinkSync(temp);}catch{}
+  }
   return output;
  }
  async function start(){
@@ -195,7 +199,7 @@ export function createRemoteAccess({
   })().catch(err=>{
     stop();
     const absent=err?.code==="ENOENT";
-    throw absent?Error("Cloudflared est introuvable. Télécharge cloudflared-windows-amd64.exe depuis Cloudflare et place-le dans le même dossier que RiftboundCompanion.exe."):err;
+    throw absent?Error("Le module distant intégré est introuvable. Vérifie que tu utilises le nouvel exécutable officiel."):err;
   }).finally(()=>{pending=null;});
   return pending;
  }
