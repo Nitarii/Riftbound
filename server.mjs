@@ -148,6 +148,8 @@ const remoteAccess=createRemoteAccess({
  getDecks:deckDescriptions,
  getGuide:()=>guide
 });
+// Closing the companion also terminates any optional public tunnel.
+process.once("exit",()=>remoteAccess.stop());
 const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","style.css","assets/companion-icon.svg"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
