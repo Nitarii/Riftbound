@@ -24,7 +24,7 @@ test("all homepage controls have unique IDs and handlers",()=>{
  }
 });
 test("direct Windows download is a single exe with no Node dependency for the player",()=>{
- assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion-v0\.7\.exe/);
+ assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion-v0\.8\.exe/);
  assert.match(html,/Aucune installation ni dépendance supplémentaire/);
  assert.match(html,/Logiciel non signé/);
  assert.doesNotMatch(html,/main\.zip/);
@@ -81,4 +81,17 @@ test("browser permission requires an explicit click and describes recovery",()=>
  assert.match(js,/if\(!userInitiated&&permissionState!=="granted"\)return false;/);
  assert.match(js,/pairExistingHostedTab\(true\)/);
  assert.doesNotMatch(js,/setInterval\(\(\)=>\{if\(!relay\)pairExistingHostedTab\(\);\},1200\)/);
+});
+
+test("Remote AI works in one click without a second program download",()=>{
+ assert.match(html,/id="home-start-remote"/);
+ assert.match(html,/Activer l'accès et copier le prompt IA/);
+ assert.match(html,/id="home-stop-remote"/);
+ assert.match(html,/id="home-prompt-manual"/);
+ assert.match(html,/id="home-prompt-text"/);
+ assert.doesNotMatch(html,/cloudflared-windows-amd64\.exe/);
+ assert.doesNotMatch(html,/Installe cloudflared/);
+ assert.match(js,/async function copyAgentPrompt\(/);
+ assert.match(js,/await copyAgentPrompt\(true,clipboard\)/);
+ assert.match(js,/armClipboardOnClick/);
 });
