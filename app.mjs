@@ -6,6 +6,8 @@ import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName
 import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 import {createVoiceConversation} from "./voice-session.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
+import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
+import {battlefieldController} from "./battlefield-rules.mjs";
 const $=id=>document.getElementById(id);
 const i18n={
  "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
@@ -119,6 +121,21 @@ function cardHTML(c,show=true,large=false){
    '</div>';
  return tile;
 }
+function adjustRuneCards(){
+ for(const p of ["human","ai"]){
+  const holder=$(p+"-runes"),panel=holder?.closest(".panel");
+  if(!panel)continue;
+  const runes=state.cards.filter(c=>c.owner===p&&c.zone==="runes");
+  const width=holder.clientWidth;
+  if(!width||!runes.length)continue;
+  const weighted=runes.reduce((n,c)=>n+(c.exhausted?1.3965:1),0);
+  const cell=Math.floor((width-12-Math.max(0,runes.length-1)*4)/Math.max(1,weighted));
+  const target=Math.max(24,Math.min(64,cell));
+  panel.style.setProperty("--game-card-width",target+"px");
+  panel.style.setProperty("--playmat-card-height",Math.round(target*1.3965)+"px");
+ }
+}
+window.addEventListener("resize",()=>requestAnimationFrame(adjustRuneCards),{passive:true});
 let previousCardLocations=new Map();
 function render(){
   $("turn").textContent=state.started?(uiLanguage==="en"?"TURN ":"TOUR ")+state.turn+" · "+(state.active==="human"?(uiLanguage==="en"?"PLAYER":"JOUEUR"):"AI")+" · "+state.phase.toUpperCase():(uiLanguage==="en"?"GAME NOT STARTED":"PARTIE NON COMMENCÉE");
@@ -132,13 +149,25 @@ function render(){
       '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" '+((p!==state.active||state.turnActions?.channeled||player.runeCount===0)?"disabled ":"")+'title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
     for(const z of ["legend","champion"]){$(p+"-"+z).innerHTML=cardHTML(state.cards.find(c=>c.owner===p&&c.zone===z)||player[z]);}
     const cards=z=>state.cards.filter(c=>c.owner===p&&c.zone===z);
-    $(p+"-hand").innerHTML=p==="human"?'<span class="physical">'+player.handCount+' cartes physiques non révélées</span>':cards("hand").map(c=>cardHTML({...c,faceDown:true},false)).join("")||'<span class="muted">Main vide</span>';
+    $(p+"-hand").innerHTML=p==="human"?
+      Array.from({length:Math.min(12,Math.max(0,player.handCount))},(_,i)=>
+       cardHTML({uid:"physical-hand-"+i,name:"Carte physique cachée",type:"Unit",faceDown:true},false)).join("")+
+       (player.handCount>12?'<span class="hand-extra">+'+(player.handCount-12)+'</span>':""):
+      cards("hand").map(c=>cardHTML({...c,faceDown:true},false)).join("")||'<span class="muted">Main vide</span>';
     $(p+"-runes").innerHTML=cards("runes").map(c=>cardHTML(c)).join("")||'<span class="muted">—</span>';
     $(p+"-base").innerHTML=cards("base").map(c=>cardHTML(c)).join("")||'<span class="muted">—</span>';
     $(p+"-trash").innerHTML=cards("trash").slice(-15).map(c=>cardHTML(c)).join("")||'<span class="muted">—</span>';
   }
   state.battlefields.forEach((b,i)=>{
     $("battlefield-name-"+i).textContent=b.card?.name||"À sélectionner";
+    const holder=$("field-control-"+i);
+    if(holder){
+     const controller=battlefieldController(state,i);
+     const units=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i);
+     const contested=units.some(c=>c.owner==="human")&&units.some(c=>c.owner==="ai");
+     holder.dataset.control=controller|| (contested?"contested":"none");
+     holder.textContent=controller==="human"?"● JOUEUR":controller==="ai"?"● IA":contested?"● CONTESTÉ":"";
+    }
     $("bf-image-"+i).innerHTML=cardHTML(b.card);
     $("units-"+i).innerHTML=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i).map(c=>cardHTML(c)).join("");
   });
@@ -160,6 +189,7 @@ function render(){
     });
   }
   previousCardLocations=nextPositions;
+  requestAnimationFrame(adjustRuneCards);
   save();
   renderWelcome();
   applyUILanguage();
@@ -171,6 +201,7 @@ async function dispatch(command){
       const reply=await res.json();if(!res.ok)throw Error(reply.error||"Erreur du relais");
       state=reply.state;lastSync=state.revision;render();
     }else{undo.push(structuredClone(state));undo=undo.slice(-50);state=applyCommand(state,command);render();}
+    if(command.type==="reset"||command.type==="start")resetChatView();
     notify(state.message);
     return true;
   }catch(e){notify(e.message,true);return false;}
@@ -302,6 +333,22 @@ $("setup-ai").onclick=()=>{
 $("start-human").onclick=()=>dispatch({type:"start",player:"human"});
 $("start-ai").onclick=()=>dispatch({type:"start",player:"ai"});
 let chatItems=[],chatCursor=0,chatBusy=false,agentLastSeen=null,sendingChat=false;
+let chatSession=null,chatFollowBottom=true,chatUnread=false,pendingChatResponse=false;
+function updateChatJump(){
+ const list=$("chat-messages"),jump=$("chat-jump");
+ jump.hidden=!chatUnread||chatFollowBottom||!chatItems.length;
+}
+$("chat-jump").onclick=()=>{
+ const list=$("chat-messages");
+ list.scrollTop=list.scrollHeight;
+ chatFollowBottom=true;chatUnread=false;updateChatJump();
+};
+$("chat-messages").addEventListener("scroll",()=>{
+ const list=$("chat-messages");
+ chatFollowBottom=isChatAtBottom(list);
+ if(chatFollowBottom)chatUnread=false;
+ updateChatJump();
+ },{passive:true});
 let voiceController=null,voiceReplyCursor=0;
 let messageQueue=Promise.resolve();
 let lastVoiceDraft="";
@@ -309,30 +356,51 @@ function renderChatStatus(){
  const label=$("chat-connection");
  if(!relay){label.textContent="Serveur déconnecté";label.dataset.status="offline";return;}
  if(integratedAIStatus?.enabled){
-  $("chat-typing").hidden=!integratedAIStatus.processing;
+  $("chat-typing").hidden=!(integratedAIStatus.processing||pendingChatResponse);
   label.textContent=integratedAIStatus.provider==="free"?
    (integratedAIStatus.processing?"IA gratuite · réfléchit":"IA gratuite · prête"):
    (integratedAIStatus.processing?"IA intégrée · réfléchit":"IA intégrée · prête");
   label.dataset.status="online";return;
  }
- $("chat-typing").hidden=true;
+ $("chat-typing").hidden=!pendingChatResponse;
  const active=agentLastSeen&&Date.now()-agentLastSeen<30000;
  label.textContent=active?"Activité de l'agent détectée":remoteSession?.url?"Accès IA actif · en attente":"Aucun agent distant actif";
  label.dataset.status=active?"online":remoteSession?.url?"waiting":"offline";
 }
-function renderChat(){
- const list=$("chat-messages");list.replaceChildren();
- if(!chatItems.length){const empty=document.createElement("p");empty.className="chat-empty";
-  empty.textContent="Tes messages et les réponses de l'IA apparaîtront ici.";list.append(empty);}
- for(const m of chatItems.slice(-70)){
-  const node=document.createElement("div");node.className="chat-bubble "+(m.role==="ai"?"from-ai":"from-human");
+function renderChat({newMessages=false}={}){
+ const list=$("chat-messages"),before={
+  scrollTop:list.scrollTop,scrollHeight:list.scrollHeight,clientHeight:list.clientHeight
+ };
+ const stick=chatFollowBottom&&isChatAtBottom(before);
+ const typing=$("chat-typing");
+ // Preserve the live typing bubble's DOM identity and animation.
+ typing.remove();list.replaceChildren();
+ if(!chatItems.length){
+  const empty=document.createElement("p");empty.className="chat-empty";
+  empty.textContent="Tes messages et les réponses de l'IA apparaîtront ici.";
+  list.append(empty);
+ }
+ for(const m of chatItems.slice(-80)){
+  const node=document.createElement("div");
+  node.className="chat-bubble "+(m.role==="ai"?"from-ai":"from-human");
   const meta=document.createElement("small");
-  meta.textContent=(m.role==="ai"?(uiLanguage==="en"?"AI opponent":"Adversaire IA"):(uiLanguage==="en"?"You":"Toi"))+" · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  meta.textContent=(m.role==="ai"?(uiLanguage==="en"?"AI opponent":"Adversaire IA"):(uiLanguage==="en"?"You":"Toi"))+
+   " · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const text=document.createElement("p");text.textContent=m.text;node.append(meta,text);list.append(node);
  }
- list.scrollTop=list.scrollHeight;renderChatStatus();
+ list.append(typing);
+ renderChatStatus();
+ const position=restoredChatPosition(before,{scrollHeight:list.scrollHeight,clientHeight:list.clientHeight},
+  {stickToBottom:stick||chatItems.length===0});
+ list.scrollTop=position;
+ if(newMessages&&!stick)chatUnread=true;
+ if(stick){chatFollowBottom=true;chatUnread=false;}
+ updateChatJump();
 }
-function resetChatView(){chatItems=[];chatCursor=0;agentLastSeen=null;renderChat();}
+function resetChatView(){
+ chatItems=[];chatCursor=0;chatSession=null;agentLastSeen=null;pendingChatResponse=false;
+ chatFollowBottom=true;chatUnread=false;renderChat();
+}
 async function syncChat(){
  if(chatBusy||!relay)return;
  chatBusy=true;const session=relay;
@@ -343,11 +411,18 @@ async function syncChat(){
   if(!response.ok)throw Error("Messages HTTP "+response.status);
   const result=await response.json();
   if(relay!==session)return;
+  if(result.session&&chatSession&&chatSession!==result.session){
+   // New game: the server erased its chat and restarted message IDs.
+   resetChatView();
+  }
+  if(result.session)chatSession=result.session;
   agentLastSeen=result.agentSeenAt||null;
   const ids=new Set(chatItems.map(m=>m.id));
+  let added=0;
   for(const m of result.messages||[]){
    if(m&&Number.isInteger(m.id)&&!ids.has(m.id)&&["human","ai"].includes(m.role)){
-    chatItems.push(m);ids.add(m.id);
+    chatItems.push(m);ids.add(m.id);added++;
+    if(m.role==="ai")pendingChatResponse=false;
     // Never read archived replies aloud on reconnect. Speak only new replies
     // that arrived after this voice conversation was explicitly activated.
     if(m.role==="ai"&&voiceController?.state().enabled&&m.id>voiceReplyCursor){
@@ -357,7 +432,9 @@ async function syncChat(){
    }
    if(m?.id>chatCursor)chatCursor=m.id;
   }
-  chatItems=chatItems.slice(-70);renderChat();
+  chatItems=chatItems.slice(-80);
+  if(added||!chatItems.length)renderChat({newMessages:added>0});
+  else renderChatStatus();
  }catch{if(relay===session)renderChatStatus();}
  finally{chatBusy=false;}
 }
@@ -373,8 +450,10 @@ async function sendChatMessage(message){
   });
   const data=await response.json();
   if(!response.ok)throw Error(data.error||"Message refusé");
+  pendingChatResponse=Boolean(integratedAIStatus?.enabled||remoteSession?.url);
   await syncChat();
-  notify("Message enregistré pour l'agent. Il répondra seulement s'il est connecté.");
+  renderChatStatus();
+  notify("Message transmis au compagnon.");
   return true;
  }catch(e){notify("Message non envoyé : "+e.message,true);return false;}
 }
@@ -400,7 +479,7 @@ async function sendNote(){
  $("send-note").disabled=true;
  try{
   const sent=await enqueuePlayerAnnouncement(text);
-  if(sent&&input.value.trim()===text)input.value="";
+  if(sent&&input.value.trim()===text){input.value="";lastVoiceDraft="";}
  }finally{$("send-note").disabled=false;}
 }
 async function passTurn(){
@@ -454,6 +533,27 @@ const voiceButton=$("voice-note"),voiceIndicator=$("voice-live"),voiceStatus=$("
 const voiceReadReplies=$("voice-read-replies");
 const voiceTranscript=$("voice-transcript"),voiceHeard=$("voice-heard");
 const voiceTranscriptLabel=$("voice-transcript-label");
+const voiceAutoSend=$("voice-auto-send");
+try{voiceAutoSend.checked=localStorage.getItem("riftbound-voice-auto-send")!=="false";}catch{voiceAutoSend.checked=true;}
+voiceAutoSend.onchange=()=>{
+ try{localStorage.setItem("riftbound-voice-auto-send",String(voiceAutoSend.checked));}catch{}
+ notify(voiceAutoSend.checked?"Envoi automatique après une pause activé.":"Envoi automatique désactivé : les phrases restent dans le champ de message.");
+};
+async function handleVoiceTranscript(text){
+ displayHeard(text,true);
+ const field=$("notes");
+ if(!voiceAutoSend.checked){
+  field.value=text;lastVoiceDraft=text;
+  notify("Phrase entendue : vérifie-la puis appuie sur Envoyer.");
+  return true;
+ }
+ const ok=await enqueuePlayerAnnouncement(text);
+ if(ok&&field.value.trim()===text.trim()){
+  field.value="";lastVoiceDraft="";
+ }
+ if(!ok)notify("Phrase reconnue mais non transmise. Vérifie le serveur local.",true);
+ return ok;
+}
 function displayHeard(text,complete=false){
  const heard=String(text||"").trim();
  if(!heard)return;
@@ -490,13 +590,7 @@ voiceController=createVoiceConversation({
  Utterance:window.SpeechSynthesisUtterance||null,
  onState:voiceUI,
  onPreview:showVoiceDraft,
- onTranscript:async text=>{
-  displayHeard(text,true);
-  // The model receives the exact transcription through the normal chat API.
-  // Only explicit, unambiguous end-turn phrases advance the board automatically.
-  const success=await enqueuePlayerAnnouncement(text);
-  if(!success)notify("Phrase reconnue mais non envoyée. Vérifie le serveur local.",true);
- },
+ onTranscript:handleVoiceTranscript,
  silenceMs:1500,
  restartMs:700
 });
@@ -542,10 +636,7 @@ voiceButton.onclick=async()=>{
  if((requested==="auto"&&localReady)||requested==="local"){
   voiceController=createLocalVoiceConversation({
    onState:voiceUI,onPreview:showVoiceDraft,
-   onTranscript:async text=>{
-    displayHeard(text,true);
-    if(!await enqueuePlayerAnnouncement(text))notify("Transcription réussie, envoi au plateau impossible.",true);
-   },
+   onTranscript:handleVoiceTranscript,
    sendAudio:async blob=>{
     const response=await fetch(relay.url+"/api/speech/transcribe",{
      ...localFetchOptions(relay.url),method:"POST",
@@ -563,10 +654,7 @@ voiceButton.onclick=async()=>{
    Recognition:SpeechAPI,synthesis:window.speechSynthesis||null,
    Utterance:window.SpeechSynthesisUtterance||null,
    onState:voiceUI,onPreview:showVoiceDraft,
-   onTranscript:async text=>{
-    displayHeard(text,true);
-    if(!await enqueuePlayerAnnouncement(text))notify("Message vocal non envoyé.",true);
-   },
+   onTranscript:handleVoiceTranscript,
    silenceMs:1500,restartMs:700
   });
  }
@@ -614,7 +702,10 @@ function aiDisplay(message=""){
   "✓ IA intégrée "+integratedAIStatus.model+" prête. Écris-lui directement dans la discussion.":
   integratedAIStatus?.configured?"IA enregistrée mais désactivée.":"Configure ton modèle, puis active l'IA.");
  if(integratedAIStatus?.lastError)$("ai-status").textContent+=" · "+integratedAIStatus.lastError;
- renderChatStatus();
+ // Keep the inline typing bubble inside the message flow.
+ if($("chat-typing").hidden!==!(integratedAIStatus?.processing||pendingChatResponse))
+  renderChat();
+ else renderChatStatus();
 }
 async function aiQuery(){
  if(!localAI()){integratedAIStatus=null;aiDisplay("Connecte d'abord l'exécutable Windows.");return;}
@@ -1047,7 +1138,7 @@ $("manual-apply").onclick=async()=>{
 $("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
 $("reset").onclick=async()=>{
  if(!confirm("Effacer la partie en cours ?"))return;
- if(await dispatch({type:"reset"}))showHome();
+ if(await dispatch({type:"reset"})){resetChatView();showHome();}
 };
 $("export").onclick=()=>{
  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob);

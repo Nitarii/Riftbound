@@ -112,7 +112,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.19.0",
+ name:"Riftbound Table Companion",version:"0.21.0",
  officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
@@ -271,7 +271,7 @@ const remoteAccess=createRemoteAccess({
 });
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
-const WEB_ASSETS=new Set(["index.html","manager.html","local-voice.mjs","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","local-voice.mjs","app.mjs","core.mjs","battlefield-rules.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){

@@ -13,6 +13,9 @@ jobs:
       - name: Verify JavaScript syntax
         run: |
           node --check core.mjs
+          node --check battlefield-rules.mjs
+          node --check chat-scrolling.mjs
+          node --check player-sequence.mjs
           node --check catalog.mjs
           node --check precons.mjs
           node --check narration.mjs

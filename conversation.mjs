@@ -7,10 +7,11 @@ const LIMIT=180;
 const TEXT_LIMIT=1200;
 const HISTORY_BATCH=80;
 export function createConversation({file=null}={}){
- let entries=[],seq=0,lastAgentPoll=0;
+ let entries=[],seq=0,lastAgentPoll=0,session=crypto.randomUUID();
  if(file){
   try{
    const loaded=JSON.parse(fs.readFileSync(file,"utf8"));
+   if(typeof loaded.session==="string"&&loaded.session.length<=80)session=loaded.session;
    if(Array.isArray(loaded.messages)){
     entries=loaded.messages.filter(m=>m&&Number.isInteger(m.id)&&
       (m.role==="human"||m.role==="ai")&&typeof m.text==="string").slice(-LIMIT);
@@ -22,7 +23,7 @@ export function createConversation({file=null}={}){
   if(!file)return;
   const temp=file+"."+crypto.randomBytes(5).toString("hex")+".tmp";
   try{
-   fs.writeFileSync(temp,JSON.stringify({seq,messages:entries}),{flag:"wx",mode:0o600});
+   fs.writeFileSync(temp,JSON.stringify({seq,session,messages:entries}),{flag:"wx",mode:0o600});
    fs.renameSync(temp,file);
   }finally{try{fs.unlinkSync(temp);}catch{}}
  }
@@ -38,9 +39,9 @@ export function createConversation({file=null}={}){
   const cursor=Number(after);
   if(!Number.isInteger(cursor)||cursor<0)throw Error("Curseur de messages invalide");
   return {messages:entries.filter(m=>m.id>cursor).slice(-HISTORY_BATCH),
-   lastId:seq,agentSeenAt:lastAgentPoll||null};
+   lastId:seq,session,agentSeenAt:lastAgentPoll||null};
  }
  function markAgentPoll(){lastAgentPoll=Date.now();}
- function clear(){entries=[];seq=0;lastAgentPoll=0;save();}
+ function clear(){entries=[];seq=0;lastAgentPoll=0;session=crypto.randomUUID();save();}
  return {post,list,markAgentPoll,clear};
 }
