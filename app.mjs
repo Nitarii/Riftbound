@@ -216,7 +216,9 @@ function renderChatStatus(){
  const label=$("chat-connection");
  if(!relay){label.textContent="Serveur déconnecté";label.dataset.status="offline";return;}
  if(integratedAIStatus?.enabled){
-  label.textContent=integratedAIStatus.processing?"IA intégrée · réfléchit":"IA intégrée · prête";
+  label.textContent=integratedAIStatus.provider==="free"?
+   (integratedAIStatus.processing?"IA gratuite · réfléchit":"IA gratuite · prête"):
+   (integratedAIStatus.processing?"IA intégrée · réfléchit":"IA intégrée · prête");
   label.dataset.status="online";return;
  }
  const active=agentLastSeen&&Date.now()-agentLastSeen<30000;
@@ -411,6 +413,82 @@ $("ai-disable").onclick=async()=>{
 };
 $("ai-open-board").onclick=()=>showGame("setup");
 aiProviderFields(true);
+
+// One-click free local opponent. All downloads and generation run inside the
+// Windows Companion, never through a paid provider or a Cloudflare tunnel.
+let freeAIInfo=null,freeAILoading=false;
+const runningPhases=new Set(["checking","engine","extracting","starting","model"]);
+function freeReadableBytes(n){
+ if(!Number.isFinite(n)||n<=0)return "0 Mo";
+ return n>=1024*1024*1024?(n/(1024*1024*1024)).toFixed(1)+" Go":
+  Math.round(n/(1024*1024))+" Mo";
+}
+function renderFreeAI(message=""){
+ const info=freeAIInfo;
+ const active=Boolean(integratedAIStatus?.enabled&&integratedAIStatus.provider==="free");
+ const busy=Boolean(freeAILoading||info?.running||runningPhases.has(info?.phase));
+ const button=$("free-ai-install"),stop=$("free-ai-stop"),stage=$("free-ai-stage"),bar=$("free-ai-progress");
+ button.disabled=!localAI()||busy||active;
+ button.textContent=busy?"Installation en cours…":active?"✓ IA gratuite activée":
+  info?.installed?"Activer mon IA gratuite":"Installer et activer mon IA gratuite";
+ stop.disabled=!active;
+ $("free-ai-model").disabled=busy||active;
+ const percent=Number(info?.progress)||0;
+ bar.hidden=!busy;bar.value=Math.min(100,Math.max(0,percent));
+ const amount=info?.total>0?" • "+freeReadableBytes(info.transferred)+
+  " / "+freeReadableBytes(info.total):"";
+ stage.textContent=message||(
+  info?.phase==="error"?"Installation interrompue : "+(info.error||"Erreur inconnue")+" · Réessaie avec le même bouton.":
+  active?"✓ Ton adversaire local gratuit est prêt à jouer dans la discussion.":
+  busy?(info?.message||"Préparation de l'IA gratuite…")+(info?.total?" ("+percent+" %"+amount+")":""):
+  !localAI()?"Lance et connecte ton exécutable Windows pour installer l'IA gratuite.":
+  info?.installed?"Moteur installé. Réactive le modèle sans tout retélécharger.":
+  "Aucun paiement : clique pour télécharger le moteur et ton modèle gratuitement."
+ );
+}
+async function pollFreeAI(){
+ if(!localAI())return;
+ try{
+  const reply=await fetch(relay.url+"/api/ai/free/status",{
+   ...localFetchOptions(relay.url),headers:{"Authorization":"Bearer "+relay.token},cache:"no-store"
+  });
+  if(!reply.ok)throw Error("Statut du moteur local indisponible");
+  const previous=freeAIInfo?.phase;
+  freeAIInfo=await reply.json();
+  if(previous!==freeAIInfo.phase&&freeAIInfo.phase==="ready"){
+   await aiQuery();
+   onboarding.prompt=true;saveOnboarding();renderWelcome();
+   notify("✓ Ton IA gratuite est installée ! Tu peux jouer sans payer de requêtes.");
+  }
+  renderFreeAI();
+ }catch(e){renderFreeAI("Impossible de lire la progression : "+e.message);}
+}
+$("free-ai-install").onclick=async()=>{
+ if(!localAI()){notify("Connecte le programme Windows depuis l'étape 2.",true);return;}
+ if(freeAILoading)return;
+ freeAILoading=true;renderFreeAI();
+ try{
+  const reply=await fetch(relay.url+"/api/ai/free/install",{
+   ...localFetchOptions(relay.url),method:"POST",
+   headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
+   body:JSON.stringify({model:$("free-ai-model").value})
+  });
+  const data=await reply.json();
+  if(!reply.ok)throw Error(data.error||"Installation impossible");
+  freeAIInfo=data;
+  renderFreeAI();
+ }catch(e){notify(e.message,true);renderFreeAI(e.message);}
+ finally{freeAILoading=false;renderFreeAI();}
+};
+$("free-ai-stop").onclick=async()=>{
+ try{
+  integratedAIStatus=await aiPost("disable");
+  await pollFreeAI();renderFreeAI();
+  notify("IA gratuite arrêtée. Les modèles restent sur ton PC pour la prochaine partie.");
+ }catch(e){notify(e.message,true);}
+};
+renderFreeAI();
+setInterval(()=>{if(localAI()&&(freeAIInfo?.running||freeAIInfo?.ready))pollFreeAI();},1200);
 let remoteSession=null;
 let remoteStarting=false;
 let remoteCopyArmed=null;
@@ -672,7 +750,7 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
- remoteSession=null;integratedAIStatus=null;clearManualPrompt();updateRemoteUI();
+ remoteSession=null;integratedAIStatus=null;freeAIInfo=null;clearManualPrompt();updateRemoteUI();renderFreeAI();
  resetChatView();aiDisplay("Serveur déconnecté.");notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
@@ -741,7 +819,7 @@ async function connectRelay(){
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
-  queueMicrotask(()=>{checkRemoteSession();aiQuery();});
+  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();});
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
