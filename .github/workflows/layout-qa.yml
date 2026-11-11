@@ -8,6 +8,14 @@ on:
       - 'app.mjs'
       - 'scripts/verify-layout.mjs'
       - '.github/workflows/layout-qa.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'style.css'
+      - 'app.mjs'
+      - 'scripts/verify-layout.mjs'
+      - '.github/workflows/layout-qa.yml'
   workflow_dispatch:
 
 permissions:

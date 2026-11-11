@@ -67,12 +67,28 @@ async function evaluateLayout(page,expectDesktop){
 try{
  for(const viewport of [{width:1440,height:900},{width:1280,height:720},{width:1024,height:768},{width:390,height:844}]){
   const page=await browser.newPage({viewport,deviceScaleFactor:1});
+  const pageErrors=[];
+  page.on("pageerror",error=>pageErrors.push(String(error)));
   await page.route("https://fonts.googleapis.com/**",route=>route.abort());
   await page.route("https://fonts.gstatic.com/**",route=>route.abort());
   await page.goto(url,{waitUntil:"domcontentloaded"});
   await page.evaluate(()=>document.body.classList.remove("home-visible"));
   await page.waitForTimeout(180);
   let result=await evaluateLayout(page,viewport.width>890);
+  ensure(await page.locator("#language-select").count()===1,"Missing language selector");
+  await page.locator("#language-select").selectOption("en");
+  ensure(await page.locator("html").getAttribute("lang")==="en","Language toggle failed");
+  await page.locator("#language-select").selectOption("fr");
+  if(viewport.width>890){
+   const original=await page.locator("#game-app .board").boundingBox();
+   await page.locator("#drawer-collapse").click();
+   const collapsed=await page.locator("#game-app .board").boundingBox();
+   ensure(collapsed.width>original.width+60,"History collapse did not expand the table");
+   await evaluateLayout(page,true);
+   await page.locator("#drawer-collapse").click();
+  }
+  ensure(!pageErrors.length,"Browser runtime errors: "+pageErrors.join("; "));
+
   if(viewport.width<=890){
    for(const view of ["history","chat","board"]){
     await page.locator('.workspace-mobile [data-workspace-view="'+view+'"]').click();
