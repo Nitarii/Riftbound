@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {applyCommand} from "./core.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
-import {planSafeAITurn} from "./ai-turn.mjs";
+import {planSafeAITurn,planAutonomousAITurn,describeAITurn} from "./ai-turn.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
@@ -210,6 +210,23 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   try{
    const game=getState(),revision=game.revision;
    const stillCurrent=()=>getMessages(0).session===session;
+   // The deterministic engine owns the AI's turn. An untrusted 0.6B model
+   // must not select imaginary payments, score without a capture, or end its
+   // turn before moving ready units onto a battlefield.
+   if(game.started&&game.active==="ai"){
+    const plan=planAutonomousAITurn(game);
+    if(!stillCurrent())return;
+    if(!plan.commands.length){
+     lastError=plan.error||"Tour IA impossible sans mouvement sûr.";
+     sendMessage("⚠️ "+lastError);return;
+    }
+    await applyBatch(plan.commands,revision);
+    if(stillCurrent()){
+     const english=detectMessageLanguage(message)==="en";
+     sendMessage(describeAITurn(plan,{english}));
+    }
+    return;
+   }
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";
@@ -267,7 +284,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
    if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error("Réponse IA mal formée.");
    let reply=String(parsed.reply||"").trim().slice(0,1200);
-   const proposed=Array.isArray(parsed.commands)?parsed.commands.slice(0,8):[];
+   const proposed=own.provider==="free"?[]:
+    Array.isArray(parsed.commands)?parsed.commands.slice(0,8):[];
    const commands=[],rejected=[];
    let preview=game;
    for(const command of proposed){
@@ -299,14 +317,14 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   }catch(e){
    if(getMessages(0).session!==session)return;
    lastError=e?.name==="TimeoutError"?"Délai de réponse dépassé.":String(e?.message||e).slice(0,250);
-   // Invalid JSON from a very small model must not freeze the AI turn.
+   // Invalid JSON from a small language model must not freeze the AI turn.
    const current=getState();
    if(current?.active==="ai"&&current.started){
-    const safe=planSafeAITurn(current);
-    if(safe.length){
+    const plan=planAutonomousAITurn(current);
+    if(plan.commands.length){
      try{
-      await applyBatch(safe,current.revision);
-      sendMessage("J'ai terminé mon tour avec les actions élémentaires vérifiables du plateau. / I completed my turn with safe, verifiable board actions.");
+      await applyBatch(plan.commands,current.revision);
+      sendMessage(describeAITurn(plan,{english:detectMessageLanguage(message)==="en"}));
       return;
      }catch{}
     }

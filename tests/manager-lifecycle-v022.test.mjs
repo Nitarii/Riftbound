@@ -18,7 +18,7 @@ const fetchRelease=source=>async url=>{
  return {ok:true,json:async()=>source};
 };
 test("the site and Windows app share a minimum version",()=>{
- assert.equal(CURRENT_VERSION,"0.22.0");
+ assert.equal(CURRENT_VERSION,"0.23.0");
  assert.equal(MINIMUM_COMPANION_VERSION,CURRENT_VERSION);
  assert.equal(compareVersions("0.21.0",CURRENT_VERSION),-1);
  assert.equal(companionNeedsUpdate("0.21"),true);
