@@ -1,6 +1,7 @@
 // Shared board state; automatic scoring only for uncontested fields, never card effects.
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
+import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
 const OWNERS = new Set(["human","ai"]);
@@ -14,7 +15,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},pendingCombat:null,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -53,6 +54,45 @@ export function applyCommand(old, command) {
   const s=cp(old||createState()), c=command, type=string(c.type,40);
   const p=c.player||"ai";
   let summary="";
+  if(s.pendingCombat&&["next-turn","phase","play-paid","combat-attack"].includes(type)&&
+    type!=="combat-attack")throw Error("Combat en cours : résous les réactions et les dégâts avant de poursuivre.");
+  if(s.pendingCombat&&type==="combat-attack")throw Error("Un combat est déjà en cours.");
+  const participants=index=>s.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===index&&
+    /^unit$/i.test(v.type||""));
+  function beginCombat(field,attacker,arriving=[]){
+    if(s.pendingCombat)return;
+    const opponents=participants(field).filter(u=>u.owner===OPPOSITE[attacker]);
+    if(!opponents.length)return;
+    const prev=old.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===field&&
+      /^unit$/i.test(v.type||""));
+    const prevOwners=[...new Set(prev.map(v=>v.owner))];
+    const previousController=prevOwners.length===1?prevOwners[0]:null;
+    s.pendingCombat={battlefield:field,attacker,defender:OPPOSITE[attacker],
+      previousController,passes:{human:false,ai:true},orders:{human:[],ai:[]},
+      confirmedEffects:false,initiators:arriving,
+      warnings:[],createdAt:new Date().toISOString()};
+    const party=battleParties(s,field,attacker);
+    s.pendingCombat.warnings=combatWarnings(s,field,party.attackers,party.defenders);
+  }
+  function settleCombat(){
+    const fight=s.pendingCombat;
+    if(!fight||!fight.passes.human||!fight.passes.ai)
+      throw Error("Attends que les deux joueurs aient passé leur fenêtre de réactions.");
+    if(fight.warnings.length&&!fight.confirmedEffects)
+      throw Error("Effets de cartes à vérifier : confirme leur résolution avant le calcul.");
+    const preview=previewCombat(s,fight.battlefield,fight.attacker,fight.orders);
+    if(!preview.ready)throw Error(preview.error);
+    const outcome=applyCombatResult(s,preview,{previousController:fight.previousController});
+    const resolved=outcome.controller;
+    let scoring="";
+    if(resolved&&resolved!==outcome.previousController)
+      scoring=scoreControlledBattlefield(s,resolved,fight.battlefield,"conquer")||"";
+    summary="Combat "+s.battlefields[fight.battlefield].card.name+": "+
+      preview.attackingMight+" Might attaque / "+preview.defendingMight+
+      " Might défense · "+outcome.dead.length+" unités vaincues"+
+      (outcome.recalled?" · "+outcome.recalled+" attaquant(s) rappelés":"")+
+      (scoring?" · "+scoring:"");
+  }
   if(type==="reset") {
     const fresh=createState();fresh.revision=(old?.revision||0)+1;
     fresh.history=[{revision:fresh.revision,at:new Date().toISOString(),text:"Partie réinitialisée"}];
@@ -102,6 +142,11 @@ export function applyCommand(old, command) {
     checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
+    // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
+    for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
+      unit.damage=0;unit.stunned=false;
+      if(unit.counters){delete unit.counters.stunned;delete unit.counters.tempMight;delete unit.counters.mightThisTurn;}
+    }
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
     s.turnActions={channeled:0,drawn:0};
@@ -165,10 +210,73 @@ export function applyCommand(old, command) {
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
      paid.domains.join("/")+")";
+  } else if(type==="combat-attack") {
+    if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
+    checkOwner(p);
+    const field=Number(c.battlefield);
+    if(!Number.isInteger(field)||field<0||field>=s.battlefields.length||
+      !s.battlefields[field]?.card)throw Error("Champ de bataille non reconnu.");
+    const ids=Array.isArray(c.uids)?c.uids:[];
+    if(!ids.length||ids.length>24||new Set(ids).size!==ids.length)
+      throw Error("Sélectionne une ou plusieurs unités distinctes pour l'assaut.");
+    const attacking=ids.map(uid=>getCard(s,string(uid,80)));
+    for(const v of attacking){
+      if(v.owner!==p||v.zone!=="base"||v.exhausted||!/^unit$/i.test(v.type||""))
+        throw Error(v.name+" : seule une unité prête dans ta base peut attaquer normalement.");
+    }
+    for(const v of attacking){v.exhausted=true;v.zone="battlefield";v.battlefield=field;}
+    beginCombat(field,p,ids);
+    summary="Assaut "+(p==="ai"?"IA":"joueur")+" : "+attacking.map(v=>v.name).join(", ")+
+      " → "+s.battlefields[field].card.name+
+      (s.pendingCombat?" · fenêtre de réactions ouverte":" · conquête du champ libre");
+  } else if(type==="combat-pass") {
+    const combat=s.pendingCombat;
+    if(!combat)throw Error("Aucun combat en cours.");
+    checkOwner(p);
+    if(combat.passes[p])throw Error("Ce joueur a déjà passé la fenêtre de réactions.");
+    combat.passes[p]=true;
+    summary=(p==="ai"?"IA":"Joueur")+" passe sa réaction.";
+    if(combat.passes.human&&combat.passes.ai){
+      if(combat.warnings.length&&!combat.confirmedEffects)
+        summary+=" Vérifie les effets signalés, puis confirme leur résolution.";
+      else settleCombat();
+    }
+  } else if(type==="combat-order") {
+    const combat=s.pendingCombat;
+    if(!combat)throw Error("Aucun combat en cours.");
+    checkOwner(p);
+    const valid=participants(combat.battlefield).filter(v=>v.owner!==p).map(v=>v.uid);
+    if(!Array.isArray(c.uids)||c.uids.length!==valid.length||
+       new Set(c.uids).size!==valid.length||!c.uids.every(uid=>valid.includes(uid)))
+      throw Error("L'ordre d'attribution doit contenir exactement les unités adverses.");
+    combat.orders[p]=[...c.uids];summary="Ordre des dégâts de "+p+" modifié.";
+  } else if(type==="combat-confirm-effects") {
+    if(!s.pendingCombat)throw Error("Aucun combat en cours.");
+    if(!c.confirm)throw Error("Confirmation explicite requise pour les effets de cartes.");
+    s.pendingCombat.confirmedEffects=true;
+    summary="Effets de combat confirmés comme résolus par le joueur physique.";
+    if(s.pendingCombat.passes.human&&s.pendingCombat.passes.ai)settleCombat();
+  } else if(type==="combat-resolve") {
+    settleCombat();
+  } else if(type==="stun") {
+    const v=getCard(s,string(c.uid,80));
+    if(!/^unit$/i.test(v.type||"")||!["base","battlefield"].includes(v.zone))
+      throw Error("Seule une unité sur le plateau peut être étourdie.");
+    if(v.stunned&&!c.clear)throw Error("Cette unité est déjà étourdie.");
+    v.stunned=!c.clear;summary=v.name+" : "+(v.stunned?"étourdie":"étourdissement dissipé");
+  } else if(type==="heal") {
+    const v=getCard(s,string(c.uid,80));
+    if(!/^unit$/i.test(v.type||""))throw Error("Seule une unité peut être soignée.");
+    const n=c.all?Math.max(0,v.damage):Number(c.value);
+    if(!Number.isInteger(n)||n<0||n>999)throw Error("Valeur de soin invalide.");
+    v.damage=Math.max(0,(v.damage||0)-n);
+    summary=v.name+" : "+n+" dégât(s) soignés";
   } else if(type==="move") {
     const v=getCard(s,string(c.uid,80)),zone=string(c.zone,40);
     if(!ZONES.has(zone))throw Error("Zone inconnue");
     const origin=v.zone;
+    if(s.pendingCombat&&origin==="base"&&zone==="battlefield"&&!c.effect)
+      throw Error("Déplacement normal impossible pendant une confrontation.");
     if(origin==="base"&&zone==="battlefield"&&v.exhausted&&/unit/i.test(v.type||""))
       throw Error("Cette unité est épuisée : elle ne peut pas se déplacer normalement.");
     if(v.zone==="hand")s.players[v.owner].handCount=Math.max(0,s.players[v.owner].handCount-1);
@@ -181,6 +289,8 @@ export function applyCommand(old, command) {
     }
     if(typeof c.faceDown==="boolean")v.faceDown=c.faceDown;
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
+    if(origin==="base"&&zone==="battlefield"&&v.owner===s.active)
+      beginCombat(v.battlefield,v.owner,[v.uid]);
   } else if(type==="remove") {
     const v=getCard(s,string(c.uid,80));
     s.cards=s.cards.filter(x=>x.uid!==v.uid);
@@ -201,9 +311,20 @@ export function applyCommand(old, command) {
     const v=getCard(s,string(c.uid,80));
     const value=Number(c.value);
     if(!Number.isInteger(value)||value < -999||value>999)throw Error("Valeur entière entre -999 et 999");
-    if(type==="damage")v.damage=Math.max(0,(c.set?0:v.damage)+value);
+    if(type==="damage"){
+      v.damage=Math.max(0,(c.set?0:v.damage)+value);
+      if(/^unit$/i.test(v.type||"")&&v.damage>0){
+        const role=s.pendingCombat&&v.battlefield===s.pendingCombat.battlefield?
+          (v.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
+        const might=effectiveMight(v,role);
+        if(might!==null&&v.damage>=might){
+          v.zone="trash";v.battlefield=null;v.exhausted=false;v.damage=0;
+          summary=v.name+" vaincue par les dégâts.";
+        }
+      }
+    }
     else{const key=string(c.key||"bonus",32);v.counters[key]=Math.max(-999,Math.min(999,(c.set?0:Number(v.counters[key]||0))+value));}
-    summary=v.name+" : "+type+" "+value;
+    if(!summary)summary=v.name+" : "+type+" "+value;
   } else if(type==="score") {
     checkOwner(p);const n=Number(c.value);
     if(!Number.isInteger(n)||Math.abs(n)>100)throw Error("Score invalide");
@@ -258,7 +379,7 @@ export function applyCommand(old, command) {
   } else throw Error("Type de commande inconnu : "+type);
   // A unit creates automatic Conquer only when it establishes uncontested
   // control and this field has not scored for that player this turn.
-  if(s.started&&["add","move","remove","play-paid"].includes(type)){
+  if(s.started&&!s.pendingCombat&&["add","move","remove","play-paid","combat-attack"].includes(type)){
    for(let i=0;i<s.battlefields.length;i++){
     const owner=battlefieldController(s,i);
     if(owner===s.active){
@@ -270,4 +391,4 @@ export function applyCommand(old, command) {
   maybeRecord(s,summary);
   return s;
 }
-export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note"];
+export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal"];

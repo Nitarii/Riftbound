@@ -2,6 +2,7 @@
 // Existing physical cards are identified by name, never by a guessed UID.
 import {applyCommand} from "./core.mjs";
 import {normalizePlayerAnnouncement,planHumanAnnouncement} from "./player-actions.mjs";
+import {combatVoicePlan} from "./combat-voice.mjs";
 
 const normalize=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
  .toLowerCase().replace(/[’‘]/g,"'").replace(/[-,;.!?]+/g," ").replace(/\s+/g," ").trim();
@@ -72,6 +73,8 @@ function planBaseSequence(message,state,catalog){
  return {commands,recognized:commands.length>0,summary:preview.message};
 }
 export function planPlayerSequence(message,state,catalog=[]){
+ const combat= combatVoicePlan(message,state);
+ if(combat)return combat;
  const text=normalizePlayerAnnouncement(message).slice(0,1200);
  if(!text||!state?.started)return {commands:[],recognized:false};
  // Questions and speculative statements remain conversational.
@@ -101,8 +104,14 @@ export function planPlayerSequence(message,state,catalog=[]){
  const add=command=>{preview=applyCommand(preview,command);commands.push(command);};
  try{
   if(preview.phase!=="Main")add({type:"phase",phase:"Main"});
-  add({type:"move",uid:chosen.unit.uid,zone:"battlefield",battlefield:index});
-  if(wantsEnd){add({type:"phase",phase:"Ending"});add({type:"next-turn"});}
+  const defended=preview.cards.some(c=>c.zone==="battlefield"&&
+   c.battlefield===index&&c.owner==="ai"&&/^unit$/i.test(c.type||""));
+  if(defended)add({type:"combat-attack",player:"human",
+   uids:[chosen.unit.uid],battlefield:index});
+  else add({type:"move",uid:chosen.unit.uid,zone:"battlefield",battlefield:index});
+  if(wantsEnd&&!preview.pendingCombat){
+   add({type:"phase",phase:"Ending"});add({type:"next-turn"});
+  }
   return {commands,recognized:true,summary:preview.message};
  }catch(e){
   return {commands:[],recognized:true,error:"Déplacement impossible : "+String(e.message||e),
