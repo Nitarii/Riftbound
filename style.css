@@ -947,3 +947,98 @@ body:not(.home-visible):has(#game-app:fullscreen)>header{display:none}
  line-height:1.55!important;margin:5px 0 7px}
 .ai-knowledge-status a{font-size:11px;color:#f2d69a;text-decoration:underline;text-underline-offset:3px}
 .ai-knowledge-status a:hover{color:#fff3d1}
+
+
+/* v0.16: continuously listening, conversational game voice, still in one screen. */
+#game-app #voice-note[aria-pressed="true"]{
+ color:#0d231e;
+ background:linear-gradient(135deg,#95dcb4,#d2edbd);
+ border-color:#cdf5c5;
+ font-weight:800;
+}
+#game-app .voice-live{
+ display:flex;
+ align-items:center;
+ gap:7px;
+ min-height:25px;
+ padding:5px 8px;
+ margin:0;
+ border:1px solid #3d5862;
+ border-radius:7px;
+ background:#132833;
+ color:#bbd0d3;
+ font-size:10px;
+ line-height:1.35;
+ overflow-wrap:anywhere;
+}
+#game-app .voice-live .voice-dot{
+ flex:0 0 8px;
+ width:8px;
+ height:8px;
+ border-radius:50%;
+ background:#718b91;
+ box-shadow:0 0 0 2px #718b911a;
+}
+#game-app .voice-live[data-voice-state="listening"],
+#game-app .voice-live[data-voice-state="starting"],
+#game-app .voice-live[data-voice-state="hearing"],
+#game-app .voice-live[data-voice-state="captured"]{
+ color:#c9f0d6;
+ border-color:#56856d;
+ background:#17352d;
+}
+#game-app .voice-live[data-voice-state="listening"] .voice-dot,
+#game-app .voice-live[data-voice-state="starting"] .voice-dot,
+#game-app .voice-live[data-voice-state="hearing"] .voice-dot,
+#game-app .voice-live[data-voice-state="captured"] .voice-dot{
+ background:#8de0a5;
+ box-shadow:0 0 0 3px #8de0a521;
+}
+#game-app .voice-live[data-voice-state="speaking"]{
+ color:#eadcb1;
+ border-color:#9d7e4d;
+ background:#3a3126;
+}
+#game-app .voice-live[data-voice-state="speaking"] .voice-dot{background:#ecc87d}
+#game-app .voice-live[data-voice-state="waiting"]{
+ color:#e9d4a7;
+ border-color:#8b774e;
+}
+#game-app .voice-live[data-voice-state="error"]{
+ color:#ffc0b6;
+ border-color:#a35f66;
+ background:#36252a;
+}
+#game-app .voice-live[data-voice-state="error"] .voice-dot{background:#f0a5ab}
+#game-app .voice-response-option{
+ display:flex;
+ flex:0 0 auto;
+ align-items:center;
+ gap:6px;
+ margin:0;
+ padding:0;
+ font-size:10px;
+ color:#bacbd0;
+ cursor:pointer;
+ line-height:1.2;
+}
+#game-app .voice-response-option input{
+ margin:0;
+ width:14px;
+ height:14px;
+ accent-color:#92cba2;
+}
+#game-app .voice-advanced-note{
+ display:block;
+ max-width:100%;
+ color:#a6bfc7;
+ font-size:10px;
+ line-height:1.45;
+}
+@media (max-height:620px){
+ #game-app .voice-live{min-height:20px;font-size:9px;padding:3px 5px}
+ #game-app .voice-response-option{font-size:9px}
+}
+@media (prefers-reduced-motion:reduce){
+ #game-app .voice-live .voice-dot{animation:none}
+}
