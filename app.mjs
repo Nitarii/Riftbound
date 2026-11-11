@@ -207,7 +207,7 @@ function updateRemoteUI(message=""){
   running?"✓ Accès distant activé":"✦ Activer l'accès et copier le prompt IA";
  stop.disabled=!running;
  $("home-remote-ready").hidden=!running;
- if(!running)clearManualPrompt();
+
  if(running){
   $("home-remote-expiry").textContent="Jusqu'à "+new Date(remoteSession.expiresAt).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
  }
@@ -314,7 +314,7 @@ $("home-start-remote").onclick=async()=>{
   updateRemoteUI();
   await copyAgentPrompt(true,clipboard);
  }catch(e){
-  if(clipboard)clipboard.resolve(new Blob([""],{type:"text/plain"}));
+  if(clipboard)clipboard.resolve(new Blob(["L'accès distant n'a pas pu être activé. Aucun jeton n'a été créé."],{type:"text/plain"}));
   remoteStarting=false;remoteSession=null;
   updateRemoteUI("Impossible d'activer l'accès distant : "+e.message);
   notify(e.message,true);
@@ -325,6 +325,7 @@ $("home-stop-remote").onclick=async()=>{
  try{
   await requestRemote("stop","POST");
   remoteSession=null;onboarding.prompt=false;saveOnboarding();
+  clearManualPrompt();
   updateRemoteUI();renderWelcome();
   notify("✓ Accès à l'IA coupé immédiatement.");
  }catch(e){notify(e.message,true);}
@@ -373,7 +374,7 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
- remoteSession=null;updateRemoteUI();notify("Relais déconnecté.");renderWelcome();
+ remoteSession=null;clearManualPrompt();updateRemoteUI();notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
  if(relay!==session)return;
