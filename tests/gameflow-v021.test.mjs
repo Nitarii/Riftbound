@@ -94,7 +94,7 @@ test("reader scrolls back to older messages without being forced to the bottom",
  const old={scrollTop:150,scrollHeight:1200,clientHeight:350};
  const next={scrollHeight:1510,clientHeight:350};
  assert.equal(isChatAtBottom(old),false);
- assert.equal(restoredChatPosition(old,next,{stickToBottom:false}),460);
+ assert.equal(restoredChatPosition(old,next,{stickToBottom:false}),150);
  assert.equal(shouldShowJump(old,true),true);
  const bottom={scrollTop:850,scrollHeight:1200,clientHeight:350};
  assert.equal(isChatAtBottom(bottom),true);

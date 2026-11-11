@@ -1703,3 +1703,13 @@ body:not(.home-visible) #game-app.history-collapsed{
  }
  #game-app .field-control{font-size:8px;padding:2px 3px}
 }
+
+/* Keep discard cards entirely within the narrow right-hand column. */
+#game-app .playmat .zone-trash .card-tile{
+ --game-card-width:clamp(29px,2.8vw,38px);
+ --playmat-card-height:calc(var(--game-card-width) * 1.3965);
+ flex:0 0 var(--game-card-width);
+ width:var(--game-card-width);
+ min-width:var(--game-card-width);
+}
+#game-app .playmat .zone-trash .cards{gap:3px;padding:0 1px 3px}
