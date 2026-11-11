@@ -7,9 +7,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 **Site :** https://nitarii.github.io/Riftbound/
 
 **Téléchargement Windows 10/11 64 bits :**
-https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.11.exe
+https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.12.exe
 
-1. Télécharger puis lancer `RiftboundCompanion-v0.11.exe`.
+1. Télécharger puis lancer `RiftboundCompanion-v0.12.exe`.
 2. Dans l'onglet du site déjà ouvert, cliquer sur **Autoriser la connexion locale** lorsque le navigateur le demande. L'exécutable n'ouvre pas un nouvel onglet tout seul.
 3. Choisir la légende, le champion choisi, le champ de bataille et le deck de l'IA; démarrer la partie.
 4. À l'étape 4, cliquer **Activer l'accès et copier le prompt IA**, puis coller le texte dans une **conversation privée** avec l'agent souhaité. Si le navigateur ne permet pas la copie automatique, le prompt apparaît dans un champ sélectionnable.
@@ -62,6 +62,14 @@ L'abonnement **ChatGPT Plus n'inclut pas la facturation de l'API OpenAI**. La cl
 **Confidentialité et sécurité** : la configuration et la clé sont enregistrées dans le dossier de données local du programme, jamais dans GitHub Pages ou dans le navigateur. Les endpoints de configuration ne sont disponibles que sur le serveur de l'utilisateur authentifié en local, jamais via la passerelle Cloudflare. Le fournisseur choisi reçoit les messages, le plateau public, **la main de l'IA** et les informations nécessaires à sa décision ; **la main physique cachée du joueur n'est jamais envoyée**. Les commandes du modèle sont limitées à une liste blanche, contrôlées avant application et appliquées ensemble uniquement si le plateau n'a pas changé. Le bouton **Désactiver** suspend les nouvelles requêtes IA. Le mode tunnel externe reste une alternative facultative, mutuellement exclusive.
 
 **Limites** : le moteur n'arbitre pas automatiquement tous les effets ou règles compétitives, et l'IA peut se tromper. Ce mode n'est pas une connexion à une conversation ChatGPT déjà ouverte : c'est une session de modèle distincte, facturée ou exécutée localement. Il fournit cependant une IA capable de répondre et de modifier le plateau sans aucun accès réseau entrant depuis l'environnement d'un chat.
+
+## Interface de partie v0.12 : tout accessible sans défilement de page
+
+Sur ordinateur, lorsque la partie est ouverte, l'interface utilise la hauteur de la fenêtre et présente **simultanément** : l'historique en direct à gauche (avec outils sous forme d'onglets), le plateau et ses deux champs de bataille au centre, et la discussion écrite/vocale avec l'IA à droite. L'en-tête et les phases restent disponibles en haut. Le bouton **Plein écran** agrandit l'espace de jeu (Échap pour en sortir).
+
+Le document principal ne défile plus pendant une partie. Pour préserver la lisibilité, les zones susceptibles de s'allonger sont **défilables individuellement** : listes de cartes à l'horizontale, journal, chat et panneaux d'outils à la verticale. L'ancienne page d'installation garde un défilement normal, car elle comporte plusieurs étapes.
+
+Sur les petits écrans (moins de 891 pixels CSS de largeur), il est impossible d'afficher côte à côte trois surfaces lisibles. La page offre donc un sélecteur **Plateau / Historique / Discussion IA** pour passer d'un panneau à l'autre sans défilement de page. Les fonctions et le contenu restent disponibles sans changer de page.
 
 ## Contrôle du plateau par les annonces du joueur
 
