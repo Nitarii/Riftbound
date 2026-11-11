@@ -16,6 +16,7 @@ import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
 import {createFreeLocalAI} from "./free-ai.mjs";
+import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
 const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
@@ -96,7 +97,8 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.14.0",
+ name:"Riftbound Table Companion",version:"0.15.0",
+ officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
@@ -105,10 +107,11 @@ const guide={
  "GET /api/messages?after=0":"Read physical player announcements and agent replies; poll every 2 seconds",
  "POST /api/messages":"Human chat message; JSON {text}, authenticated",
  "GET /api/ai/status":"Integrated model status, no credentials returned, LOCAL only",
+ "GET /api/ai/reference?q=...":"Riot rule references, site operating guide and matching card effects, LOCAL only",
  "POST /api/ai/config":"Configure outbound OpenAI-compatible model; LOCAL only",
  "POST /api/ai/disable":"Stop generating model responses; LOCAL only",
- "GET /api/ai/free/status":"Free local Ollama model installation progress; LOCAL only",
- "POST /api/ai/free/install":"One-click free local AI installer, model qwen3:4b-instruct or qwen3.5:9b; LOCAL only",
+ "GET /api/ai/free/status":"Free local CPU model installation progress; LOCAL only",
+ "POST /api/ai/free/install":"One-click free local Qwen3 0.6B CPU installer; LOCAL only",
  "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
@@ -194,7 +197,7 @@ const remoteAccess=createRemoteAccess({
 });
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();});
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -229,7 +232,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.14.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.15.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -264,6 +267,12 @@ const server=http.createServer(async(req,res)=>{
   }
   // The local authenticated UI controls the only public-facing gateway.
   // This control endpoint is NOT exposed by the restricted gateway.
+  if(req.method==="GET"&&url.pathname==="/api/ai/reference"){
+    const query=(url.searchParams.get("q")||"").slice(0,150);
+    let cards=[],notice="";
+    try{cards=await loadServerCatalog();}catch(e){notice="Catalogue de cartes non chargé : "+e.message;}
+    json(res,200,{...publicReference(query,cards),notice},req);return;
+  }
   if(req.method==="GET"&&url.pathname==="/api/ai/status"){
     json(res,200,integratedAI.status(),req);return;
   }
