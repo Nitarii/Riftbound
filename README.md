@@ -7,9 +7,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 **Site :** https://nitarii.github.io/Riftbound/
 
 **Téléchargement Windows 10/11 64 bits :**
-https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.9.exe
+https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.10.exe
 
-1. Télécharger puis lancer `RiftboundCompanion-v0.9.exe`.
+1. Télécharger puis lancer `RiftboundCompanion-v0.10.exe`.
 2. Dans l'onglet du site déjà ouvert, cliquer sur **Autoriser la connexion locale** lorsque le navigateur le demande. L'exécutable n'ouvre pas un nouvel onglet tout seul.
 3. Choisir la légende, le champion choisi, le champ de bataille et le deck de l'IA; démarrer la partie.
 4. À l'étape 4, cliquer **Activer l'accès et copier le prompt IA**, puis coller le texte dans une **conversation privée** avec l'agent souhaité. Si le navigateur ne permet pas la copie automatique, le prompt apparaît dans un champ sélectionnable.
@@ -50,6 +50,18 @@ Pour éviter les codes JavaScript dans la console du navigateur :
 **Confidentialité et limite essentielle :** cet export masque les deux mains, les cartes face cachée, le contenu des decks, les notes privées et tous les jetons d'authentification. C'est utile pour suivre les actions annoncées sans révéler la main du joueur, **mais l'IA ne peut pas choisir correctement des cartes secrètes de sa propre main à partir de cet export**. Pour jouer comme un véritable adversaire avec main et deck secrets, il faut utiliser un agent disposant d'un navigateur interactif ou d'outils HTTP autorisés.
 
 Le mode assisté n'applique jamais du JavaScript fourni par l'IA : il parse du JSON, vérifie les types de commandes autorisés, les identifiants de cartes et la version du plateau avant l'envoi. Les actions restent soumises à une vérification humaine des règles.
+
+## Contrôle du plateau par les annonces du joueur
+
+La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange principal pendant la partie. Les messages envoyés par le bouton **Envoyer** ou **Entrée** (Maj + Entrée pour un saut de ligne) sont enregistrés sur le serveur et accessibles au seul agent distant authentifié via `GET /api/messages?after=<dernier-id>`. L'agent répond via `POST /api/messages` avec `{"text":"..."}`, et ses messages apparaissent dans la même boîte de discussion.
+
+**Dictée :** le bouton micro transcrit la voix dans le champ, puis Entrée envoie le message. La reconnaissance vocale dépend du navigateur et peut transmettre l'audio à son fournisseur. Aucune IA n'est invoquée automatiquement : il faut qu'un agent externe consulte effectivement la file de messages. L'interface distingue « accès distant ouvert » de « activité de l'agent détectée ».
+
+**Fin de tour :** le bouton **Passer mon tour** avance l'état du plateau et annonce la fin du tour à l'IA. Les phrases courtes « Je passe mon tour » ou « Je termine mon tour » font la même chose lorsqu'elles sont envoyées par Entrée. Les autres déclarations restent des messages destinés à l'IA, qui doit vérifier la règle et placer les cartes elle-même.
+
+**Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
+
+**Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
 
 ## Catalogue et gameplay
 
