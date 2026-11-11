@@ -4,8 +4,8 @@ import path from "node:path";
 import {applyCommand} from "./core.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
- lmstudio:"http://127.0.0.1:1234/v1"};
-const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model"};
+ lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
+const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:"qwen3:4b-instruct"};
 const COMMANDS=new Set(["move","add","exhaust","ready","flip","damage","counter","score",
  "draw","channel","mulligan","phase","next-turn","note"]);
 function providerURL(source){
@@ -160,7 +160,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const transcript=getMessages(0).messages.slice(-8).map(m=>({role:m.role,text:m.text}));
    const payload={
-    model:own.model,temperature:0.3,max_tokens:900,
+    model:own.model,temperature:own.provider==="free"?0.1:0.3,max_tokens:1100,
+    ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
     messages:[
      {role:"system",content:SYSTEM_PROMPT},
      {role:"user",content:JSON.stringify({
@@ -172,7 +173,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const headers={"Content-Type":"application/json"};
    if(own.apiKey)headers.Authorization="Bearer "+own.apiKey;
    const response=await fetchImpl(own.endpoint+"/chat/completions",{
-    method:"POST",headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(timeoutMs)
+    method:"POST",headers,body:JSON.stringify(payload),
+    signal:AbortSignal.timeout(own.provider==="free"?180000:timeoutMs)
    });
    if(!response.ok)throw Error("HTTP "+response.status+" du fournisseur. Vérifie la clé API et le nom du modèle.");
    const packet=await response.json();
