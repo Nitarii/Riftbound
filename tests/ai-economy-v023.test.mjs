@@ -80,7 +80,7 @@ test("a paid card cannot enter an unclaimed battlefield, bypass energy, or be re
  assert.throws(()=>applyCommand(s,{type:"play-paid",uid,zone:"base"}),/depuis cette zone/);
 });
 test("autonomous AI develops units, pays Power and moves ready units to conquer on later turns",()=>{
- let s=game({runes:[fury,chaos,fury,chaos,fury,chaos],main:[
+ let s=game({runes:[fury,fury,fury,fury,fury,fury],main:[
   card("Fury Soldier","Unit",{energy:2,power:1,domains:["Fury"],might:3}),
   card("Other", "Unit",{energy:1,power:0,domains:["Chaos"],might:1})
  ]});
