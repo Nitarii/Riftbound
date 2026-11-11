@@ -168,7 +168,7 @@ function selectWorkspacePanel(view){
  if(!["board","history","chat"].includes(view))return;
  const area=$("game-app");
  area.dataset.workspaceView=view;
- for(const b of document.querySelectorAll("[data-workspace-view]")){
+ for(const b of document.querySelectorAll(".workspace-mobile [data-workspace-view]")){
   b.setAttribute("aria-pressed",String(b.dataset.workspaceView===view));
  }
 }
