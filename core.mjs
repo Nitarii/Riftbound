@@ -12,7 +12,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -28,8 +28,8 @@ export function validateCard(card) {
   return {code:String(card.code||"").slice(0,100),name,type:String(card.type||"Unit").slice(0,40),
     image:/^https:\/\/[a-z0-9.-]+\//i.test(card.image||"")?card.image:"",
     imageFallback:/^https:\/\/[a-z0-9.-]+\//i.test(card.imageFallback||"")?card.imageFallback:"",domains:Array.isArray(card.domains)?card.domains.slice(0,3).map(String):[],
-    text:String(card.text||"").slice(0,2500),energy:Number.isFinite(+card.energy)?+card.energy:null,
-    power:Number.isFinite(+card.power)?+card.power:null,might:Number.isFinite(+card.might)?+card.might:null,
+    text:String(card.text||"").slice(0,2500),energy:card.energy==null||card.energy===""?null:Number.isFinite(+card.energy)?+card.energy:null,
+    power:card.power==null||card.power===""?null:Number.isFinite(+card.power)?+card.power:null,might:card.might==null||card.might===""?null:Number.isFinite(+card.might)?+card.might:null,
     tags:Array.isArray(card.tags)?card.tags.slice(0,12).map(String):[]};
 }
 function place(state, p, c, zone, battlefield, faceDown) {
@@ -97,11 +97,14 @@ export function applyCommand(old, command) {
     }
     summary=(who==="ai"?"IA":"Joueur")+" : "+s.players[who].legend.name+" / "+s.players[who].champion.name;
   } else if(type==="start") {
-    checkOwner(p);s.active=p;s.phase="Awaken";s.turn=1;s.started=true;
+    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
     s.active=s.active==="human"?"ai":"human";
-    if(s.active==="human")s.turn++;
+    if(s.active===(s.firstPlayer||"human"))s.turn++;
+    s.turnActions={channeled:0,drawn:0};
+    // Ready cards as the new turn starts; human rune exhaustion is displayed too.
+    for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
     s.phase="Awaken";s.started=true;
     summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+". Phases à résoudre manuellement.";
   } else if(type==="phase") {
@@ -111,6 +114,7 @@ export function applyCommand(old, command) {
   } else if(type==="add") {
     checkOwner(p);const v=place(s,p,c.card,c.zone||"base",c.battlefield,c.faceDown);
     if(v.zone==="hand")s.players[p].handCount++;
+    if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
   } else if(type==="move") {
     const v=getCard(s,string(c.uid,80)),zone=string(c.zone,40);
@@ -128,6 +132,12 @@ export function applyCommand(old, command) {
   } else if(type==="exhaust"||type==="ready") {
     if(c.uid){const v=getCard(s,string(c.uid,80));v.exhausted=type==="exhaust";summary=v.name+" : "+(v.exhausted?"épuisée":"redressée");}
     else{checkOwner(p);const affected=s.cards.filter(v=>v.owner===p);for(const v of affected)v.exhausted=type==="exhaust";summary=(p==="ai"?"IA":"Joueur")+" : "+type+" toutes ses cartes";}
+  } else if(type==="exhaust-runes") {
+    checkOwner(p);const count=Number(c.count);
+    const ready=s.cards.filter(v=>v.owner===p&&v.zone==="runes"&&!v.exhausted);
+    if(!Number.isInteger(count)||count<1||ready.length<count)throw Error("Pas assez de runes prêtes / Not enough ready runes");
+    ready.slice(0,count).forEach(v=>v.exhausted=true);
+    summary=(p==="human"?"Joueur":"IA")+" : "+count+" runes épuisées";
   } else if(type==="flip") {
     const v=getCard(s,string(c.uid,80));v.faceDown=!v.faceDown;summary=v.name+" retournée";
   } else if(type==="counter"||type==="damage") {
@@ -148,6 +158,10 @@ export function applyCommand(old, command) {
     s.players[p].handCount=count;summary="Main "+p+" : "+count;
   } else if(type==="draw"||type==="channel") {
     checkOwner(p);const n=Math.max(1,Math.min(12,Number(c.count)||1));
+    if(s.started&&p===s.active){
+      if(type==="channel")s.turnActions={...s.turnActions,channeled:(s.turnActions?.channeled||0)+n};
+      else s.turnActions={...s.turnActions,drawn:(s.turnActions?.drawn||0)+n};
+    }
     const stock=type==="draw"?"main":"runes",dst=type==="draw"?"hand":"runes";
     if(p==="ai"){
       for(let i=0;i<n;i++){
@@ -159,8 +173,11 @@ export function applyCommand(old, command) {
     } else if(type==="draw"){
       s.players.human.handCount+=n;
       if(Number.isInteger(s.players.human.deckCount))s.players.human.deckCount=Math.max(0,s.players.human.deckCount-n);
+    }else {
+      const actual=Math.min(n,s.players.human.runeCount);
+      for(let i=0;i<actual;i++)place(s,"human",{code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
+      s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
     }
-    else s.players.human.runeCount=Math.max(0,s.players.human.runeCount-n);
     summary=p+" : "+(type==="draw"?"pioche ":"canalise ")+n+" (sans arbitrage automatique)";
   } else if(type==="mulligan") {
     checkOwner(p);
@@ -180,4 +197,4 @@ export function applyCommand(old, command) {
   maybeRecord(s,summary);
   return s;
 }
-export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","flip","counter","damage","score","hand-count","draw","channel","mulligan","note"];
+export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","flip","counter","damage","score","hand-count","draw","channel","mulligan","note"];
