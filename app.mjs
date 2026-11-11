@@ -182,19 +182,70 @@ else {
 }
 
 $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value))}catch(e){notify(e.message,true)}};
+let remoteSession=null;
+let remoteStarting=false;
+const REMOTE_MAX_HOURS=4;
+function updateRemoteUI(message=""){
+ const button=$("home-start-remote"),stop=$("home-stop-remote"),status=$("home-remote-status");
+ const running=Boolean(remoteSession?.url);
+ button.disabled=remoteStarting||!relay?.token||running;
+ button.textContent=remoteStarting?"Connexion distante en cours…":running?"✓ Accès temporaire activé":"Activer l'accès IA distant";
+ stop.disabled=!running;
+ if(message){status.textContent=message;return;}
+ if(running){
+  const expires=new Date(remoteSession.expiresAt).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  status.textContent="Accès HTTPS temporaire actif jusqu'à "+expires+". Copie le prompt ci-dessous puis envoie-le uniquement à une IA de confiance.";
+ }else status.textContent=relay?"Accès distant désactivé.":"Connecte d'abord ton module local pour activer un accès distant.";
+}
+async function requestRemote(path,method="GET"){
+ if(!relay?.token||!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/.test(relay.url))
+  throw Error("Connecte d'abord le compagnon local pour autoriser une IA extérieure.");
+ const result=await fetch(relay.url+"/api/remote/"+path,{
+  ...localFetchOptions(relay.url),method,
+  headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
+  body:method==="POST"?"{}":undefined
+ });
+ const json=await result.json();
+ if(!result.ok)throw Error(json.error||"Erreur d'accès distant.");
+ return json;
+}
+$("home-start-remote").onclick=async()=>{
+ if(!confirm("Créer un accès HTTPS temporaire au plateau pour une IA extérieure ? La partie deviendra accessible à toute personne possédant le jeton temporaire. Aucun accès distant n'est activé sans ton accord."))return;
+ remoteStarting=true;updateRemoteUI();
+ try{
+  remoteSession=await requestRemote("start","POST");
+  if(!remoteSession?.url||!remoteSession.agentToken)throw Error("Connexion non prête.");
+  notify("Accès temporaire prêt. Copie le prompt pour ton agent, puis coupe le tunnel après la partie.");
+  updateRemoteUI();
+ }catch(e){remoteSession=null;updateRemoteUI(e.message);notify(e.message,true);}
+ finally{remoteStarting=false;updateRemoteUI(remoteSession?undefined:"Accès distant indisponible. Vérifie cloudflared et ton pare-feu.");}
+};
+$("home-stop-remote").onclick=async()=>{
+ if(!remoteSession)return;
+ try{await requestRemote("stop","POST");remoteSession=null;notify("Accès distant désactivé.");updateRemoteUI();}
+ catch(e){notify(e.message,true);}
+};
+$("open-remote-setup").onclick=()=>{
+ showHome();
+ setWizardStep(4);
+};
 async function copyAgentPrompt(){
- const base=relay?.url||"http://127.0.0.1:8787";
+ const temporaryAccess=remoteSession?.url&&remoteSession?.agentToken;
+ if(temporaryAccess&&!confirm("Ce prompt contient un jeton d'accès temporaire à ton plateau. Ne le colle que dans une conversation privée avec l'agent auquel tu veux donner accès. Copier ?"))return false;
+ const base=temporaryAccess?remoteSession.url:(relay?.url||"http://127.0.0.1:8787");
  const prompt=[
    "Tu es mon adversaire dans une partie physique de Riftbound. Je manipule mes cartes physiques.",
    "Ne réclame pas ma main cachée. Attends mes déclarations de jeu oralement ou par écrit.",
    "Ne suppose jamais l'existence d'une carte ou la résolution d'un effet que tu n'as pas vérifié dans les règles officielles.",
-   "Tu peux consulter l'état du plateau via le relais local "+base+" (si ton environnement informatique y a accès).",
-   "Endpoints: GET /api/guide, GET /api/state, GET /api/catalog?q=..., POST /api/command.",
-   "Chaque requête nécessite l'en-tête Authorization: Bearer <JETON_LOCAL>.",
-   "Demande-moi le jeton via un canal privé approprié si tu en as besoin; ne le révèle jamais et ne le poste jamais sur GitHub.",
+   temporaryAccess?"URL HTTPS temporaire de mon plateau : "+base:"Mon plateau est local : "+base+". Cette adresse n'est pas directement accessible à une IA extérieure.",
+   "Endpoints autorisés : GET /api/guide, GET /api/state, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
+   temporaryAccess?"Authentification temporaire pour CETTE session : Authorization: Bearer "+remoteSession.agentToken:
+      "Pour un accès direct, demande un lien HTTPS distant temporaire. N'utilise pas 127.0.0.1 dans un environnement cloud.",
+   "Le jeton temporaire n'autorise que l'accès à la partie, pas à l'administration du PC. Ne le publie jamais sur GitHub ni sur un site public.",
+   "Si ton environnement ne permet pas des requêtes HTTP avec en-têtes personnalisés, explique-le immédiatement et n'affirme pas pouvoir lire le plateau.",
    "Commence par GET /api/guide puis GET /api/state. Si l'IA n'est pas configurée, sélectionne un deck préconstruit avec POST /api/command {\"type\":\"select-precon\",\"id\":\"random\"}.",
    "Annonce tes actions avec les noms, textes et effets précis des cartes, puis synchronise chaque changement sur le plateau.",
-   "Si tu n'as pas d'outil HTTP capable d'accéder au relais, donne-moi simplement les commandes JSON à coller dans l'onglet Agent IA.",
+   "Si tu ne peux pas accéder à l'URL HTTPS depuis ton environnement, demande l'export JSON ou donne-moi des commandes à coller. Ne prétends pas être connecté.",
    "Utilise le jeu comme compagnon de table, pas comme un logiciel d'arbitrage automatique."
  ].join("\n");
  try{
@@ -206,7 +257,7 @@ async function copyAgentPrompt(){
    if(!ok)throw Error("Le navigateur a refusé la copie");
   }
   onboarding.prompt=true;saveOnboarding();renderWelcome();
-  notify("Prompt IA copié, sans jeton privé.");return true;
+  notify(temporaryAccess?"Instructions et accès temporaire IA copiés. Ferme l'accès après la partie.":"Instructions copiées ; un agent distant ne pourra pas accéder à localhost sans tunnel.");return true;
  }catch(e){notify("Copie impossible : "+e.message,true);return false;}
 }
 $("copy-agent-prompt").onclick=copyAgentPrompt;
@@ -247,7 +298,7 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
- notify("Relais déconnecté.");renderWelcome();
+ remoteSession=null;updateRemoteUI();notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
  if(relay!==session)return;
@@ -359,6 +410,7 @@ function renderWelcome(){
      card.classList.toggle("complete",steps[i]);
    }
  }
+ updateRemoteUI();
  $("home-installed").checked=Boolean(onboarding.installed);
  const status=$("home-relay-status");
  status.textContent=relay?"✓ Connecté":onboarding.preview?"Mode aperçu":"Non connecté";
@@ -817,6 +869,7 @@ async function watchForLocalCompanion(){
 render();
 renderWelcome();
 renderDeckChoices();
+updateRemoteUI();
 autoBootstrapCompanion();
 watchForLocalCompanion();
 loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
