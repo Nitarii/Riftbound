@@ -282,3 +282,17 @@ body.home-visible .header-actions > :not(.header-home){display:none!important}
 .card-search-field .picker-input-wrap{display:flex;align-items:center;flex-wrap:nowrap;gap:9px;min-width:0}
 .card-search-field input[type="search"]{flex:1 1 auto;min-width:0;width:100%;box-sizing:border-box;margin:0}
 .hero-picker-panel{min-width:0}
+
+
+/* Explicitly controlled remote agent session: no automatic public exposure. */
+.remote-agent-panel{border:1px solid #4c6574;border-radius:12px;padding:16px 18px;margin:7px 0 16px;background:radial-gradient(ellipse at 100% 0%,rgba(99,111,178,.16),transparent 60%),#132532}
+.remote-agent-top{display:flex;align-items:center;gap:14px}
+.remote-agent-top>div{min-width:0;flex:1}
+.remote-agent-top strong{font-size:14px;color:#f0dbac}
+.remote-agent-top p{font-size:12px;color:#b4cbd0;line-height:1.6;margin:5px 0}
+.remote-agent-glyph{flex:0 0 42px;width:42px;height:42px;display:grid;place-items:center;font-size:22px;border:1px solid #6a857b;border-radius:10px;background:#182b32}
+.remote-agent-caution,.remote-agent-dependency{font-size:11px!important;line-height:1.65!important;color:#adcad0!important}
+.remote-agent-caution{padding:10px 13px;border-left:2px solid #cbb57c;background:#1a2a32;border-radius:4px}
+.remote-agent-status{margin:13px 0 0!important;font-size:12px!important;line-height:1.5!important;color:#c5d6cb!important}
+.remote-agent-panel button:disabled{opacity:.6;cursor:not-allowed}
+@media(max-width:650px){.remote-agent-panel{padding:12px}.remote-agent-top{align-items:flex-start}.remote-agent-glyph{width:34px;height:34px;flex-basis:34px;font-size:17px}}
