@@ -31,14 +31,15 @@ export function validateAIConfig(input,previous={}){
   throw Error("Clé API requise : un abonnement ChatGPT ne comprend pas les crédits API.");
  return {provider,model,endpoint,apiKey,enabled:input.enabled!==false};
 }
+const shortCard=c=>c?{code:c.code,name:c.name,type:c.type}:null;
 export function modelBoardState(state){
  return {
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
-  started:state.started,battlefields:state.battlefields,
+  started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
-   human:{legend:state.players.human.legend,champion:state.players.human.champion,
+   human:{legend:shortCard(state.players.human.legend),champion:shortCard(state.players.human.champion),
     score:state.players.human.score,handCount:state.players.human.handCount},
-   ai:{legend:state.players.ai.legend,champion:state.players.ai.champion,
+   ai:{legend:shortCard(state.players.ai.legend),champion:shortCard(state.players.ai.champion),
     score:state.players.ai.score,handCount:state.players.ai.handCount,
     deckCount:state.players.ai.deckCount,runeCount:state.players.ai.runeCount}
   },
@@ -47,7 +48,7 @@ export function modelBoardState(state){
     c.owner==="human"&&c.faceDown?
       {uid:c.uid,owner:c.owner,zone:c.zone,faceDown:true}:
       {uid:c.uid,owner:c.owner,zone:c.zone,battlefield:c.battlefield,
-       code:c.code,name:c.name,type:c.type,text:String(c.text||"").slice(0,100),
+       code:c.code,name:c.name,type:c.type,
        power:c.power,energy:c.energy,exhausted:c.exhausted,
        damage:c.damage,counters:c.counters})
  };
@@ -162,7 +163,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const game=getState(),revision=game.revision;
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
-   const transcript=getMessages(0).messages.slice(-8).map(m=>({role:m.role,text:m.text}));
+   const transcript=getMessages(0).messages.slice(own.provider==="free"?-3:-8)
+    .map(m=>({role:m.role,text:String(m.text||"").slice(0,own.provider==="free"?230:1200)}));
    const payload={
     model:own.model,temperature:own.provider==="free"?0.7:0.3,max_tokens:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
@@ -176,7 +178,9 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
        ruleCount:own.provider==="free"?3:5
       }),
       // Retained for API compatibility with previously supported model prompts.
-      knownCards:relevantCards(catalog,message).slice(0,own.provider==="free"?4:12)
+      knownCards:relevantCards(catalog,message)
+       .slice(0,own.provider==="free"?3:12)
+       .map(c=>({...c,text:String(c.text||"").slice(0,own.provider==="free"?180:1300)}))
      })}
     ]
    };
