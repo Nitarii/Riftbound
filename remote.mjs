@@ -40,10 +40,11 @@ export function createRemoteAccess({
  onGatewayReady=()=>{}
 }){
  let gateway=null,child=null,active=null,expiryTimer=null,pending=null;
- const status=()=>({
+ const status=(includeSecret=false)=>({
   active:Boolean(active?.url&&gateway&&child&&!child.killed&&Date.now()<active.expiresAt),
   starting:Boolean(pending&&!active?.url),url:active?.url||"",
-  expiresAt:active?.expiresAt||null
+  expiresAt:active?.expiresAt||null,
+  ...(includeSecret&&active?.url?{agentToken:active.agentToken}:{})
  });
  function stop(){
   if(expiryTimer)clearTimeout(expiryTimer);
