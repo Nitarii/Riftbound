@@ -17,6 +17,7 @@ jobs:
           node --check precons.mjs
           node --check narration.mjs
           node --check picker.mjs
+          node --check manual-bridge.mjs
           node --check app.mjs
           node --check server.mjs
           node --check remote.mjs
