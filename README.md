@@ -6,11 +6,11 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.19.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.20.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.19.exe`. Le programme serveur se connecte à l'onglet du site déjà ouvert après l'autorisation du navigateur.
+1. Télécharge et lance `RiftboundCompanion-v0.20.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
-3. Clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
+3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
 
 **Coût : zéro abonnement, zéro clé API, aucune facture liée à un modèle cloud.** Le modèle s'exécute directement sur le processeur du PC avec `llama-server.exe`, sans GPU dédié, aucune configuration ROCm/CUDA et sans tunnel. Après l'installation, les réponses IA fonctionnent hors ligne. Les fichiers sont conservés pour les prochaines sessions.
@@ -86,6 +86,15 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.20 — Gestionnaire portable, Whisper et désinstallation
+
+- **Premier lancement Windows :** un sélecteur de dossier natif s'ouvre. Choisis un dossier dédié/vide (par exemple `Bureau/Riftbound Companion`). Le compagnon se copie dans ce dossier si nécessaire et s'y relance. Le fichier initial téléchargé dans `Téléchargements` reste celui de l'utilisateur : il n'est pas effacé automatiquement.
+- **Stockage :** l'intégralité des fichiers créés/gérés par le compagnon est confinée dans ce dossier : sauvegardes, conversation, cache de cartes, paramètres, moteur Qwen, moteur Whisper, modèles, archives téléchargées, fichiers WAV temporaires, binaires de tunnel, fichiers de mises à jour. Les processus enfants héritent de `TEMP`/`TMP` pointant sur le sous-dossier `temp`.
+- **IA et Whisper :** chaque installation demande une confirmation explicite affichant le chemin du dossier choisi. Aucune clé API ni abonnement. Whisper.cpp Windows x64 officiel (release `b5454`) téléchargé avec vérification SHA256. Modèles Base multilingue (148 Mo) et Small (488 Mo) en option. Les mots clés et noms connus Riftbound guident la transcription. La voix est capturée sur le navigateur et transmise uniquement au serveur local de l'application en WAV ; le mode Chrome reste disponible en secours. Le mode vocal reste soumis aux limites du CPU et de la transcription.
+- **Gestionnaire inclus :** lancement du site, activation/arrêt IA locale, installation Whisper, vérification et application d'une mise à jour officielle avec SHA256, désinstallation complète des **seuls fichiers gérés**. La mise à jour utilise le même dossier de staging, puis redémarre.
+- **Désinstallation sûre :** supprime les fichiers et sous-dossiers gérés seulement après double confirmation, arrête les processus et se retire, sans effacer des documents étrangers au dossier. Les anciennes données de `AppData\\Local\\RiftboundTableCompanion` sont transférées vers le dossier choisi lorsque celui-ci est initialisé, si elles sont reconnues.
+- **Limites du nettoyage :** les caches, téléchargements, permissions microphone et historiques propres à Windows et au navigateur ne peuvent pas être supprimés de manière fiable sans toucher aux données d'autres applications. Le programme ne les efface donc pas. Les fichiers initiaux téléchargés hors du dossier doivent être effacés manuellement.
 
 ## v0.19 — Plateaux, clarification et micro
 - Interface inspirée des zones d'un playmat Riftbound : légende, champion choisi, grande base, runes actives, main, défausse et les deux pioches regroupées. Les champs de bataille restent au centre entre les deux camps. Les cartes conservent leurs proportions et leurs conteneurs défilent horizontalement si elles sont nombreuses, plutôt que de les recadrer.

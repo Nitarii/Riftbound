@@ -18,6 +18,11 @@ on:
       - 'integrated-ai.mjs'
       - 'game-knowledge.mjs'
       - 'free-ai.mjs'
+      - 'whisper-local.mjs'
+      - 'portable.mjs'
+      - 'portable-manager.mjs'
+      - 'local-voice.mjs'
+      - 'manager.html'
       - 'voice-session.mjs'
       - 'player-actions.mjs'
       - 'clarification.mjs'
@@ -75,6 +80,21 @@ jobs:
         run: |
           & ".\dist\RiftboundCompanion.exe" --verify-bundle
           if ($LASTEXITCODE -ne 0) {throw "The EXE failed its embedded tunnel integrity check"}
+      - name: Validate official Whisper CPU archive and executable
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "dist/whisper-bin-x64.zip" -MaximumRetryCount 3 -RetryIntervalSec 3
+          $expected = "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb"
+          $actual = (Get-FileHash "dist/whisper-bin-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {throw "Whisper CPU archive checksum mismatch"}
+          Expand-Archive -LiteralPath "dist/whisper-bin-x64.zip" -DestinationPath "dist/whisper-smoke"
+          $binary = Get-ChildItem "dist/whisper-smoke" -Filter "whisper-cli.exe" -File -Recurse | Select-Object -First 1
+          if ($null -eq $binary) {throw "whisper-cli.exe missing from official archive"}
+          & $binary.FullName --help 2>&1 | Select-Object -First 12
+          if ($LASTEXITCODE -ne 0) {throw "Whisper CPU binary cannot run"}
+          Remove-Item "dist/whisper-bin-x64.zip" -Force
+          Remove-Item "dist/whisper-smoke" -Recurse -Force
       - name: Apply branded Windows icon
         shell: pwsh
         run: |
@@ -100,7 +120,7 @@ jobs:
           $bmp.Dispose()
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.19.exe" -Force
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.20.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -108,6 +128,8 @@ jobs:
           $env:PORT = "8878"
           $env:RIFTBOUND_TOKEN = "ci-only-local-smoketest-token"
           $env:RIFTBOUND_NO_BROWSER = "1"
+          $env:RIFTBOUND_PORTABLE_TEST = "1"
+          $env:RIFTBOUND_DATA_DIR = (Join-Path (Resolve-Path "dist").Path "portable-ci")
           $p = Start-Process -FilePath ".\dist\RiftboundCompanion.exe" -ArgumentList "--no-browser" -PassThru -RedirectStandardOutput "dist\server-smoke.log" -RedirectStandardError "dist\server-smoke.err"
           try {
             $healthy = $false
@@ -119,6 +141,15 @@ jobs:
               } catch {}
             }
             if (!$healthy) {Get-Content "dist\server-smoke.log";Get-Content "dist\server-smoke.err";throw "Executable failed to start"}
+            $portableStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
+            if (!$portableStatus.portable -or $portableStatus.path -ne $env:RIFTBOUND_DATA_DIR) {throw "Windows companion wrote outside user-selected portable root"}
+            if (!(Test-Path (Join-Path $portableStatus.path ".riftbound-install.json"))) {throw "Missing portable installation manifest"}
+            $managerPage = Invoke-WebRequest "http://127.0.0.1:8878/manager.html" -UseBasicParsing
+            if ($managerPage.StatusCode -ne 200 -or !$managerPage.Content.Contains("Désinstaller")) {throw "Bundled manager UI missing"}
+            $speechJS = Invoke-WebRequest "http://127.0.0.1:8878/local-voice.mjs" -UseBasicParsing
+            if (!$speechJS.Content.Contains("audioToWav")) {throw "Bundled offline speech UI missing"}
+            $speechStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/speech/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
+            if ($speechStatus.folder -ne $env:RIFTBOUND_DATA_DIR) {throw "Speech model folder is not portable"}
             $page = Invoke-WebRequest "http://127.0.0.1:8878/" -UseBasicParsing
             if ($page.StatusCode -ne 200 -or !$page.Content.Contains("welcome-screen")) {throw "Bundled UI missing"}
             $js = Invoke-WebRequest "http://127.0.0.1:8878/app.mjs" -UseBasicParsing
@@ -148,7 +179,7 @@ jobs:
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.19.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.19.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.20.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.20.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -160,5 +191,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.19.exe" "dist/RiftboundCompanion-v0.19.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.20.exe" "dist/RiftboundCompanion-v0.20.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}

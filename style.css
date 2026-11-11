@@ -1450,3 +1450,12 @@ body:not(.home-visible) #game-app.history-collapsed{
  /* Small desktop windows: scale the art to the actual vertical playmat cell. */
  #game-app{--game-card-width:clamp(40px,3.5vw,51px)}
 }
+
+/* Whisper consent and STT mode switch */
+#game-app .speech-setup{padding:10px 12px;margin:10px 0;border:1px solid #5a786f;border-radius:9px;background:#132b31}
+#game-app .speech-setup h4{font-size:13px;color:#e5d097;margin:3px 0 5px}
+#game-app .speech-setup p{font-size:11px;line-height:1.5;margin:4px 0 8px}
+#game-app .speech-setup select{width:auto;min-width:190px;max-width:100%}
+#game-app .speech-setup progress{width:100%;accent-color:#bda66a}
+#game-app .voice-provider-choice{display:flex;gap:5px;flex:0 0 auto;font-size:10px;margin:0;color:#acc7c6}
+#game-app .voice-provider-choice select{padding:5px 7px;font-size:11px;width:100%;max-width:100%}
