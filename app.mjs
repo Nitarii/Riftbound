@@ -91,7 +91,27 @@ function selectCard(c){
   selected=c;$("detail-name").textContent=c.name;$("detail-text").textContent=c.text||"Aucun texte enregistré.";
   $("detail-image").innerHTML=cardHTML(c,true,true);$("card-dialog").showModal();
 }
+function showBattlefieldDetails(index){
+ const raw=state.battlefields?.[index]?.card;
+ if(!raw)return notify("Aucun champ de bataille sélectionné.",true);
+ const match=catalog.find(c=>c.code&&c.code===raw.code)||
+  catalog.find(c=>c.name?.toLowerCase()===raw.name?.toLowerCase()&&c.type?.toLowerCase().includes("battlefield"));
+ const card={...raw,...match,text:match?.text||raw.text||""};
+ selectCard(card);
+ selected=null;
+ $("detail-add").parentElement.hidden=true;
+ $("card-dialog").classList.add("battlefield-readonly");
+ $("detail-text").textContent=card.text||"Texte de l'effet non disponible dans ce catalogue. Actualise les cartes.";
+}
+document.addEventListener("keydown",e=>{
+ const field=e.target.closest('[data-battlefield-inspect][role="button"]');
+ if(field&&(e.key==="Enter"||e.key===" ")){
+  e.preventDefault();showBattlefieldDetails(Number(field.dataset.battlefieldInspect));
+ }
+});
 document.addEventListener("click",e=>{
+  const field=e.target.closest("[data-battlefield-inspect]");
+  if(field){showBattlefieldDetails(Number(field.dataset.battlefieldInspect));return;}
   const tile=e.target.closest(".card-tile");
   if(tile?.dataset.uid){
     const c=state.cards.find(c=>c.uid===tile.dataset.uid);
@@ -118,7 +138,12 @@ $("detail-add").onclick=()=>{
     {type:"add",player:$("detail-owner").value,card:selected,zone:$("detail-zone").value,battlefield:+$("detail-bf").value};
   $("card-dialog").close();dispatch(cmd);
 };
-$("card-dialog").addEventListener("close",()=>{const bar=$("detail-card-actions");if(bar)bar.remove();$("detail-add").textContent="Placer";});
+$("card-dialog").addEventListener("close",()=>{
+ const bar=$("detail-card-actions");if(bar)bar.remove();
+ $("detail-add").parentElement.hidden=false;
+ $("card-dialog").classList.remove("battlefield-readonly");
+ $("detail-add").textContent="Placer";
+});
 $("card-dialog").addEventListener("click",e=>{
   const action=e.target.dataset.action;if(!action||!selected?.uid)return;
   $("card-dialog").close();dispatch({type:action,uid:selected.uid,...(action==="damage"?{value:1}:{})});
@@ -150,37 +175,127 @@ $("setup-ai").onclick=()=>{
 };
 $("start-human").onclick=()=>dispatch({type:"start",player:"human"});
 $("start-ai").onclick=()=>dispatch({type:"start",player:"ai"});
-$("next-turn").onclick=()=>dispatch({type:"next-turn"});
+let chatItems=[],chatCursor=0,chatBusy=false,agentLastSeen=null,sendingChat=false;
+function renderChatStatus(){
+ const label=$("chat-connection");
+ if(!relay){label.textContent="Serveur déconnecté";label.dataset.status="offline";return;}
+ const active=agentLastSeen&&Date.now()-agentLastSeen<30000;
+ label.textContent=active?"Activité de l'agent détectée":remoteSession?.url?"Accès IA actif · en attente":"Aucun agent distant actif";
+ label.dataset.status=active?"online":remoteSession?.url?"waiting":"offline";
+}
+function renderChat(){
+ const list=$("chat-messages");list.replaceChildren();
+ if(!chatItems.length){const empty=document.createElement("p");empty.className="chat-empty";
+  empty.textContent="Tes messages et les réponses de l'IA apparaîtront ici.";list.append(empty);}
+ for(const m of chatItems.slice(-70)){
+  const node=document.createElement("div");node.className="chat-bubble "+(m.role==="ai"?"from-ai":"from-human");
+  const meta=document.createElement("small");
+  meta.textContent=(m.role==="ai"?"Adversaire IA":"Toi")+" · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  const text=document.createElement("p");text.textContent=m.text;node.append(meta,text);list.append(node);
+ }
+ list.scrollTop=list.scrollHeight;renderChatStatus();
+}
+function resetChatView(){chatItems=[];chatCursor=0;agentLastSeen=null;renderChat();}
+async function syncChat(){
+ if(chatBusy||!relay)return;
+ chatBusy=true;const session=relay;
+ try{
+  const response=await fetch(session.url+"/api/messages?after="+chatCursor,{
+    ...localFetchOptions(session.url),cache:"no-store",headers:{Authorization:"Bearer "+session.token}
+  });
+  if(!response.ok)throw Error("Messages HTTP "+response.status);
+  const result=await response.json();
+  if(relay!==session)return;
+  agentLastSeen=result.agentSeenAt||null;
+  const ids=new Set(chatItems.map(m=>m.id));
+  for(const m of result.messages||[]){
+   if(m&&Number.isInteger(m.id)&&!ids.has(m.id)&&["human","ai"].includes(m.role)){
+    chatItems.push(m);ids.add(m.id);
+   }
+   if(m?.id>chatCursor)chatCursor=m.id;
+  }
+  chatItems=chatItems.slice(-70);renderChat();
+ }catch{if(relay===session)renderChatStatus();}
+ finally{chatBusy=false;}
+}
+async function sendChatMessage(message){
+ const text=String(message||"").trim();
+ if(!text)return false;
+ if(!relay){notify("Connecte d'abord le serveur pour transmettre ton message à l'IA.",true);return false;}
+ try{
+  const response=await fetch(relay.url+"/api/messages",{
+    ...localFetchOptions(relay.url),method:"POST",
+    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
+    body:JSON.stringify({text})
+  });
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||"Message refusé");
+  await syncChat();
+  notify("Message enregistré pour l'agent. Il répondra seulement s'il est connecté.");
+  return true;
+ }catch(e){notify("Message non envoyé : "+e.message,true);return false;}
+}
+async function sendNote(){
+ if(sendingChat)return;
+ const input=$("notes"),text=input.value.trim();
+ if(!text)return;
+ sendingChat=true;$("send-note").disabled=true;
+ try{
+  if(/^(?:je\s+)?(?:passe|termine|finis)\s+(?:mon\s+)?tour[\s.!?]*$/i.test(text)||
+    /^fin\s+de\s+(?:mon\s+)?tour[\s.!?]*$/i.test(text)){
+   if(!relay){notify("Connecte le serveur pour passer ton tour à l'IA.",true);return;}
+   if(!await dispatch({type:"next-turn"}))return;
+  }
+  if(await sendChatMessage(text))input.value="";
+ }finally{sendingChat=false;$("send-note").disabled=false;}
+}
+async function passTurn(){
+ if(sendingChat)return;
+ if(!relay)return notify("Connecte le serveur pour passer le tour à l'IA.",true);
+ if(!await dispatch({type:"next-turn"}))return;
+ await sendChatMessage("Je termine mon tour. À toi de jouer.");
+}
+$("next-turn").onclick=passTurn;
+$("chat-pass-turn").onclick=passTurn;
 $("score-plus").onclick=()=>dispatch({type:"score",player:$("who").value,value:1});
 $("score-minus").onclick=()=>dispatch({type:"score",player:$("who").value,value:-1});
 $("draw").onclick=()=>dispatch({type:"draw",player:$("who").value,count:1});
 $("channel").onclick=()=>dispatch({type:"channel",player:$("who").value,count:1});
-$("send-note").onclick=()=>{if($("notes").value.trim())dispatch({type:"note",text:$("notes").value.trim()});$("notes").value="";};
-function interpretNote(auto=false){
+$("send-note").onclick=sendNote;
+$("notes").addEventListener("keydown",event=>{
+ if(event.key==="Enter"&&!event.shiftKey&&!event.isComposing){
+  event.preventDefault();sendNote();
+ }
+});
+function interpretNote(){
  const transcript=$("notes").value.trim();
  if(!transcript)return notify("Écris ou dicte d'abord ton action.",true);
  const parsed=parseNarration(transcript,catalog,state);
- if(!parsed)return notify("Action non reconnue. Utilise Ajouter au journal ou précise la carte et sa zone.",true);
+ if(!parsed)return notify("Commande locale non reconnue. Envoie-la à l'IA.",true);
  if(parsed.error)return notify(parsed.error,true);
- if(!auto&&!confirm("Confirmer la modification du plateau ?\n"+parsed.label))return;
- $("notes").value="";
- dispatch(parsed.command);
+ if(confirm("Appliquer localement cette commande ?\n"+parsed.label))dispatch(parsed.command);
 }
-$("interpret-note").onclick=()=>interpretNote(false);
-
+$("interpret-note").onclick=interpretNote;
 const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(!SpeechAPI){$("voice-note").disabled=true;$("voice-note").title="Reconnaissance vocale non disponible sur ce navigateur";}
+if(!SpeechAPI){$("voice-note").disabled=true;$("voice-note").title="Dictée non disponible sur ce navigateur";}
 else {
  let recognizer=null,recording=false;
  $("voice-note").onclick=()=>{
-   if(recording&&recognizer){recognizer.stop();return;}
-   recognizer=new SpeechAPI();recognizer.lang="fr-FR";recognizer.interimResults=false;recognizer.continuous=false;
-   recognizer.onresult=e=>{const transcript=Array.from(e.results).map(r=>r[0]?.transcript||"").join(" ").trim();$("notes").value=[$("notes").value.trim(),transcript].filter(Boolean).join(" ");if($("voice-auto").checked)interpretNote(true);else notify("Dictée ajoutée. Vérifie puis clique sur Interpréter & placer.");};
-   recognizer.onerror=e=>notify("Dictée indisponible : "+e.error,true);
-   recognizer.onend=()=>{recording=false;$("voice-note").textContent="🎙 Dicter une action";};
-   try{recognizer.start();recording=true;$("voice-note").textContent="■ Terminer la dictée";}catch(e){notify(e.message,true);}
+  if(recording&&recognizer){recognizer.stop();return;}
+  recognizer=new SpeechAPI();recognizer.lang="fr-FR";
+  recognizer.interimResults=false;recognizer.continuous=false;
+  recognizer.onresult=e=>{
+   const phrase=Array.from(e.results).map(r=>r[0]?.transcript||"").join(" ").trim();
+   $("notes").value=[$("notes").value.trim(),phrase].filter(Boolean).join(" ");
+   $("notes").focus();
+   notify("Dictée prête. Appuie sur Entrée pour envoyer le message à l'IA.");
+  };
+  recognizer.onerror=e=>notify("Dictée indisponible : "+e.error,true);
+  recognizer.onend=()=>{recording=false;$("voice-note").textContent="🎙 Dicter";};
+  try{recognizer.start();recording=true;$("voice-note").textContent="■ Arrêter";}catch(e){notify(e.message,true);}
  };
 }
+setInterval(()=>{if(relay)syncChat();else renderChatStatus();},2500);
 
 $("send-command").onclick=()=>{try{dispatch(JSON.parse($("command-input").value))}catch(e){notify(e.message,true)}};
 let remoteSession=null;
@@ -440,7 +555,7 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
- remoteSession=null;clearManualPrompt();updateRemoteUI();notify("Relais déconnecté.");renderWelcome();
+ remoteSession=null;clearManualPrompt();updateRemoteUI();resetChatView();notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
  if(relay!==session)return;
@@ -504,6 +619,7 @@ async function connectRelay(){
   const res=await fetch(url+"/api/state",{...localFetchOptions(url),headers:{Authorization:"Bearer "+token}});
   if(!res.ok)throw Error("Accès refusé au relais");
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
+  resetChatView();syncChat();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify("Relais synchronisé. Ne publie jamais ton jeton.");renderWelcome();
@@ -1011,6 +1127,7 @@ async function watchForLocalCompanion(){
 }
 
 render();
+renderChat();
 renderWelcome();
 renderDeckChoices();
 updateRemoteUI();
