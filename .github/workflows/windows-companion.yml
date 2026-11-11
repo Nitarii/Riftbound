@@ -9,6 +9,7 @@ on:
       - 'catalog.mjs'
       - 'precons.mjs'
       - 'narration.mjs'
+      - 'picker.mjs'
       - 'app.mjs'
       - 'index.html'
       - 'style.css'
