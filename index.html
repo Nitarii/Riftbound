@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.13.0"/></head>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.14.0"/></head>
 <body class="home-visible">
 <header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
@@ -38,7 +38,7 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.13.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.14.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
         <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
@@ -133,13 +133,10 @@
             <p>Il joue directement sur ton ordinateur, sans abonnement, compte, clé API, crédit ni paiement.</p>
           </div></div>
           <div class="free-agent-choice">
-            <label for="free-ai-model">Choisir le modèle gratuit
-              <select id="free-ai-model">
-                <option value="qwen3:4b-instruct">Qwen3 4B · rapide · modèle ~2,5 Go (recommandé)</option>
-                <option value="qwen3.5:9b">Qwen3.5 9B · plus performant · modèle ~6,6 Go</option>
-              </select>
-            </label>
-            <p>La première fois, le programme télécharge également le moteur local officiel Ollama (environ 1,9 Go de téléchargement). Les fichiers restent sur ton PC pour les prochaines parties. Utilisation ensuite sans connexion Internet pour l'IA.</p>
+            <p><strong>Modèle universel : Qwen3 0.6B</strong> · environ 639 Mo de téléchargement.
+              Fonctionne sur le processeur, sans carte graphique dédiée ni pilote spécialisé.
+              Le moteur de jeu IA ne pèse qu'environ 25 Mo à télécharger, une seule fois.</p>
+            <input id="free-ai-model" type="hidden" value="qwen3:0.6b">
           </div>
           <div class="welcome-actions free-agent-actions">
             <button id="free-ai-install" type="button" class="primary">Installer et activer mon IA gratuite</button>
@@ -283,4 +280,4 @@
   <p class="disclaimer">Compagnon de partie physique, non officiel. Un agent doit disposer d'un accès HTTP ou d'un navigateur compatible pour répondre ; les règles ne sont pas arbitrées automatiquement.</p>
 </section></aside>
 </main><dialog id="card-dialog"><div class="dialog-layout"><div id="detail-image"></div><div><h2 id="detail-name"></h2><p id="detail-text"></p><label>Propriétaire<select id="detail-owner"><option value="human">Joueur</option><option value="ai">IA</option></select></label><label>Zone<select id="detail-zone"><option value="base">Base</option><option value="battlefield">Champ de bataille</option><option value="hand">Main</option><option value="trash">Défausse</option><option value="banished">Bannissement</option><option value="runes">Runes</option></select></label><label>Battlefield<select id="detail-bf"><option value="0">Joueur</option><option value="1">IA</option></select></label><div class="line"><button id="detail-add" class="primary">Placer</button><button id="detail-close">Fermer</button></div></div></div></dialog>
-<script type="module" src="./app.mjs?v=0.13.0"></script></body></html>
+<script type="module" src="./app.mjs?v=0.14.0"></script></body></html>
