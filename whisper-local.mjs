@@ -23,7 +23,7 @@ export const WHISPER_OPTIONS=Object.freeze({
 const utterances=["Riftbound","Loyal Poro","Shen","Jinx","Runes","Channel","Exhaust",
  "Battlefield","Chosen Champion","Base","Draw","Ready","Unit","Spell","Gear","Mulligan"];
 export function whisperPrompt(cards=[],max=220){
- const names=[...utterances,...(cards||[]).map(c=>typeof c==="string"?c:c?.name).filter(Boolean)];
+ const names=[...utterances.slice(0,6),...(cards||[]).map(c=>typeof c==="string"?c:c?.name).filter(Boolean),...utterances.slice(6)];
  const seen=new Set(),selected=[];
  for(const name of names){
   const cleaned=String(name).replace(/[\r\n,;.]+/g," ").trim().slice(0,50);
@@ -87,7 +87,11 @@ export function createLocalWhisper({
  let info={phase:"idle",progress:0,error:"",message:"Transcription locale non installée."};
  const modelPath=id=>path.join(models,WHISPER_OPTIONS[id].file);
  const installed=id=>Boolean(findWhisper(engineDir)&&fs.existsSync(stamp)&&fs.existsSync(modelPath(id)));
- function status(){return {...info,installed:installed(selected),selected,processing:transcribing,
+ function status(){
+  const ready=installed(selected);
+  const effective=ready&&info.phase==="idle"?
+   {...info,phase:"ready",progress:100,message:"Whisper "+selected+" installé dans ton dossier."}:info;
+  return {...effective,installed:ready,selected,processing:transcribing,
   engineInstalled:Boolean(findWhisper(engineDir)),options:Object.fromEntries(
    Object.entries(WHISPER_OPTIONS).map(([id,c])=>[id,{label:c.label,bytes:c.bytes,installed:installed(id)}])),
   running:Boolean(job)};}

@@ -80,6 +80,21 @@ jobs:
         run: |
           & ".\dist\RiftboundCompanion.exe" --verify-bundle
           if ($LASTEXITCODE -ne 0) {throw "The EXE failed its embedded tunnel integrity check"}
+      - name: Validate official Whisper CPU archive and executable
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "dist/whisper-bin-x64.zip" -MaximumRetryCount 3 -RetryIntervalSec 3
+          $expected = "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb"
+          $actual = (Get-FileHash "dist/whisper-bin-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {throw "Whisper CPU archive checksum mismatch"}
+          Expand-Archive -LiteralPath "dist/whisper-bin-x64.zip" -DestinationPath "dist/whisper-smoke"
+          $binary = Get-ChildItem "dist/whisper-smoke" -Filter "whisper-cli.exe" -File -Recurse | Select-Object -First 1
+          if ($null -eq $binary) {throw "whisper-cli.exe missing from official archive"}
+          & $binary.FullName --help 2>&1 | Select-Object -First 12
+          if ($LASTEXITCODE -ne 0) {throw "Whisper CPU binary cannot run"}
+          Remove-Item "dist/whisper-bin-x64.zip" -Force
+          Remove-Item "dist/whisper-smoke" -Recurse -Force
       - name: Apply branded Windows icon
         shell: pwsh
         run: |
@@ -126,6 +141,15 @@ jobs:
               } catch {}
             }
             if (!$healthy) {Get-Content "dist\server-smoke.log";Get-Content "dist\server-smoke.err";throw "Executable failed to start"}
+            $portableStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
+            if (!$portableStatus.portable -or $portableStatus.path -ne $env:RIFTBOUND_DATA_DIR) {throw "Windows companion wrote outside user-selected portable root"}
+            if (!(Test-Path (Join-Path $portableStatus.path ".riftbound-install.json"))) {throw "Missing portable installation manifest"}
+            $managerPage = Invoke-WebRequest "http://127.0.0.1:8878/manager.html" -UseBasicParsing
+            if ($managerPage.StatusCode -ne 200 -or !$managerPage.Content.Contains("Désinstaller")) {throw "Bundled manager UI missing"}
+            $speechJS = Invoke-WebRequest "http://127.0.0.1:8878/local-voice.mjs" -UseBasicParsing
+            if (!$speechJS.Content.Contains("audioToWav")) {throw "Bundled offline speech UI missing"}
+            $speechStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/speech/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
+            if ($speechStatus.folder -ne $env:RIFTBOUND_DATA_DIR) {throw "Speech model folder is not portable"}
             $page = Invoke-WebRequest "http://127.0.0.1:8878/" -UseBasicParsing
             if ($page.StatusCode -ne 200 -or !$page.Content.Contains("welcome-screen")) {throw "Bundled UI missing"}
             $js = Invoke-WebRequest "http://127.0.0.1:8878/app.mjs" -UseBasicParsing
