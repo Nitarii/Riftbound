@@ -56,7 +56,7 @@ test("clarification cannot conceal an invalid payment; it is applied atomically"
 test("a pending correction expires after a board change or five minutes",()=>{
  const s=setup(),p=makeCardClarification({announcement:"je joue loyal taureau",query:"loyal taureau",revision:s.revision,catalog,now:1000});
  assert.equal(isPendingValid(p,s,1300),true);
- assert.equal(resolveCardClarification(p,"oui",catalog,s,{now:300001}).status,"stale");
+ assert.equal(resolveCardClarification(p,"oui",catalog,s,{now:301002}).status,"stale");
  const altered=applyCommand(s,{type:"note",text:"Manual edit"});
  assert.equal(resolveCardClarification(p,"oui",catalog,altered,{now:1200}).status,"stale");
 });
