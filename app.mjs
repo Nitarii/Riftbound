@@ -499,9 +499,66 @@ async function autoBootstrapCompanion(){
    notify("Connexion automatique impossible. Relance le compagnon Windows.",true);
  }
 }
+// When the user downloads and launches the EXE from GitHub Pages, pair to the
+// ALREADY OPEN tab. No navigation, window.open, or replacement page is needed.
+const hostedPage=location.origin==="https://nitarii.github.io"&&
+  /^\/Riftbound(?:\/|$)/i.test(location.pathname);
+let pairingInProgress=false;
+let companionPairTimer=null;
+async function pairExistingHostedTab(){
+ if(!hostedPage||relay||pairingInProgress)return;
+ pairingInProgress=true;
+ try{
+  const address="http://127.0.0.1:8787";
+  const health=await fetch(address+"/api/health",{cache:"no-store",signal:AbortSignal.timeout(1800)});
+  if(!health.ok)return;
+  const details=await health.json();
+  if(!details.ok||details.name!=="Riftbound Companion")return;
+  const reply=await fetch(address+"/api/pair",{
+   method:"POST",
+   headers:{"Content-Type":"application/json","X-Riftbound-Pair":"1"},
+   body:"{}",cache:"no-store",signal:AbortSignal.timeout(1800)
+  });
+  if(!reply.ok)return;
+  const session=await reply.json();
+  if(!session.token||!/^http:\/\/127\.0\.0\.1:\d+$/.test(session.baseUrl))return;
+  $("relay-url").value=session.baseUrl;
+  $("relay-token").value=session.token;
+  $("home-server-url").value=session.baseUrl;
+  $("home-server-token").value=session.token;
+  const ok=await connectRelay();
+  if(!ok)return;
+  try{sessionStorage.setItem("riftbound-local-connection-v1",session.token);}catch{}
+  onboarding.installed=true;
+  onboarding.installSkipped=false;
+  onboarding.preview=false;
+  wizardStep=3;
+  onboarding.wizardStep=3;
+  saveOnboarding();renderWelcome();
+  notify("✓ Compagnon connecté dans cet onglet : aucune nouvelle page nécessaire.");
+  if(companionPairTimer){clearInterval(companionPairTimer);companionPairTimer=null;}
+ }catch{
+  // Server not running yet, offline or browser has denied Local Network Access:
+  // leave the existing UI functional; the user can connect manually.
+ }finally{pairingInProgress=false;}
+}
+function watchForLocalCompanion(){
+ if(!hostedPage)return;
+ const cached=(()=>{try{return sessionStorage.getItem("riftbound-local-connection-v1")||"";}catch{return "";}})();
+ if(cached){
+  $("relay-url").value="http://127.0.0.1:8787";
+  $("relay-token").value=cached;
+  $("home-server-url").value="http://127.0.0.1:8787";
+  $("home-server-token").value=cached;
+  connectRelay().then(ok=>{if(!ok)pairExistingHostedTab();});
+ }else pairExistingHostedTab();
+ // Poll for a newly launched app, including while this tab is in background.
+ companionPairTimer=setInterval(()=>{if(!relay)pairExistingHostedTab();},1200);
+}
 render();
 renderWelcome();
 autoBootstrapCompanion();
+watchForLocalCompanion();
 loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
  $("catalog-status").textContent=e.message;
  $("home-catalog-count").textContent="Impossible de charger les cartes : "+e.message;
