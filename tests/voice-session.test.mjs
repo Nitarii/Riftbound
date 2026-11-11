@@ -125,6 +125,26 @@ test("AI speech pauses microphone to prevent echo, then resumes automatically",(
  assert.equal(f.ctrl.state().speaking,false);
  f.ctrl.stop();
 });
+test("missing recognizer onend and speech synthesis onend never strand the microphone",()=>{
+ class SilentAbortRecognizer extends FakeRecognizer{
+  abort(){this.aborted=true;/* Chromium sometimes omits onend after abort */}
+ }
+ class Utterance{constructor(text){this.text=text;}}
+ const spoken=[];
+ const synthesis={getVoices:()=>[],speak:u=>spoken.push(u),cancel:()=>{}};
+ const clock=new Clock(),states=[];
+ SilentAbortRecognizer.instances.length=0;
+ const controller=createVoiceConversation({Recognition:SilentAbortRecognizer,synthesis,Utterance,
+  setTimer:clock.set,clearTimer:clock.clear,onState:s=>states.push(s)});
+ controller.start();
+ assert.equal(SilentAbortRecognizer.instances.length,1);
+ controller.speak("Je prépare mon prochain tour");
+ assert.equal(SilentAbortRecognizer.instances[0].aborted,true);
+ clock.tick(12000); // Watchdog resumes recognition even if TTS never calls onend.
+ clock.tick(450);
+ assert.equal(SilentAbortRecognizer.instances.length,2);
+ controller.stop();
+});
 test("mode can be stopped at once; hidden tabs do not leak listening sessions",()=>{
  const f=fixture();f.ctrl.start();
  f.ctrl.setHidden(true);
