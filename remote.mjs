@@ -5,6 +5,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {spawn} from "node:child_process";
 import * as sea from "node:sea";
 
@@ -54,6 +55,21 @@ export function createRemoteAccess({
   active=null;onStatus(status());
  }
  const gatewayHandler=async(req,res)=>{
+  // The console itself contains no secrets. Its URL fragment provides an
+  // optional session key to the browser without sending that key in HTTP.
+  if(req.method==="GET"&&(req.url==="/agent"||req.url==="/agent/"||req.url==="/agent.js")){
+   const name=req.url==="/agent.js"?"agent.js":"agent.html";
+   try{
+    const content=sea.isSea()?Buffer.from(sea.getAsset(name)):
+     fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)),name));
+    res.writeHead(200,{"Content-Type":name.endsWith(".js")?"text/javascript; charset=utf-8":"text/html; charset=utf-8",
+     "Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
+     "Referrer-Policy":"no-referrer",
+     "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"});
+    res.end(content);
+   }catch{send(res,404,{error:"Console agent indisponible"});}
+   return;
+  }
   // A remote agent token is separate from the user's main local admin token.
   if(!active||Date.now()>=active.expiresAt){
    send(res,403,{error:"Session distante fermée ou expirée"});return;
