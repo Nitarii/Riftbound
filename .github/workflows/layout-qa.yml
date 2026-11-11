@@ -1,0 +1,40 @@
+name: Visual Layout QA
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'style.css'
+      - 'app.mjs'
+      - 'scripts/verify-layout.mjs'
+      - '.github/workflows/layout-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: riftbound-layout-qa
+  cancel-in-progress: true
+
+jobs:
+  viewport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install headless browser driver
+        run: npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
+      - name: Check desktop and mobile layouts
+        run: node scripts/verify-layout.mjs
+      - name: Preserve browser screenshots for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: riftbound-viewport-previews
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
