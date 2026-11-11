@@ -5,7 +5,7 @@ const root=process.cwd();
 const dist=path.join(root,"dist");
 fs.mkdirSync(dist,{recursive:true});
 const assets={};
-for(const name of ["index.html","style.css","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","assets/companion-icon.svg"]){
+for(const name of ["index.html","style.css","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","agent.html","agent.js","assets/companion-icon.svg"]){
  if(!fs.existsSync(path.join(root,name)))throw Error("Asset missing: "+name);
  assets[name]=path.join(root,name);
 }
