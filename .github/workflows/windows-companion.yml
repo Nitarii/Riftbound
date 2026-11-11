@@ -13,6 +13,7 @@ on:
       - 'precons.mjs'
       - 'narration.mjs'
       - 'picker.mjs'
+      - 'manual-bridge.mjs'
       - 'app.mjs'
       - 'index.html'
       - 'style.css'
