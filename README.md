@@ -8,7 +8,7 @@ Lorsque l'application Windows est lancée depuis la page GitHub Pages déjà ouv
 
 Le serveur reste accessible **uniquement sur 127.0.0.1** et le jeton d'accès est transmis après autorisation par la connexion locale. Les versions récentes de Chrome nécessitent un **clic utilisateur** pour demander cette autorisation : le site ne déclenche donc plus de requêtes locales répétées avant accord. Pour afficher explicitement une page locale séparée, un utilisateur avancé peut lancer l'exécutable avec le paramètre `--open-browser`.
 
-Le nom du téléchargement passe à **RiftboundCompanion-v0.5.exe** pour éviter de réutiliser l'ancienne icône Windows mise en cache. Le programme porte un nouveau logo violet et doré avec un monogramme R ; la compilation teste désormais l'icône réellement extraite de l'exécutable (et pas seulement le favicon du site). Les icônes affichées dans le panneau de téléchargements de certains navigateurs peuvent toutefois rester génériques, indépendamment de l'icône de Windows Explorer.
+Le nom du téléchargement passe à **RiftboundCompanion-v0.7.exe** pour éviter de réutiliser l'ancienne icône Windows mise en cache. Le programme porte un nouveau logo violet et doré avec un monogramme R ; la compilation teste désormais l'icône réellement extraite de l'exécutable (et pas seulement le favicon du site). Les icônes affichées dans le panneau de téléchargements de certains navigateurs peuvent toutefois rester génériques, indépendamment de l'icône de Windows Explorer.
 
 ## Permettre à un agent IA distant de jouer (optionnel)
 
@@ -31,7 +31,7 @@ La passerelle distante autorise **GET /api/guide**, **GET /api/state**, **GET /a
 **Site d'accueil :** https://nitarii.github.io/Riftbound/
 
 **Téléchargement direct de l'exécutable Windows 64 bits :**
-https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.5.exe
+https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.7.exe
 
 1. Télécharger **RiftboundCompanion.exe**.
 2. Double-cliquer sur le fichier. Aucune installation de Node.js, de Python ou d'autre dépendance requise.
