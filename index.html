@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.18.0"/></head>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.19.0"/></head>
 <body class="home-visible">
 <header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><label class="language-toggle" for="language-select"><select id="language-select" aria-label="Language / Langue"><option value="fr">FR</option><option value="en">EN</option></select></label><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
 
@@ -38,7 +38,7 @@
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.18.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.19.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
         <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
@@ -221,9 +221,33 @@
   <button type="button" data-workspace-view="chat" aria-pressed="false">Discussion IA</button>
 </nav>
 <section class="board">
-<div class="side opponent"><div class="identity"><span>ADVERSAIRE IA</span><span id="ai-score" class="score">0 PV</span></div><div id="ai-meta" class="meta"></div><div class="rail"><div class="panel legend"><h3>LEGENDE</h3><div id="ai-legend" class="cardholder"></div></div><div class="panel champion"><h3>CHAMPION</h3><div id="ai-champion" class="cardholder"></div></div><div class="panel hand"><h3>MAIN</h3><div id="ai-hand" class="cards"></div></div><div class="panel small"><h3>RUNES</h3><div id="ai-runes" class="cards"></div></div></div><div class="panel stretch"><h3>BASE IA</h3><div id="ai-base" class="cards"></div></div></div>
+<div class="side opponent" aria-label="Playmat IA">
+ <div class="identity"><span>ADVERSAIRE IA</span><span id="ai-score" class="score">0 PV</span></div>
+ <div id="ai-meta" class="meta"></div>
+ <div class="playmat">
+  <div class="panel legend" data-zone="legend"><h3>LEGENDE</h3><div id="ai-legend" class="cardholder"></div></div>
+  <div class="panel champion" data-zone="champion"><h3>CHAMPION</h3><div id="ai-champion" class="cardholder"></div></div>
+  <div class="panel stretch zone-base" data-zone="base"><h3>BASE IA</h3><div id="ai-base" class="cards"></div></div>
+  <div id="ai-decks" class="deck-visuals" aria-label="Pioche et runes"></div>
+  <div class="panel small zone-runes" data-zone="runes"><h3>RUNES ACTIVES</h3><div id="ai-runes" class="cards"></div></div>
+  <div class="panel hand zone-hand" data-zone="hand"><h3>MAIN IA</h3><div id="ai-hand" class="cards"></div></div>
+  <div class="panel trash zone-trash" data-zone="trash"><h3>DEFAUSSE</h3><div id="ai-trash" class="cards"></div></div>
+ </div>
+</div>
 <div class="battlefield-row"><div class="battlefield" id="battlefield-0"><div class="battlefield-title"><span>CHAMP DE BATAILLE · JOUEUR</span><button id="battlefield-name-0" type="button" class="battlefield-inspect" data-battlefield-inspect="0" aria-label="Voir les détails et l’effet du terrain joueur">—</button></div><div class="field-content"><div class="field-card" id="bf-image-0" role="button" tabindex="0" data-battlefield-inspect="0" aria-label="Afficher la carte et l’effet du terrain joueur"></div><div id="units-0" class="cards"></div></div></div><div class="battlefield" id="battlefield-1"><div class="battlefield-title"><span>CHAMP DE BATAILLE · IA</span><button id="battlefield-name-1" type="button" class="battlefield-inspect" data-battlefield-inspect="1" aria-label="Voir les détails et l’effet du terrain IA">—</button></div><div class="field-content"><div class="field-card" id="bf-image-1" role="button" tabindex="0" data-battlefield-inspect="1" aria-label="Afficher la carte et l’effet du terrain IA"></div><div id="units-1" class="cards"></div></div></div></div>
-<div class="side player"><div class="identity"><span>TON PLATEAU · CARTES PHYSIQUES</span><span id="human-score" class="score">0 PV</span></div><div id="human-meta" class="meta"></div><div class="rail"><div class="panel legend"><h3>LEGENDE</h3><div id="human-legend" class="cardholder"></div></div><div class="panel champion"><h3>CHAMPION</h3><div id="human-champion" class="cardholder"></div></div><div class="panel hand"><h3>MAIN PHYSIQUE</h3><div id="human-hand" class="cards"></div></div><div class="panel small"><h3>RUNES</h3><div id="human-runes" class="cards"></div></div></div><div class="panel stretch"><h3>BASE JOUEUR</h3><div id="human-base" class="cards"></div></div></div>
+<div class="side player" aria-label="Playmat joueur">
+ <div class="identity"><span>TON PLATEAU · CARTES PHYSIQUES</span><span id="human-score" class="score">0 PV</span></div>
+ <div id="human-meta" class="meta"></div>
+ <div class="playmat">
+  <div class="panel legend" data-zone="legend"><h3>LEGENDE</h3><div id="human-legend" class="cardholder"></div></div>
+  <div class="panel champion" data-zone="champion"><h3>CHAMPION</h3><div id="human-champion" class="cardholder"></div></div>
+  <div class="panel stretch zone-base" data-zone="base"><h3>BASE JOUEUR</h3><div id="human-base" class="cards"></div></div>
+  <div id="human-decks" class="deck-visuals" aria-label="Pioche et runes"></div>
+  <div class="panel small zone-runes" data-zone="runes"><h3>RUNES ACTIVES</h3><div id="human-runes" class="cards"></div></div>
+  <div class="panel hand zone-hand" data-zone="hand"><h3>MAIN PHYSIQUE</h3><div id="human-hand" class="cards"></div></div>
+  <div class="panel trash zone-trash" data-zone="trash"><h3>DEFAUSSE</h3><div id="human-trash" class="cards"></div></div>
+ </div>
+</div>
 </section>
 <aside class="bottom"><section class="drawer" aria-label="Historique et outils de partie">
 <section class="live-history" aria-labelledby="live-history-heading">
@@ -274,6 +298,10 @@
     <span class="voice-dot" aria-hidden="true"></span>
     <span id="voice-live-text">Mode vocal éteint. Active-le pour parler librement à l'IA.</span>
   </div>
+  <div id="voice-transcript" class="voice-transcript" role="status" aria-live="polite" hidden>
+    <strong id="voice-transcript-label">Micro · transcription</strong>
+    <span id="voice-heard"></span>
+  </div>
   <label class="voice-response-option"><input id="voice-read-replies" type="checkbox" checked>
     L'IA me répond à voix haute
   </label>
@@ -292,4 +320,4 @@
   <p class="disclaimer">Compagnon de partie physique, non officiel. Un agent doit disposer d'un accès HTTP ou d'un navigateur compatible pour répondre ; les règles ne sont pas arbitrées automatiquement.</p>
 </section></aside>
 </main><dialog id="card-dialog"><div class="dialog-layout"><div id="detail-image"></div><div><h2 id="detail-name"></h2><p id="detail-text"></p><label>Propriétaire<select id="detail-owner"><option value="human">Joueur</option><option value="ai">IA</option></select></label><label>Zone<select id="detail-zone"><option value="base">Base</option><option value="battlefield">Champ de bataille</option><option value="hand">Main</option><option value="trash">Défausse</option><option value="banished">Bannissement</option><option value="runes">Runes</option></select></label><label>Battlefield<select id="detail-bf"><option value="0">Joueur</option><option value="1">IA</option></select></label><div class="line"><button id="detail-add" class="primary">Placer</button><button id="detail-close">Fermer</button></div></div></div></dialog>
-<script type="module" src="./app.mjs?v=0.18.0"></script></body></html>
+<script type="module" src="./app.mjs?v=0.19.0"></script></body></html>

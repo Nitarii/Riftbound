@@ -65,7 +65,7 @@ async function evaluateLayout(page,expectDesktop){
  return result;
 }
 try{
- for(const viewport of [{width:1440,height:900},{width:1280,height:720},{width:1024,height:768},{width:390,height:844}]){
+ for(const viewport of [{width:1792,height:900},{width:1440,height:900},{width:1280,height:720},{width:1024,height:768},{width:390,height:844}]){
   const page=await browser.newPage({viewport,deviceScaleFactor:1});
   const pageErrors=[];
   page.on("pageerror",error=>pageErrors.push(String(error)));
@@ -97,6 +97,51 @@ try{
     ensure(visible,"Mobile view "+view+" is hidden after navigation");
     result=await evaluateLayout(page,false);
    }
+  }
+  // Render real-sized card art in every playmat zone, including exhausted cards.
+  // This catches vertical clipping that the original no-scroll smoke test missed.
+  if(viewport.width>=1000||viewport.width===390){
+   const clipped=await page.evaluate(()=>{
+    const card=(exhausted=false)=>{
+     const el=document.createElement("div");
+     el.className="card-tile"+(exhausted?" exhausted":"");
+     const art=document.createElement("div");art.className="card-art";
+     const image=document.createElement("div");image.className="card-back";image.textContent="R";
+     art.append(image);el.append(art);
+     const title=document.createElement("div");title.className="card-label";title.textContent="Loyal Poro";
+     el.append(title);return el;
+    };
+    for(const id of ["ai-legend","ai-champion","human-legend","human-champion",
+      "ai-hand","human-base","human-hand","ai-runes","human-runes","ai-trash","human-trash",
+      "bf-image-0","bf-image-1","units-0","units-1"]){
+     const target=document.getElementById(id);
+     if(!target)continue;
+     const tapped=/runes|base/.test(id);
+     target.replaceChildren(card(tapped));
+    }
+    const violations=[];
+    const inspect=()=>{
+     for(const element of document.querySelectorAll("#game-app .playmat .panel .card-tile")){
+      const art=element.querySelector(".card-art").getBoundingClientRect();
+      const zone=element.closest(".panel").getBoundingClientRect();
+      if(art.top<zone.top-3||art.bottom>zone.bottom+3 ||
+        art.left<zone.left-3||art.right>zone.right+3)
+       violations.push({zone:element.closest(".panel").dataset.zone,art:{
+         top:art.top,bottom:art.bottom,left:art.left,right:art.right},
+        panel:{top:zone.top,bottom:zone.bottom,left:zone.left,right:zone.right}});
+     }
+     for(const artElement of document.querySelectorAll("#game-app .battlefield .card-tile .card-art")){
+      const art=artElement.getBoundingClientRect();
+      const field=artElement.closest(".battlefield").getBoundingClientRect();
+      if(art.top<field.top-3||art.bottom>field.bottom+3 ||
+         art.left<field.left-3||art.right>field.right+3)
+       violations.push({zone:"battlefield",art:{top:art.top,bottom:art.bottom,left:art.left,right:art.right},
+        panel:{top:field.top,bottom:field.bottom,left:field.left,right:field.right}});
+     }
+    };inspect();return violations;
+   });
+   ensure(clipped.length===0,"Card artwork clipped at "+viewport.width+"x"+viewport.height+
+    ": "+JSON.stringify(clipped.slice(0,4)));
   }
   if(viewport.width>=1000){
    // Dozens of card entries must be handled inside the board, not by the document.

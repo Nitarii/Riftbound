@@ -89,6 +89,13 @@ function rankedCards(catalog,name){
  if(!query)return [];
  const exact=entries.filter(x=>x.key===query||clean(x.card.code)===query);
  if(exact.length)return exact.map(x=>({...x,score:0}));
+ // User may invert spoken card names ("Poro Loyal" for "Loyal Poro").
+ const parts=query.split(" ").filter(Boolean);
+ if(parts.length>=2){
+  const key=parts.slice().sort().join(" ");
+  const swapped=entries.filter(x=>x.key.split(" ").filter(Boolean).sort().join(" ")===key);
+  if(swapped.length===1)return swapped.map(x=>({...x,score:0}));
+ }
  const partial=query.length>=5?entries.filter(x=>x.key.includes(query)):[],prefix=partial.length===1?partial:[];
  if(prefix.length)return prefix.map(x=>({...x,score:0}));
  if(query.length<6)return [];
@@ -112,8 +119,9 @@ function unknownCard(catalog,name){
  const possible=rankedCards(catalog,name).slice(0,3).map(x=>x.card.name);
  const hints=possible.length?" Propositions : "+possible.join(" / ")+".":"";
  const hintsEN=possible.length?" Suggestions: "+possible.join(" / ")+".":"";
- return fail("Je ne peux pas identifier « "+name+" » avec certitude."+hints+" Précise le nom exact avant de déplacer une carte.",
-  "I cannot identify “"+name+"” confidently."+hintsEN+" Please confirm the exact card name before moving it.");
+ return {...fail("Je ne peux pas identifier « "+name+" » avec certitude."+hints+" Précise le nom exact avant de déplacer une carte.",
+  "I cannot identify “"+name+"” confidently."+hintsEN+" Please confirm the exact card name before moving it."),
+   needsClarification:{kind:"card",query:name}};
 }
 function expectedChannel(state){
  const first=state.firstPlayer||((state.history||[]).find(h=>/Début de partie/.test(h.text||""))?.text?.includes("IA")?"ai":"human");

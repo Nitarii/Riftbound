@@ -113,15 +113,26 @@ export function applyCommand(old, command) {
     s.phase=phase;summary="Phase "+phase;
   } else if(type==="add") {
     checkOwner(p);const v=place(s,p,c.card,c.zone||"base",c.battlefield,c.faceDown);
+    // Standard units are played exhausted, unless their card text explicitly says otherwise.
+    if(c.fromHand&&/unit/i.test(v.type||"")&&["base","battlefield"].includes(v.zone))
+      v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
     if(v.zone==="hand")s.players[p].handCount++;
     if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
   } else if(type==="move") {
     const v=getCard(s,string(c.uid,80)),zone=string(c.zone,40);
     if(!ZONES.has(zone))throw Error("Zone inconnue");
+    const origin=v.zone;
+    if(origin==="base"&&zone==="battlefield"&&v.exhausted&&/unit/i.test(v.type||""))
+      throw Error("Cette unité est épuisée : elle ne peut pas se déplacer normalement.");
     if(v.zone==="hand")s.players[v.owner].handCount=Math.max(0,s.players[v.owner].handCount-1);
     if(zone==="hand")s.players[v.owner].handCount++;
     v.zone=zone;v.battlefield=zone==="battlefield"?Math.max(0,Math.min(1,Number(c.battlefield)||0)):null;
+    if(/unit/i.test(v.type||"")&&["base","battlefield"].includes(zone)){
+      if(["hand","champion"].includes(origin))
+        v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
+      else if(origin==="base"&&zone==="battlefield")v.exhausted=true;
+    }
     if(typeof c.faceDown==="boolean")v.faceDown=c.faceDown;
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
   } else if(type==="remove") {
