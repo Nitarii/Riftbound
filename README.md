@@ -23,13 +23,21 @@ Un deuxième mode **« Essayer sans installer »** permet un aperçu du plateau 
 
 GitHub Pages peut afficher le plateau, mais **ne peut pas exécuter le serveur local ni donner automatiquement des outils réseau à une IA**. L'exécutable contient tout le plateau et son serveur dans un seul fichier, avec les mêmes fonctionnalités. Il ouvre donc une URL locale; tu n'as normalement ni adresse ni jeton à saisir. Pour utiliser un **agent IA extérieur**, il faut encore lui donner un accès HTTP explicitement autorisé au serveur (un tunnel HTTPS facultatif, avec protection par jeton), et l'agent doit posséder des outils de navigation ou d'appel HTTP. Un simple chat avec un lien ne suffit pas.
 
+## Sélection de cartes et decks disponibles
+
+La création de partie n'utilise **plus de listes HTML interminables**. Les trois champs (Légende, Champion choisi, Champ de bataille) sont des **recherches compactes avec aperçu des cartes** et sept résultats affichés au maximum. Les accents sont ignorés pour la recherche; flèches et Entrée fonctionnent au clavier. Quand une légende est choisie, le champ Champion propose uniquement les unités portant le nom du champion de cette légende. Un clic confirme visuellement la carte retenue. Les exemples en gris sont sélectionnés aléatoirement parmi les cartes du catalogue lors du chargement : ils ne préremplissent pas la sélection.
+
+**Neuf decks préconstruits sont disponibles pour l'adversaire IA** : Origins (Jinx, Viktor, Lee Sin), Spiritforged (Fiora, Rumble), Unleashed (Vi, Vex) et Vendetta (Shen, Zed). Le choix « Aléatoire » tire parmi les neuf. Ils comportent une légende, 40 cartes principales (champion choisi compris), 12 runes et trois champs de bataille. Les listes proviennent des produits préconstruits publiés et des relevés communautaires de leurs contenus, et sont revérifiées dans les tests de compilation; **ce ne sont pas des decklists de tournoi validées pour 2026**. Le deck Jinx Origins contient notamment des cartes interdites en compétition dans certains formats; cette réserve apparaît lorsqu'il est sélectionné.
+
+Les visuels restent hébergés à distance. Une carte absente ou un ancien catalogue peuvent empêcher de préparer un deck : utiliser un catalogue à jour ou importer un JSON depuis l'onglet Catalogue.
+
 ### Fonctionnalités présentes
 
 - Assistant d'accueil **étape par étape**, cases gamifiées, barre de progression, retour/suivant et validation de chaque étape.
 - Plateau visuel, marqueurs, scores, cartes jouées, journal, sauvegardes JSON.
 - Légende, champion et battlefield du joueur physique; main privée.
 - Bibliothèque de cartes issue de sources communautaires qui indexent la galerie Riot, avec images externes Riot et liens de secours Piltover Archive.
-- Decks d'exemple Fiora/Rumble d'après des préconstruits publiés par Riot.
+- Neuf decks préconstruits imprimés répartis sur Origins, Spiritforged, Unleashed et Vendetta.
 - Dictée et reconnaissance limitée de quelques commandes en français; API locale pour agents compatibles HTTP.
 
 **Limites importantes :** il ne s'agit pas encore d'un agent autonome capable de jouer toutes les cartes légalement, d'interpréter tous les effets, ni d'un arbitre conforme à toutes les règles compétitives et errata. Les joueurs doivent vérifier les effets et le déroulement. Les listes préconstruites imprimées ne garantissent pas une légalité en tournoi à la date du jeu.
