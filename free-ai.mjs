@@ -2,6 +2,7 @@
 // Downloads verified official Ollama packages and free open-weight models once.
 // No paid API, subscription, cloud account, or inbound public tunnel is required.
 import fs from "node:fs";
+import {createReadStream} from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import {spawn} from "node:child_process";
@@ -34,9 +35,10 @@ export async function downloadVerified(url,target,expected,report=()=>{},fetchIm
  const temporary=target+".part";
  fs.mkdirSync(path.dirname(target),{recursive:true});
  if(fs.existsSync(target)){
-  // A matching official ZIP can be reused after an interrupted installation.
-  const data=fs.readFileSync(target);
-  if(verifiedDownloadHash(data,expected))return data.length;
+  // Never load a multi-gigabyte archive into RAM just to verify its digest.
+  const hash=crypto.createHash("sha256");
+  for await(const chunk of createReadStream(target,{highWaterMark:1024*1024}))hash.update(chunk);
+  if(hash.digest("hex")===expected)return fs.statSync(target).size;
   fs.rmSync(target,{force:true});
  }
  let completed=0;
@@ -245,6 +247,7 @@ export function createFreeLocalAI({
  function stop(){
   if(child&&childStarted){try{child.kill();}catch{}}
   child=null;childStarted=false;
+  update({phase:"idle",ready:false,progress:0,message:"IA locale arrêtée."});
  }
  // Installation persists across Companion launches; do not download without consent.
  update({installed:installationOK(),
