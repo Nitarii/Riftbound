@@ -139,3 +139,60 @@ body.home-visible .header-actions > :not(.header-home){display:none!important}
  .wizard-navigation button{flex:1}
  .wizard-next-hint{flex:0 0 100%;order:-1;text-align:left}
 }
+
+
+/* Quest-styled onboarding — premium game UI with keyboard-accessible check state. */
+.welcome-screen{--quest-gold:#edce89;--quest-teal:#78c4ab;--quest-border:rgba(192,174,129,.22)}
+.wizard-intro{position:relative;overflow:hidden;border-color:#536b6a;background:radial-gradient(ellipse at 90% -25%,rgba(129,191,173,.18),transparent 47%),linear-gradient(130deg,#172d37,#101e2b)}
+.wizard-intro::after{content:"✦";position:absolute;right:5%;bottom:-25px;font:900 160px/1 'Barlow Condensed',sans-serif;color:rgba(208,179,118,.05);pointer-events:none}
+.wizard-intro-copy,.wizard-intro button{position:relative;z-index:1}
+.wizard-progress{background:linear-gradient(160deg,rgba(35,59,67,.95),#101c29);border-color:#465a61;box-shadow:0 8px 25px #0002}
+.wizard-progress progress{appearance:none;-webkit-appearance:none;border:1px solid rgba(209,181,110,.24);border-radius:999px;overflow:hidden;background:#0a1822;box-shadow:inset 0 1px 4px rgba(0,0,0,.45)}
+.wizard-progress progress::-webkit-progress-bar{background:#0a1822;border-radius:999px}
+.wizard-progress progress::-webkit-progress-value{background:linear-gradient(90deg,#977b51,#e7ca87,#b6e1c7);border-radius:999px;box-shadow:0 0 12px rgba(222,198,138,.42);transition:width .45s ease}
+.wizard-progress progress::-moz-progress-bar{background:linear-gradient(90deg,#977b51,#e7ca87,#b6e1c7)}
+.wizard-milestones{gap:10px}
+.wizard-milestones span{border:1px solid transparent;border-radius:6px;padding:8px 2px;transition:background-color .2s,border-color .2s}
+.wizard-milestones span.active{background:rgba(215,182,116,.11);border-color:rgba(217,190,127,.35);color:#f4deaa}
+.wizard-milestones span.done{color:#b6e7cb}
+.welcome-step{position:relative;overflow:hidden;background:radial-gradient(ellipse at 100% 0%,rgba(72,128,113,.12),transparent 46%),linear-gradient(145deg,#192a38,#101d29);border:1px solid #435967;border-radius:14px;box-shadow:0 16px 38px rgba(0,0,0,.20)}
+.welcome-step::before{position:absolute;content:"";inset:0 0 auto;height:2px;background:linear-gradient(90deg,transparent,#d6b979,transparent);opacity:.45}
+.welcome-step-header h2{color:#f0dab0}
+.welcome-step-index{border-radius:10px;box-shadow:0 0 0 4px rgba(215,183,118,.06);background:linear-gradient(145deg,#493f30,#272d32);color:#ffdf95;font-size:23px}
+.welcome-step.complete{border-color:#5b8d7c;background:radial-gradient(ellipse at 100% 0%,rgba(102,163,139,.18),transparent 42%),linear-gradient(145deg,#192f35,#101d29)}
+.quest-check{display:flex;align-items:center;gap:10px;margin:0;padding:8px 12px;background:rgba(12,29,39,.74);border:1px solid rgba(216,183,119,.40);border-radius:10px;cursor:pointer;user-select:none;transition:transform .2s,border-color .2s,box-shadow .2s}
+.quest-check:hover{transform:translateY(-1px);border-color:#e4c784;box-shadow:0 5px 16px rgba(216,176,95,.13)}
+.quest-check input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;margin:0}
+.quest-check-badge{flex:0 0 auto;position:relative;display:grid;place-items:center;width:31px;height:31px;border:2px solid #a99d7a;border-radius:9px;color:transparent;background:#172b34;transition:background .2s,border-color .2s,transform .22s,box-shadow .2s}
+.quest-check-symbol{font:800 20px/1 Inter,Arial,sans-serif;transform:scale(.3);transition:transform .22s}
+.quest-check-label{max-width:150px;font-size:12px;line-height:1.4;color:#e2d9bf}
+.quest-check input:checked + .quest-check-badge{background:linear-gradient(140deg,#3e987f,#86cfa9);border-color:#a4e2bd;color:#102d24;box-shadow:0 0 0 4px rgba(100,217,161,.13),0 0 18px rgba(103,206,163,.27);transform:rotate(-5deg)}
+.quest-check input:checked + .quest-check-badge .quest-check-symbol{transform:scale(1)}
+.quest-check input:checked ~ .quest-check-label{color:#bcefd2}
+.quest-check input:focus-visible + .quest-check-badge{outline:3px solid #f7d28a;outline-offset:3px}
+.download-feature{display:flex;align-items:center;gap:16px;padding:17px;background:linear-gradient(110deg,rgba(43,62,72,.85),rgba(29,49,55,.85));border:1px solid #546e74;border-radius:12px}
+.download-feature-icon{display:grid;place-items:center;width:53px;height:53px;flex:0 0 auto;border-radius:11px;border:1px solid #ac976b;background:linear-gradient(145deg,#53472e,#1e2c32);color:#f4d695;font-size:34px;box-shadow:0 5px 15px #0003}
+.download-feature-copy{display:flex;flex:1;flex-direction:column;gap:6px;min-width:0}
+.download-feature-copy strong{color:#f0e6d2;font-weight:750;font-size:14px}
+.download-feature-copy span{font-size:11px;color:#a9c1c9;line-height:1.5}
+.download-feature .welcome-action{margin:0!important;min-height:43px;display:inline-flex;align-items:center;justify-content:center;gap:10px;flex:0 0 auto}
+.connection-feature{display:flex;align-items:center;gap:15px;background:#142c36;border:1px solid #41616a;padding:17px;border-radius:11px}
+.connection-feature-led{width:18px;height:18px;flex:0 0 auto;border-radius:50%;background:#bba66f;border:4px solid #4d5549;box-shadow:0 0 0 4px #ad925123}
+.connection-feature strong{color:#e4dbc4;display:block;font-size:14px}
+.connection-feature p{margin:6px 0 0;color:#a1b9c2;font-size:12px}
+.welcome-step.complete .connection-feature-led{background:#79d3a9;border-color:#39775d;box-shadow:0 0 0 4px rgba(121,211,169,.14),0 0 14px rgba(104,208,163,.25)}
+.advanced-connect{margin-top:20px;border-top:1px solid #314956;padding-top:13px}
+.advanced-connect summary{color:#b2c6cb;cursor:pointer;font-size:12px}
+.advanced-connect[open] summary{color:#edd3a3;margin-bottom:14px}
+.welcome-step button.primary,.wizard-navigation button.primary{background:linear-gradient(112deg,#c6ac73,#e9cc89);border:1px solid #ddc289;color:#192934;font-weight:750;box-shadow:0 4px 16px rgba(198,171,107,.11)}
+.welcome-step button.primary:hover,.wizard-navigation button.primary:hover{filter:brightness(1.08);box-shadow:0 5px 22px rgba(198,171,107,.25)}
+.wizard-navigation button:disabled{filter:grayscale(.3);box-shadow:none;opacity:.46}
+@media(max-width:720px){
+ .download-feature{flex-wrap:wrap;padding:12px;gap:12px}
+ .download-feature-copy{flex-basis:calc(100% - 70px)}
+ .download-feature .welcome-action{width:100%}
+ .quest-check{width:100%;justify-content:center;margin-top:10px}
+ .quest-check-label{max-width:none}
+ .wizard-milestones{gap:2px}
+}
+@media(prefers-reduced-motion:reduce){.wizard-progress progress::-webkit-progress-value,.quest-check,.quest-check-badge,.quest-check-symbol,.wizard-milestones span{transition:none!important}}
