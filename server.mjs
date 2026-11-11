@@ -15,6 +15,7 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
+import {createFreeLocalAI} from "./free-ai.mjs";
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
 const userData=packaged?path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),"AppData","Local"),"RiftboundTableCompanion"):root;
@@ -95,7 +96,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:"0.11.0",
+ name:"Riftbound Table Companion",version:"0.13.0",
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
@@ -106,6 +107,8 @@ const guide={
  "GET /api/ai/status":"Integrated model status, no credentials returned, LOCAL only",
  "POST /api/ai/config":"Configure outbound OpenAI-compatible model; LOCAL only",
  "POST /api/ai/disable":"Stop generating model responses; LOCAL only",
+ "GET /api/ai/free/status":"Free local Ollama model installation progress; LOCAL only",
+ "POST /api/ai/free/install":"One-click free local AI installer, model qwen3:4b-instruct or qwen3.5:9b; LOCAL only",
  "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
@@ -167,6 +170,13 @@ const receiveHumanMessage=text=>{
  integratedAI.onHumanMessage(entry.text);
  return entry;
 };
+const localFreeAI=createFreeLocalAI({
+ userData,
+ onReady:async model=>{
+  if(remoteAccess.status().active)throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
+  integratedAI.configure({provider:"free",model,enabled:true});
+ }
+});
 const remoteAccess=createRemoteAccess({
  userData,
  getState:()=>state,
@@ -179,8 +189,8 @@ const remoteAccess=createRemoteAccess({
  markAgentPoll:()=>conversation.markAgentPoll()
 });
 // Closing the companion also terminates any optional public tunnel.
-process.once("exit",()=>remoteAccess.stop());
-const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();});
+const WEB_ASSETS=new Set(["index.html","app.mjs","core.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -215,7 +225,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.10.0",packaged},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:"0.13.0",packaged},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -253,13 +263,32 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="GET"&&url.pathname==="/api/ai/status"){
     json(res,200,integratedAI.status(),req);return;
   }
+  if(req.method==="GET"&&url.pathname==="/api/ai/free/status"){
+    json(res,200,localFreeAI.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/ai/free/install"){
+    if(remoteAccess.status().active){
+      msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;
+    }
+    const existing=integratedAI.status();
+    if(existing.enabled&&existing.provider!=="free"){
+      msg(res,409,"Désactive d'abord l'autre fournisseur IA.",req);return;
+    }
+    try{
+      const input=await body(req);
+      json(res,202,localFreeAI.start(input?.model||"qwen3:4b-instruct"),req);
+    }catch(e){msg(res,400,e.message,req);}return;
+  }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){
     if(remoteAccess.status().active){msg(res,409,"Coupe d'abord l'accès IA distant pour éviter deux adversaires simultanés.",req);return;}
     try{const settings=await body(req);json(res,200,integratedAI.configure(settings),req);}
     catch(e){msg(res,400,e.message,req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/disable"){
-    json(res,200,integratedAI.disable(),req);return;
+    const wasFree=integratedAI.status().provider==="free";
+    const result=integratedAI.disable();
+    if(wasFree)localFreeAI.stop();
+    json(res,200,result,req);return;
   }
   if(req.method==="GET"&&url.pathname==="/api/remote/status"){
     json(res,200,remoteAccess.status(true),req);return;
@@ -309,6 +338,10 @@ server.on("error",err=>{
  process.exitCode=1;
 });
 server.listen(port,host,()=>{
+  if(integratedAI.status().provider==="free"&&integratedAI.status().enabled){
+   // Reuse installed weights after restart; never download anything silently.
+   localFreeAI.resume(integratedAI.status().model);
+  }
   console.log("\nRIFTBOUND TABLE COMPANION");
   console.log("Site local : http://"+host+":"+port);
   console.log("Jeton local : "+token);
