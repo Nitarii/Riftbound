@@ -1042,3 +1042,101 @@ body:not(.home-visible):has(#game-app:fullscreen)>header{display:none}
 @media (prefers-reduced-motion:reduce){
  #game-app .voice-live .voice-dot{animation:none}
 }
+
+
+/* v0.17 — accessible compact physical table: no duplicated history. */
+#game-app .board>.side .rail{
+ grid-template-columns:repeat(2,minmax(43px,calc(var(--game-card-width) + 12px))) minmax(70px,1fr) minmax(61px,92px) 74px;
+ gap:4px;
+}
+#game-app .board .panel.legend,#game-app .board .panel.champion{padding:4px 3px}
+#game-app .board .panel.legend .cardholder,#game-app .board .panel.champion .cardholder{width:100%}
+#game-app .board .panel.legend .card-tile,#game-app .board .panel.champion .card-tile{max-width:100%}
+#game-app .board .panel.legend .empty-card,#game-app .board .panel.champion .empty-card{padding:2px;font-size:9px}
+#game-app .board>.side.player{
+ display:grid;
+ grid-template-rows:auto auto minmax(46px,.3fr) minmax(0,1fr);
+ gap:4px;
+}
+#game-app .board>.side.player>.identity{grid-row:1}
+#game-app .board>.side.player>.meta{grid-row:2}
+#game-app .board>.side.player>.panel.stretch{
+ grid-row:3;max-height:none;width:100%;min-height:44px;flex:none;
+}
+#game-app .board>.side.player>.rail{grid-row:4;flex:none}
+#game-app .deck-visuals{
+ min-width:0;min-height:0;display:grid;grid-template-rows:repeat(2,minmax(0,1fr));gap:4px;
+}
+#game-app .pile{
+ display:flex;align-items:center;gap:4px;width:100%;min-width:0;min-height:0;padding:3px;
+ border:1px solid #506274;border-radius:6px;
+ background:linear-gradient(130deg,#1a303b,#101d2b);
+}
+#game-app .pile:focus-visible{outline:2px solid #f8da91;outline-offset:1px}
+#game-app .pile-back{
+ display:grid;place-items:center;flex:0 0 24px;min-height:30px;
+ color:#e2c786;font:800 20px/1 'Barlow Condensed',sans-serif;
+ border:1px solid #c2a263;border-radius:4px;
+ background:radial-gradient(circle at 55% 30%,#365263,#111b2b);
+}
+#game-app .rune-pile .pile-back{color:#b1e4c9;border-color:#4c9c85}
+#game-app .pile-label{font-size:8px;line-height:1.25;color:#d2e1e1;overflow-wrap:anywhere}
+#game-app.history-collapsed{
+ grid-template-columns:45px minmax(0,1fr) clamp(282px,24vw,365px);
+}
+#game-app .live-history-heading #drawer-collapse{
+ flex:0 0 25px;width:25px;height:25px;min-height:25px;
+ padding:3px;border-radius:5px;font-size:13px;line-height:1;
+}
+#game-app.history-collapsed .bottom>.drawer{
+ padding:4px;gap:0;align-items:center;
+}
+#game-app.history-collapsed .drawer>:not(.live-history){display:none!important}
+#game-app.history-collapsed .live-history{
+ flex:1 1 auto;min-height:0;max-height:none;width:100%;padding:4px;
+}
+#game-app.history-collapsed .live-history-heading{
+ flex-direction:column;gap:10px;justify-content:flex-start;
+}
+#game-app.history-collapsed .live-history-heading h2{
+ writing-mode:vertical-rl;transform:rotate(180deg);font-size:14px;
+}
+#game-app.history-collapsed .live-history-log,
+#game-app.history-collapsed .history-count{display:none!important}
+#game-app .chat-typing{
+ flex:0 0 auto;display:flex;gap:5px;align-items:center;padding:5px 12px;
+ width:fit-content;min-height:26px;border:1px solid #466859;
+ border-radius:12px;background:#203d32;
+}
+#game-app .chat-typing[hidden]{display:none!important}
+#game-app .chat-typing span{
+ width:6px;height:6px;border-radius:50%;background:#a8dec1;
+ animation:riftbound-thinking 1.15s ease-in-out infinite;
+}
+#game-app .chat-typing span:nth-child(2){animation-delay:.17s}
+#game-app .chat-typing span:nth-child(3){animation-delay:.34s}
+@keyframes riftbound-thinking{0%,65%,100%{opacity:.3;transform:translateY(0)}35%{opacity:1;transform:translateY(-4px)}}
+#game-app .card-tile.card-transition{animation:riftbound-card-enter .42s cubic-bezier(.2,.8,.25,1) both}
+@keyframes riftbound-card-enter{from{opacity:.35;transform:translateY(-15px) scale(.87)}to{opacity:1;transform:translateY(0) scale(1)}}
+.language-toggle select{background:#172b36;border:1px solid #6e765e;border-radius:5px;color:#e9d6a9;padding:5px 8px;font-weight:700}
+@media(max-width:1300px) and (min-width:891px){
+ #game-app.history-collapsed{grid-template-columns:42px minmax(0,1fr) clamp(235px,24vw,310px)}
+}
+@media(max-width:1100px){
+ #game-app .board>.side .rail{grid-template-columns:repeat(2,minmax(34px,calc(var(--game-card-width) + 8px))) minmax(58px,1fr) minmax(48px,70px) 58px}
+ #game-app .pile{gap:2px;padding:2px}
+ #game-app .pile-back{flex-basis:19px;min-height:25px;font-size:17px}
+ #game-app .pile-label{font-size:7px}
+}
+@media(max-width:890px){
+ #game-app.history-collapsed{grid-template-columns:minmax(0,1fr)}
+ #game-app.history-collapsed .bottom>.drawer{padding:8px}
+ #game-app .board>.side .rail{grid-template-columns:repeat(2,minmax(47px,calc(var(--game-card-width) + 12px))) minmax(68px,1fr) 70px 64px}
+}
+@media(max-width:600px){
+ #game-app .board>.side .rail{grid-template-columns:repeat(2,minmax(39px,calc(var(--game-card-width) + 7px))) minmax(55px,1fr) 54px 52px}
+ .language-toggle select{padding:4px 2px;font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){
+ #game-app .card-tile.card-transition,#game-app .chat-typing span{animation:none!important}
+}

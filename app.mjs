@@ -6,6 +6,66 @@ import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName
 import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 import {createVoiceConversation} from "./voice-session.mjs";
 const $=id=>document.getElementById(id);
+const i18n={
+ "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
+ "Historique":"History","Outils":"Tools","Sans quitter le plateau":"Without leaving the board",
+ "Configuration":"Setup","Catalogue":"Card catalog","Agent IA":"AI agent",
+ "ADVERSAIRE IA":"AI OPPONENT","TON PLATEAU · CARTES PHYSIQUES":"YOUR BOARD · PHYSICAL CARDS",
+ "LÉGENDE":"LEGEND","LEGENDE":"LEGEND","CHAMPION":"CHAMPION","MAIN":"HAND",
+ "MAIN PHYSIQUE":"PHYSICAL HAND","RUNES":"RUNES","BASE IA":"AI BASE","BASE JOUEUR":"YOUR BASE",
+ "CHAMP DE BATAILLE · JOUEUR":"BATTLEFIELD · PLAYER","CHAMP DE BATAILLE · IA":"BATTLEFIELD · AI",
+ "Discussion avec l'IA":"AI chat","Annonce tes actions ou parle à ton adversaire.":"Announce actions or talk to your opponent.",
+ "Ton message":"Your message","Passer mon tour":"End turn","Envoyer":"Send","Mode vocal":"Voice mode",
+ "L'IA me répond à voix haute":"Speak AI replies aloud","Commandes de plateau manuelles":"Manual board commands",
+ "Piocher":"Draw","Canaliser":"Channel","Interpréter le texte en action":"Interpret text as action",
+ "Aucune unité en base":"No units in base","Aucune rune placée":"No runes placed",
+ "Prêt.":"Ready.","Plein écran":"Fullscreen","Tour suivant":"Next turn",
+ "Création de partie":"Set up a game","Installation":"Installation",
+ "Copier l'état pour l'IA":"Copy state for AI","Déplacer":"Move","Placer":"Place",
+ "Fermer":"Close","Joueur":"Player","Propriétaire":"Owner","Défausse":"Discard",
+ "Bannissement":"Banishment","Main":"Hand","Champ de bataille":"Battlefield",
+ "Aucune action enregistrée.":"No recorded actions.","Configurer l'accès distant":"Configure remote access",
+ "Installer une partie":"Set up a game","Joueur physique":"Physical player",
+ "Deck préconstruit":"Preconstructed deck","Mélanger et préparer l'IA":"Shuffle and prepare AI",
+ "Catalogue de cartes":"Card catalog","Actualiser":"Refresh","Charger cartes JSON":"Load card JSON",
+ "Contrôle par agent":"Agent control","Déconnecter":"Disconnect","Connecter":"Connect",
+ "Instructions pour n'importe quel agent":"Instructions for any agent",
+ "Activer le plein écran":"Enter fullscreen","Désactiver":"Disable",
+ "Envoyer mon message":"Send my message","Passer mon tour":"End turn",
+ "Configurer":"Configure","Réduire le panneau historique":"Collapse history"
+};
+let uiLanguage="fr";
+try{uiLanguage=localStorage.getItem("riftbound-language")==="en"?"en":"fr";}catch{}
+const originalText=new WeakMap(),originalAttributes=new WeakMap();
+function applyUILanguage(){
+ document.documentElement.lang=uiLanguage;
+ const tree=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+ let node;
+ while((node=tree.nextNode())){
+  const host=node.parentElement;
+  if(!host||host.closest("script,style,#chat-messages,#live-history-log,.cards,.cardholder,.card-tile,.results,.picker-results,.picker-selected,#notice,#home-feedback,#ai-status,#voice-live-text"))continue;
+  const val=node.nodeValue;
+  if(!originalText.has(node))originalText.set(node,val);
+  const origin=originalText.get(node);
+  const trimmed=origin.trim();
+  const translation=i18n[trimmed];
+  if(!translation)continue;
+  const lead=origin.match(/^\s*/)?.[0]||"",trail=origin.match(/\s*$/)?.[0]||"";
+  const replacement=uiLanguage==="en"?translation:trimmed;
+  const desired=lead+replacement+trail;
+  if(val!==desired)node.nodeValue=desired;
+ }
+ for(const el of document.querySelectorAll("input[placeholder],textarea[placeholder],button[title]")){
+  let base=originalAttributes.get(el);
+  if(!base){base={placeholder:el.getAttribute("placeholder"),title:el.getAttribute("title")};originalAttributes.set(el,base);}
+  for(const attr of ["placeholder","title"]){
+   if(!base[attr])continue;
+   const translated=i18n[base[attr]];
+   if(translated)el.setAttribute(attr,uiLanguage==="en"?translated:base[attr]);
+  }
+ }
+}
+
 // Declare the loopback destination so Chrome/Edge can request the right permission.
 // Browsers that do not implement the option simply ignore it.
 const localFetchOptions=url=>/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(url)
@@ -45,13 +105,17 @@ function cardHTML(c,show=true,large=false) {
   const title=esc(c.name),img=c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':'<div class="empty-card">'+title+'</div>';
   return '<div class="card-tile '+(c.type?.toLowerCase().includes("battlefield")?"landscape ":"")+(c.exhausted?"exhausted ":"")+(c.faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'">'+(c.faceDown?'<div class="card-back">R</div>':img)+'<div class="card-label">'+(show?title:"")+'</div>'+(c.damage?'<b class="damage">−'+c.damage+'</b>':'')+Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+'</div>';
 }
+let previousCardLocations=new Map();
 function render(){
-  $("turn").textContent=state.started?"TOUR "+state.turn+" · "+(state.active==="human"?"JOUEUR":"IA")+" · "+state.phase.toUpperCase():"PARTIE NON COMMENCÉE";
+  $("turn").textContent=state.started?(uiLanguage==="en"?"TURN ":"TOUR ")+state.turn+" · "+(state.active==="human"?(uiLanguage==="en"?"PLAYER":"JOUEUR"):"AI")+" · "+state.phase.toUpperCase():(uiLanguage==="en"?"GAME NOT STARTED":"PARTIE NON COMMENCÉE");
   $("phases").innerHTML=PHASES.map(p=>'<button class="phase '+(state.phase===p?"current":"")+'" data-phase="'+p+'">'+p+'</button>').join("");
   for(const p of ["human","ai"]){
     const player=state.players[p];
     $(p+"-score").textContent=player.score+" PV";
-    $(p+"-meta").textContent=player.handCount+" en main · "+(player.deckCount??"?")+" deck · "+player.runeCount+" runes restantes";
+    $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main");
+    const piles=$(p+"-decks");
+    if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+
+      '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
     for(const z of ["legend","champion"]){$(p+"-"+z).innerHTML=cardHTML(state.cards.find(c=>c.owner===p&&c.zone===z)||player[z]);}
     const cards=z=>state.cards.filter(c=>c.owner===p&&c.zone===z);
     $(p+"-hand").innerHTML=p==="human"?'<span class="physical">'+player.handCount+' cartes physiques non révélées</span>':cards("hand").map(c=>cardHTML({...c,faceDown:true},false)).join("")||'<span class="muted">Main vide</span>';
@@ -67,13 +131,23 @@ function render(){
   const historyHTML=h=>'<li><small>#'+h.revision+' · '+
     new Date(h.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})+
     '</small> '+esc(h.text)+'</li>';
-  $("history-log").innerHTML=historyEntries.map(historyHTML).join("")||
-    '<li class="history-empty">Aucune action enregistrée.</li>';
+
   $("live-history-log").innerHTML=historyEntries.slice(0,60).map(historyHTML).join("")||
     '<li class="history-empty">Aucune action enregistrée.</li>';
-  $("live-history-count").textContent=historyEntries.length+" action"+(historyEntries.length>1?"s":"");
+  $("live-history-count").textContent=historyEntries.length+" "+(uiLanguage==="en"?"actions":"actions");
+  const nextPositions=new Map();
+  for(const card of state.cards){
+   const where=card.zone+":"+(card.battlefield??"");
+   nextPositions.set(card.uid,where);
+   if(previousCardLocations.size&&previousCardLocations.get(card.uid)!==where)
+    document.querySelectorAll('.board .card-tile[data-uid]').forEach(tile=>{
+     if(tile.dataset.uid===card.uid)tile.classList.add("card-transition");
+    });
+  }
+  previousCardLocations=nextPositions;
   save();
   renderWelcome();
+  applyUILanguage();
 }
 async function dispatch(command){
   try{
@@ -220,11 +294,13 @@ function renderChatStatus(){
  const label=$("chat-connection");
  if(!relay){label.textContent="Serveur déconnecté";label.dataset.status="offline";return;}
  if(integratedAIStatus?.enabled){
+  $("chat-typing").hidden=!integratedAIStatus.processing;
   label.textContent=integratedAIStatus.provider==="free"?
    (integratedAIStatus.processing?"IA gratuite · réfléchit":"IA gratuite · prête"):
    (integratedAIStatus.processing?"IA intégrée · réfléchit":"IA intégrée · prête");
   label.dataset.status="online";return;
  }
+ $("chat-typing").hidden=true;
  const active=agentLastSeen&&Date.now()-agentLastSeen<30000;
  label.textContent=active?"Activité de l'agent détectée":remoteSession?.url?"Accès IA actif · en attente":"Aucun agent distant actif";
  label.dataset.status=active?"online":remoteSession?.url?"waiting":"offline";
@@ -236,7 +312,7 @@ function renderChat(){
  for(const m of chatItems.slice(-70)){
   const node=document.createElement("div");node.className="chat-bubble "+(m.role==="ai"?"from-ai":"from-human");
   const meta=document.createElement("small");
-  meta.textContent=(m.role==="ai"?"Adversaire IA":"Toi")+" · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  meta.textContent=(m.role==="ai"?(uiLanguage==="en"?"AI opponent":"Adversaire IA"):(uiLanguage==="en"?"You":"Toi"))+" · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const text=document.createElement("p");text.textContent=m.text;node.append(meta,text);list.append(node);
  }
  list.scrollTop=list.scrollHeight;renderChatStatus();
@@ -297,10 +373,7 @@ function enqueuePlayerAnnouncement(value){
  const text=String(value||"").trim().slice(0,1200);
  if(!text)return Promise.resolve(false);
  const next=messageQueue.then(async()=>{
-  if(isTurnAnnouncement(text)){
-   if(!relay){notify("Connecte le serveur avant de passer ton tour.",true);return false;}
-   if(!await dispatch({type:"next-turn"}))return false;
-  }
+  // The local server handles turn changes and checks the rules once.
   return sendChatMessage(text);
  });
  messageQueue=next.catch(()=>false);
@@ -317,8 +390,7 @@ async function sendNote(){
 }
 async function passTurn(){
  if(!relay)return notify("Connecte le serveur pour passer le tour à l'IA.",true);
- if(!await dispatch({type:"next-turn"}))return;
- await enqueuePlayerAnnouncement("Je termine mon tour. À toi de jouer.");
+ await enqueuePlayerAnnouncement(uiLanguage==="en"?"I end my turn. Your move.":"Je termine mon tour. À toi de jouer.");
 }
 $("next-turn").onclick=passTurn;
 $("chat-pass-turn").onclick=passTurn;
@@ -341,6 +413,33 @@ function interpretNote(){
  if(confirm("Appliquer localement cette commande ?\n"+parsed.label))dispatch(parsed.command);
 }
 $("interpret-note").onclick=interpretNote;
+for(const p of ["human","ai"]){
+ const rail=$(p+"-legend")?.closest(".rail");
+ if(rail&&!$(p+"-decks")){
+  const piles=document.createElement("div");piles.className="deck-visuals";piles.id=p+"-decks";rail.append(piles);
+ }
+}
+document.addEventListener("click",event=>{
+ const pile=event.target.closest("[data-pile-action]");
+ if(!pile)return;
+ const owner=pile.dataset.pileOwner;
+ if(owner!==state.active){notify(uiLanguage==="en"?"Not this player's turn.":"Ce n'est pas le tour de ce joueur.",true);return;}
+ const action=pile.dataset.pileAction;
+ if(action==="channel"&&state.turnActions?.channeled){notify(uiLanguage==="en"?"Runes already channeled this turn.":"Runes déjà canalisées ce tour.",true);return;}
+ if(action==="draw"&&state.turnActions?.drawn){notify(uiLanguage==="en"?"Already drew this turn.":"Pioche normale déjà effectuée.",true);return;}
+ const count=action==="channel"?(state.turn===1&&state.active!==(state.firstPlayer||"human")?3:2):1;
+ dispatch({type:action,player:owner,count});
+});
+const collapseButton=$("drawer-collapse"),sidebarKey="riftbound-sidebar-collapsed";
+function setSidebarCollapsed(collapsed){
+ $("game-app").classList.toggle("history-collapsed",collapsed);
+ collapseButton.textContent=collapsed?"▶":"◀";
+ collapseButton.setAttribute("aria-expanded",String(!collapsed));
+ collapseButton.title=collapsed?"Expand / Déployer":"Collapse / Réduire";
+ try{localStorage.setItem(sidebarKey,String(collapsed));}catch{}
+}
+collapseButton.onclick=()=>setSidebarCollapsed(!$("game-app").classList.contains("history-collapsed"));
+try{setSidebarCollapsed(localStorage.getItem(sidebarKey)==="true");}catch{}
 const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 const voiceButton=$("voice-note"),voiceIndicator=$("voice-live"),voiceStatus=$("voice-live-text");
 const voiceReadReplies=$("voice-read-replies");
@@ -380,6 +479,7 @@ voiceController=createVoiceConversation({
  restartMs:700
 });
 voiceController.setSpeechEnabled(voiceReadReplies.checked);
+voiceController.setLanguage(uiLanguage);
 voiceUI(voiceController.state());
 if(!SpeechAPI){
  voiceButton.disabled=true;
@@ -408,6 +508,14 @@ voiceButton.onclick=async()=>{
  if(started)notify("Mode conversation activé. Parle, fais une courte pause et l'IA recevra ton message.");
 };
 voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);
+$("language-select").value=uiLanguage;
+$("language-select").addEventListener("change",event=>{
+ uiLanguage=event.target.value==="en"?"en":"fr";
+ try{localStorage.setItem("riftbound-language",uiLanguage);}catch{}
+ voiceController.setLanguage(uiLanguage);
+ render();renderChat();
+});
+
 document.addEventListener("visibilitychange",()=>voiceController.setHidden(document.hidden));
 window.addEventListener("pagehide",()=>voiceController.stop());
 setInterval(()=>{if(relay)syncChat();else renderChatStatus();},2500);

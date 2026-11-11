@@ -7,10 +7,12 @@ const js=fs.readFileSync(new URL("../app.mjs",import.meta.url),"utf8");
 
 test("game keeps history, table and opponent chat as parallel panels",()=>{
  for(const id of ["game-app","live-history-heading",
-  "live-history-log","live-history-count","chat-messages","notes","history-log","layout-fullscreen"]){
+  "live-history-log","live-history-count","chat-messages","notes","drawer-collapse","layout-fullscreen"]){
   assert.ok(html.includes('id="'+id+'"'),id);
  }
  assert.match(html,/class="live-history"/);
+ assert.match(html,/id="chat-typing"/);
+ assert.match(html,/id="language-select"/);
  assert.match(html,/class="bottom"/);
  assert.match(html,/class="drawer"/);
  assert.match(html,/class="controls chat-panel"/);
@@ -18,7 +20,8 @@ test("game keeps history, table and opponent chat as parallel panels",()=>{
  assert.match(css,/#game-app \.bottom\{display:contents\}/);
  assert.match(css,/#game-app \.live-history/);
  assert.match(js,/\$\("live-history-log"\)\.innerHTML/);
- assert.match(js,/\$\("history-log"\)\.innerHTML/);
+ assert.doesNotMatch(html,/id="history-log"/);
+ assert.doesNotMatch(html,/data-tab="history"/);
 });
 test("only in-game workspace locks document scrolling, not setup wizard",()=>{
  assert.match(css,/body:not\(\.home-visible\)\{[\s\S]*?overflow:hidden/);

@@ -3,11 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import {applyCommand} from "./core.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
+import {planSafeAITurn} from "./ai-turn.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
 const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:"qwen3:0.6b"};
-const COMMANDS=new Set(["move","add","exhaust","ready","flip","damage","counter","score",
+const COMMANDS=new Set(["move","add","exhaust","exhaust-runes","ready","flip","damage","counter","score",
  "draw","channel","mulligan","phase","next-turn","note"]);
 function providerURL(source){
  const url=new URL(String(source||""));
@@ -35,6 +36,7 @@ const shortCard=c=>c?{code:c.code,name:c.name,type:c.type}:null;
 export function modelBoardState(state){
  return {
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
+  firstPlayer:state.firstPlayer,turnActions:state.turnActions,
   started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
    human:{legend:shortCard(state.players.human.legend),champion:shortCard(state.players.human.champion),
@@ -92,6 +94,11 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
    if(card.owner==="human"&&card.zone==="hand")throw Error("La main physique reste cachée.");
   }
   if(cmd.type==="move"&&!zones.has(cmd.zone))throw Error("Zone interdite.");
+  if(cmd.type==="exhaust-runes"&&
+   (!["human","ai"].includes(cmd.player)||!Number.isInteger(cmd.count)||cmd.count<1||cmd.count>3))
+    throw Error("Épuisement de runes invalide.");
+  if(cmd.type==="exhaust-runes"&&cmd.player==="human")
+    throw Error("L'IA ne peut pas épuiser les runes physiques sans confirmation du joueur.");
   if(cmd.type==="add"){
    if(cmd.player!=="human"||!zones.has(cmd.zone)||cmd.zone==="hand")
     throw Error("L'IA ne peut pas créer de cartes de sa main.");
@@ -120,16 +127,16 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
 // The compact model is preconfigured by the program, without a user prompt.
 // Rules and card texts are provided fresh for every message via retrieval.
 export const SYSTEM_PROMPT=[
- "Tu es l'adversaire IA d'une partie PHYSIQUE de Riftbound et le gestionnaire visuel du plateau. Réponds en français, brièvement.",
+ "You are the opponent in a PHYSICAL Riftbound game and the board operator. Understand both French and English. Reply in the SAME language as the player's latest message, concisely.",
  "CONNAISSANCES : gameReference contient un mémo des règles Riot, les sources officielles, les commandes du logiciel et les textes exacts des cartes utiles.",
  "Le texte réel d'une carte, puis ses errata officiels, priment sur ton intuition. N'invente jamais une capacité, un coût, une priorité ou une règle.",
  "L'utilisateur manipule ses cartes physiques. Tu ne vois jamais sa main cachée. Tu vois ta propre main IA et les cartes publiques.",
- "Tu dois lire l'état du plateau, identifier les UID, évaluer tes cartes disponibles et annoncer tes actions avant de les appliquer.",
+ "Tu dois lire l'état du plateau, identifier les UID EXACTS présents dans board.cards, évaluer tes cartes disponibles et annoncer tes actions avant de les appliquer. Never invent card UIDs.",
  "Un déplacement ou effet n'est possible que si le texte de carte connu et les règles le permettent; quand un texte est absent ou ambigu, demande au joueur.",
  "Les actions que tu fournis changent vraiment le plateau; ne simule pas le résultat d'un combat incertain.",
  "Joue une carte IA avec move(uid,zone) depuis ta main existante, jamais avec add. Add est réservé à une carte humaine explicitement annoncée et trouvée dans gameReference.cards.",
  "Quand le joueur termine son tour, le serveur a déjà avancé : ne l'avance pas deux fois. Lorsque TU finis ton tour, next-turn une seule fois.",
- "Choisis tes actions parmi move, add, exhaust, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note.",
+ "Choisis tes actions parmi move, add, exhaust, exhaust-runes, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note. AI must use existing UID from own hand when playing a card, channel its real runes and track payment.",
  "Exemples : {\"type\":\"move\",\"uid\":\"uid-existant\",\"zone\":\"base\"}; {\"type\":\"draw\",\"player\":\"ai\",\"count\":1}.",
  "Réponds SEULEMENT en JSON de la forme {\"reply\":\"annonce courte en français\",\"commands\":[]}. Maximum huit commandes. Une question sans action peut avoir commands: [].",
  "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
@@ -194,15 +201,49 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const packet=await response.json();
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
    if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error("Réponse IA mal formée.");
-   const reply=String(parsed.reply||"").trim().slice(0,1200);
-   const commands=validateAgentCommands(parsed.commands||[],game,message,catalog);
+   let reply=String(parsed.reply||"").trim().slice(0,1200);
+   const proposed=Array.isArray(parsed.commands)?parsed.commands.slice(0,8):[];
+   const commands=[],rejected=[];
+   let preview=game;
+   for(const command of proposed){
+    try{
+     const checked=validateAgentCommands([command],preview,message,catalog);
+     if(checked.length){commands.push(...checked);preview=applyCommand(preview,checked[0]);}
+    }catch(e){rejected.push(String(e.message||e));}
+   }
+   const english=/\\b(i |my |your |turn|play|draw|hello|what|can you|good|thanks)\\b/i.test(message)&&
+    !/\\b(je |mon |tour|joue|pioche|bonjour|merci)\\b/i.test(message);
+   let fallback=false;
+   if(!commands.length&&game.active==="ai"){
+    const safe=planSafeAITurn(game);
+    if(safe.length){commands.push(...safe);fallback=true;}
+   }
    if(commands.length){
     try{await applyBatch(commands,revision);}
-    catch(e){sendMessage("⚠️ Plateau non modifié : "+String(e.message||e).slice(0,220)+(reply?"\n"+reply:""));return;}
+    catch(e){sendMessage((english?"Board unchanged: ":"Plateau inchangé : ")+String(e.message||e).slice(0,200));return;}
    }
-   sendMessage(reply||"J'ai pris connaissance de ton annonce.");
+   if(fallback)reply=english?"I channeled, drew and completed my turn using the board's available cards.":
+      "J'ai canalisé, pioché et terminé mon tour en utilisant uniquement les cartes disponibles sur le plateau.";
+   else if(rejected.length){
+    // Never claim an invalid movement happened.
+    reply=(english?"Some suggested moves were not executed: ":"Certains déplacements proposés n'ont pas été exécutés : ")+
+     [...new Set(rejected)].slice(0,2).join("; ")+(commands.length?"":"");
+   }
+   sendMessage(reply||(english?"I understand. What is your next action?":"J'ai compris. Quelle est ta prochaine action ?"));
   }catch(e){
    lastError=e?.name==="TimeoutError"?"Délai de réponse dépassé.":String(e?.message||e).slice(0,250);
+   // Invalid JSON from a very small model must not freeze the AI turn.
+   const current=getState();
+   if(current?.active==="ai"&&current.started){
+    const safe=planSafeAITurn(current);
+    if(safe.length){
+     try{
+      await applyBatch(safe,current.revision);
+      sendMessage("J'ai terminé mon tour avec les actions élémentaires vérifiables du plateau. / I completed my turn with safe, verifiable board actions.");
+      return;
+     }catch{}
+    }
+   }
    sendMessage("⚠️ Impossible de joindre l'IA intégrée : "+lastError);
   }finally{processing=false;}
  }

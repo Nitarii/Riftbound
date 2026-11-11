@@ -10,7 +10,7 @@ function shuffle(a) {
   for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
   return a;
 }
-const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:null,runeCount:12,notes:""});
+const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
   return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",phase:"Setup",started:false,
     players:{human:player(),ai:player()},
@@ -61,6 +61,7 @@ export function applyCommand(old, command) {
     if(!c.legend||!c.champion||!c.battlefield) throw Error("legend, champion et battlefield requis");
     s.players[who].legend=validateCard(c.legend);
     s.players[who].champion=validateCard(c.champion);
+    if(who==="human"){s.players.human.deckCount=35;s.players.human.handCount=4;s.players.human.runeCount=12;}
     s.battlefields[who==="human"?0:1].card=validateCard(c.battlefield);
     s.cards=s.cards.filter(v=>!(v.owner===who && (v.zone==="legend"||v.zone==="champion")));
     place(s,who,c.legend,"legend");
@@ -155,7 +156,10 @@ export function applyCommand(old, command) {
       }
       s.players.ai.deckCount=s.decks.ai.main.length;
       s.players.ai.runeCount=s.decks.ai.runes.length;
-    } else if(type==="draw")s.players.human.handCount+=n;
+    } else if(type==="draw"){
+      s.players.human.handCount+=n;
+      if(Number.isInteger(s.players.human.deckCount))s.players.human.deckCount=Math.max(0,s.players.human.deckCount-n);
+    }
     else s.players.human.runeCount=Math.max(0,s.players.human.runeCount-n);
     summary=p+" : "+(type==="draw"?"pioche ":"canalise ")+n+" (sans arbitrage automatique)";
   } else if(type==="mulligan") {
