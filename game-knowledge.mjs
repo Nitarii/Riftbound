@@ -27,6 +27,8 @@ export const SITE_GUIDE=Object.freeze({
  chat:"L'humain écrit ou dicte ses actions dans la chatbox. Entrée envoie, Maj+Entrée insère une ligne. Le site relaie la réponse de l'IA et ses changements de plateau.",
  board:"GET /api/state décrit les cartes et leurs uid. Les commandes du serveur font évoluer le plateau; chaque commande modifie la révision et l'historique.",
  commands:"move(uid,zone,battlefield?), add(player:'human',card:{code},zone), draw(player:'ai',count), channel(player:'ai',count), ready(uid), exhaust(uid), damage(uid,value), counter(uid,value,key), score(player,value), phase(phase), next-turn, note(text).",
+ setup:"Avant le premier tour, le joueur choisit légende/champion/terrain et le serveur installe un deck préconstruit IA avec select-precon. Ne jamais reconfigurer la partie en cours.",
+ history:"Les commandes validées ajoutent une ligne dans l'historique et augmentent revision. Le site montre l'historique, le plateau et la discussion en même temps.",
  phases:["Awaken","Beginning","Channel","Draw","Main","Ending"],
  zones:["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"],
  safety:"Ne pas consulter, réclamer ou modifier la main cachée humaine. Les cartes IA jouées doivent provenir d'uid déjà existants dans sa main. Déplacement/score uniquement avec effet ou action fondé.",
@@ -134,6 +136,13 @@ export function buildGameKnowledge(state,announcement,catalog=[],{
   return full;
  });
  const missing=picked.filter(c=>!c.text).map(c=>c.name).slice(0,8);
+ const truncated=picked.filter((c,i)=>{
+  const original=ranked[i]?.card?.text||"";
+  return original.length>Math.max(80,Math.min(1500,maxText));
+ }).map(c=>c.name).slice(0,8);
+ for(const card of picked){
+  if(truncated.includes(card.name))card.text+=" … [texte incomplet, consulter la carte officielle]";
+ }
  return {
   rules:{revision:RULES_SOURCES.coreRevision,source:RULES_SOURCES.rulesHub,
    notice:"Règles originales résumées, non exhaustives; le hub officiel et les errata prévalent.",
@@ -142,8 +151,8 @@ export function buildGameKnowledge(state,announcement,catalog=[],{
   cards:picked,
   catalog:{available:Array.isArray(catalog)&&catalog.length>100,
    count:Array.isArray(catalog)?catalog.length:0,
-   missingTexts:missing,
-   note:"Les textes affichés proviennent du catalogue existant ; leur actualité dépend des mises à jour et errata."}
+   missingTexts:missing,truncatedTexts:truncated,
+   note:"Textes issus du catalogue. Pour une capacité manquante ou tronquée, demander confirmation; vérifier les errata officiels."}
  };
 }
 export function publicReference(query,catalog=[]){
