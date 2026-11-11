@@ -10,6 +10,22 @@ Le serveur reste accessible **uniquement sur 127.0.0.1** et le jeton d'accès es
 
 Le nom du téléchargement passe à **RiftboundCompanion-v0.5.exe** pour éviter de réutiliser l'ancienne icône Windows mise en cache. Le programme porte un nouveau logo violet et doré avec un monogramme R ; la compilation teste désormais l'icône réellement extraite de l'exécutable (et pas seulement le favicon du site). Les icônes affichées dans le panneau de téléchargements de certains navigateurs peuvent toutefois rester génériques, indépendamment de l'icône de Windows Explorer.
 
+## Permettre à un agent IA distant de jouer (optionnel)
+
+Un agent distant ne peut pas ouvrir `127.0.0.1` : cette adresse représente son propre environnement, pas ton ordinateur. L'interface comporte désormais une **passerelle facultative avec jeton de session distinct**, démarrée uniquement sur demande.
+
+1. Lance `RiftboundCompanion.exe` et connecte le site au module comme d'habitude.
+2. Dans **Étape 4 — Agent IA**, télécharge le fichier officiel de Cloudflare [cloudflared-windows-amd64.exe](https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe) et place-le **dans le même dossier** que l'exécutable Riftbound Companion. Aucun besoin de l'ouvrir ni de le configurer séparément.
+3. Clique **Activer l'accès IA distant** et valide la demande. Le module lance un Quick Tunnel HTTPS temporaire vers **une passerelle dédiée**, et **non vers l'administration du serveur local**. Le module n'active jamais le tunnel automatiquement.
+4. Clique **Copier le prompt IA**. Le prompt comprend l'adresse HTTPS temporaire et un **jeton d'agent à privilèges limités**, différent du secret local. Ne le colle que dans une **conversation privée avec un agent de confiance**.
+5. Après la partie, clique **Couper l'accès distant**, ou laisse la session se fermer automatiquement après **4 heures maximum**. Tu peux lancer une nouvelle session au besoin.
+
+La passerelle distante autorise **GET /api/guide**, **GET /api/state**, **GET /api/decks**, **GET /api/catalog** et **POST /api/command**. Elle **n'expose pas** les endpoints de connexion locale, d'administration du tunnel ou la réinitialisation de la partie. Chaque requête exige son propre jeton temporaire. Les modifications de cartes sont diffusées dans le plateau local.
+
+**Limites :** cela ne donne pas des outils HTTP à un chat qui n'en possède pas. Même avec le tunnel, un agent qui ne sait pas émettre des requêtes HTTP personnalisées avec l'en-tête `Authorization` ne peut pas contrôler la partie. La variante de secours reste le partage de l'état et des commandes JSON manuelles. Les Quick Tunnels sont destinés aux tests, fournissent un nom de domaine variable, n'offrent pas de garantie de disponibilité et ne prennent pas en charge SSE : l'interface locale conserve la synchronisation via sa connexion privée. Voir la [documentation Cloudflare](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+
+**Sécurité :** l'URL du tunnel est techniquement publique, même si un jeton est nécessaire pour les actions. Tu autorises volontairement un agent extérieur à lire le plateau et à y jouer. Révoque l'accès dès que tu as terminé. Ne partage jamais le jeton local principal. Le programme tiers `cloudflared-windows-amd64.exe` doit provenir des téléchargements officiels de Cloudflare.
+
 ## Pour jouer : 1 fichier Windows
 
 **Site d'accueil :** https://nitarii.github.io/Riftbound/
