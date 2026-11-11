@@ -103,8 +103,14 @@ export function createRemoteAccess({
   }catch(e){send(res,400,{error:e.message||"Erreur de commande"});}
  };
  function getBinary(){
-  if(!sea.isSea())return process.env.RIFTBOUND_CLOUDFLARED||"cloudflared";
-  const bundled=Buffer.from(sea.getAsset("cloudflared.exe"));
+  if(process.env.RIFTBOUND_CLOUDFLARED)return process.env.RIFTBOUND_CLOUDFLARED;
+  if(!sea.isSea())return "cloudflared";
+  // If a signed vendor binary is packaged in a future release it may be
+  // extracted. Today the user installs cloudflared separately from Cloudflare.
+  let asset;
+  try{asset=sea.getAsset("cloudflared.exe");}
+  catch{return "cloudflared";}
+  const bundled=Buffer.from(asset);
   const checksum=crypto.createHash("sha256").update(bundled).digest("hex").slice(0,16);
   const output=path.join(userData,"cloudflared-"+checksum+".exe");
   let valid=false;
@@ -158,7 +164,11 @@ export function createRemoteAccess({
    proc.once("exit",()=>{if(child===proc)stop();});
    onStatus(status());
    return {...status(),agentToken:active.agentToken};
-  })().catch(err=>{stop();throw err;}).finally(()=>{pending=null;});
+  })().catch(err=>{
+    stop();
+    const absent=err?.code==="ENOENT";
+    throw absent?Error("Cloudflared n'est pas installé. Installe l'outil officiel de Cloudflare puis relance l'application."):err;
+  }).finally(()=>{pending=null;});
   return pending;
  }
  return {start,stop,status};
