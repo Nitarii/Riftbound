@@ -4,6 +4,10 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
 import {filteredPickerCards,randomExampleCards} from "./picker.mjs";
 const $=id=>document.getElementById(id);
+// Declare the loopback destination so Chrome/Edge can request the right permission.
+// Browsers that do not implement the option simply ignore it.
+const localFetchOptions=url=>/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(url)
+ ? {targetAddressSpace:"loopback"} : {};
 const storage="riftbound-companion-state-v1";
 const onboardingStorage="riftbound-onboarding-v1";
 let onboarding;
@@ -64,7 +68,7 @@ function render(){
 async function dispatch(command){
   try{
     if(relay){
-      const res=await fetch(relay.url+"/api/command",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(command)});
+      const res=await fetch(relay.url+"/api/command",{...localFetchOptions(relay.url),method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(command)});
       const reply=await res.json();if(!res.ok)throw Error(reply.error||"Erreur du relais");
       state=reply.state;lastSync=state.revision;render();
     }else{undo.push(structuredClone(state));undo=undo.slice(-50);state=applyCommand(state,command);render();}
@@ -248,7 +252,7 @@ function disconnect(){
 async function syncRelaySnapshot(session){
  if(relay!==session)return;
  try{
-  const res=await fetch(session.url+"/api/state",{headers:{Authorization:"Bearer "+session.token}});
+  const res=await fetch(session.url+"/api/state",{...localFetchOptions(session.url),headers:{Authorization:"Bearer "+session.token}});
   if(!res.ok)return;
   const fresh=(await res.json()).state;
   if(fresh&&fresh.revision>=lastSync){state=fresh;lastSync=fresh.revision;render();}
@@ -266,7 +270,7 @@ async function attachLiveEvents(session){
    return;
  }
  try{
-  const stream=await fetch(session.url+"/api/events-ticket",{method:"POST",
+  const stream=await fetch(session.url+"/api/events-ticket",{...localFetchOptions(session.url),method:"POST",
     headers:{Authorization:"Bearer "+session.token}});
   if(!stream.ok)throw Error("Flux HTTP "+stream.status);
   const {ticket}=await stream.json();
@@ -304,7 +308,7 @@ async function connectRelay(){
  if(quickTunnel&&!confirm("Ce tunnel rend l'API accessible par Internet. Le jeton restera nécessaire pour lire et modifier la partie. Continuer ?"))return;
  try{
   if(relay)disconnect();
-  const res=await fetch(url+"/api/state",{headers:{Authorization:"Bearer "+token}});
+  const res=await fetch(url+"/api/state",{...localFetchOptions(url),headers:{Authorization:"Bearer "+token}});
   if(!res.ok)throw Error("Accès refusé au relais");
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
   signalStatus("● Relais local connecté");
@@ -661,56 +665,124 @@ const hostedPage=location.origin==="https://nitarii.github.io"&&
   /^\/Riftbound(?:\/|$)/i.test(location.pathname);
 let pairingInProgress=false;
 let companionPairTimer=null;
-async function pairExistingHostedTab(){
- if(!hostedPage||relay||pairingInProgress)return;
- pairingInProgress=true;
+let permissionState="unknown";
+let permissionStatusObject=null;
+const localCompanionURL="http://127.0.0.1:8787";
+
+function permissionMessage(message,problem=false){
+ const target=$("home-permission-state");
+ target.textContent=message;
+ target.classList.toggle("error",problem);
+ $("home-permission-help").hidden=!problem;
+}
+async function queryLoopbackPermission(){
+ if(!hostedPage)return "granted";
+ if(!navigator.permissions?.query)return "unknown";
  try{
-  const address="http://127.0.0.1:8787";
-  const health=await fetch(address+"/api/health",{cache:"no-store",signal:AbortSignal.timeout(1800)});
-  if(!health.ok)return;
+  // Chrome 145+ uses the granular loopback permission. Never use the old
+  // 'local-network-access' alias (it can crash older Chrome renderers).
+  permissionStatusObject=await navigator.permissions.query({name:"loopback-network"});
+  permissionStatusObject.onchange=()=>{
+   permissionState=permissionStatusObject.state;
+   refreshBrowserPermissionUI();
+   if(permissionState==="granted"&&!relay)pairExistingHostedTab(false);
+  };
+  return permissionStatusObject.state;
+ }catch{return "unknown";}
+}
+function refreshBrowserPermissionUI(){
+ const button=$("home-allow-local");
+ if(relay){
+  button.disabled=true;button.textContent="✓ Connexion autorisée";
+  permissionMessage("Le navigateur est autorisé et le serveur est connecté.");
+  $("home-permission-help").hidden=true;
+ }else if(permissionState==="denied"){
+  button.disabled=false;button.textContent="Réessayer la connexion";
+  permissionMessage("L'accès au serveur local est bloqué dans les paramètres de ce site.",true);
+ }else if(permissionState==="granted"){
+  button.disabled=false;button.textContent="Reconnecter mon compagnon";
+  permissionMessage("Autorisation accordée. Lance le fichier .exe s'il n'est pas déjà ouvert.");
+ }else{
+  button.disabled=false;button.textContent="Autoriser la connexion locale";
+  permissionMessage("Lance le programme Windows puis clique ici. Chrome ou Edge peut afficher une autorisation.");
+ }
+}
+async function pairExistingHostedTab(userInitiated=false){
+ if(!hostedPage||relay||pairingInProgress)return false;
+ // Critical: do not trigger the browser's permission prompt automatically.
+ // The first request must come directly from the user's click.
+ if(!userInitiated&&permissionState!=="granted")return false;
+ pairingInProgress=true;
+ const button=$("home-allow-local");
+ if(userInitiated){button.disabled=true;button.textContent="Connexion en cours…";}
+ try{
+  const health=await fetch(localCompanionURL+"/api/health",{
+   ...localFetchOptions(localCompanionURL),cache:"no-store",signal:AbortSignal.timeout(3500)
+  });
+  if(!health.ok)throw Error("Le serveur local n'a pas répondu.");
   const details=await health.json();
-  if(!details.ok||details.name!=="Riftbound Companion")return;
-  const reply=await fetch(address+"/api/pair",{
+  if(!details.ok||details.name!=="Riftbound Companion")throw Error("Ce port n'héberge pas Riftbound Companion.");
+  const reply=await fetch(localCompanionURL+"/api/pair",{
+   ...localFetchOptions(localCompanionURL),
    method:"POST",
    headers:{"Content-Type":"application/json","X-Riftbound-Pair":"1"},
-   body:"{}",cache:"no-store",signal:AbortSignal.timeout(1800)
+   body:"{}",cache:"no-store",signal:AbortSignal.timeout(3500)
   });
-  if(!reply.ok)return;
+  if(!reply.ok)throw Error("L'association sécurisée a été refusée.");
   const session=await reply.json();
-  if(!session.token||!/^http:\/\/127\.0\.0\.1:\d+$/.test(session.baseUrl))return;
+  if(!session.token||!/^http:\/\/127\.0\.0\.1:\d+$/.test(session.baseUrl))throw Error("Réponse du module incorrecte.");
   $("relay-url").value=session.baseUrl;
   $("relay-token").value=session.token;
   $("home-server-url").value=session.baseUrl;
   $("home-server-token").value=session.token;
   const ok=await connectRelay();
-  if(!ok)return;
+  if(!ok)throw Error("La connexion authentifiée au module a échoué.");
   try{sessionStorage.setItem("riftbound-local-connection-v1",session.token);}catch{}
   onboarding.installed=true;
   onboarding.installSkipped=false;
   onboarding.preview=false;
+  permissionState="granted";
   wizardStep=3;
   onboarding.wizardStep=3;
   saveOnboarding();renderWelcome();
-  notify("✓ Compagnon connecté dans cet onglet : aucune nouvelle page nécessaire.");
+  notify("✓ Compagnon connecté dans cet onglet : aucune autre page nécessaire.");
   if(companionPairTimer){clearInterval(companionPairTimer);companionPairTimer=null;}
- }catch{
-  // Server not running yet, offline or browser has denied Local Network Access:
-  // leave the existing UI functional; the user can connect manually.
- }finally{pairingInProgress=false;}
+  return true;
+ }catch(e){
+  if(userInitiated){
+   permissionState=await queryLoopbackPermission();
+   const blocked=permissionState==="denied";
+   permissionMessage(blocked
+    ?"Ton navigateur bloque l'accès au serveur local. Modifie l'autorisation dans les paramètres du site."
+    :"Impossible de contacter le compagnon. Vérifie que le .exe est ouvert, puis réessaie. "+e.message,
+    true);
+   notify("Connexion locale impossible : "+(blocked?"autorisation refusée.":"programme arrêté ou accès refusé."),true);
+  }
+  return false;
+ }finally{pairingInProgress=false;refreshBrowserPermissionUI();}
 }
-function watchForLocalCompanion(){
- if(!hostedPage)return;
- const cached=(()=>{try{return sessionStorage.getItem("riftbound-local-connection-v1")||"";}catch{return "";}})();
- if(cached){
-  $("relay-url").value="http://127.0.0.1:8787";
-  $("relay-token").value=cached;
-  $("home-server-url").value="http://127.0.0.1:8787";
-  $("home-server-token").value=cached;
-  connectRelay().then(ok=>{if(!ok)pairExistingHostedTab();});
- }else pairExistingHostedTab();
- // Poll for a newly launched app, including while this tab is in background.
- companionPairTimer=setInterval(()=>{if(!relay)pairExistingHostedTab();},1200);
+$("home-allow-local").addEventListener("click",()=>{
+ // Initiate fetch in the same user gesture to make the native permission prompt
+ // eligible in Chromium. Never simulate the prompt with a fake dialog.
+ pairExistingHostedTab(true);
+});
+async function watchForLocalCompanion(){
+ if(!hostedPage){
+  $("home-allow-local").disabled=true;
+  $("home-allow-local").textContent="Connexion depuis le programme local";
+  permissionMessage("Cette page locale n'a pas besoin d'autorisation réseau supplémentaire.");
+  return;
+ }
+ permissionState=await queryLoopbackPermission();
+ refreshBrowserPermissionUI();
+ // If permission was already granted, background reconnection is appropriate.
+ // Otherwise wait for an explicit click to avoid intrusive prompts.
+ if(permissionState==="granted")pairExistingHostedTab(false);
+ companionPairTimer=setInterval(()=>{
+  if(!relay&&permissionState==="granted")pairExistingHostedTab(false);
+ },2400);
 }
+
 render();
 renderWelcome();
 renderDeckChoices();
