@@ -31,7 +31,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,7 +42,22 @@ jobs:
         run: |
           npx --yes esbuild@0.25.12 server.mjs --bundle --platform=node --format=cjs --target=node26 --outfile=dist/server.bundle.cjs --log-level=warning
           node --check dist/server.bundle.cjs
+          # Reproducible vendor asset: fixed Cloudflare release and GitHub asset digest.
+          $vendor = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-windows-amd64.exe"
+          Invoke-WebRequest -Uri $vendor -OutFile "dist/cloudflared.exe" -MaximumRetryCount 3 -RetryIntervalSec 3
+          $expected = "2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343"
+          $actual = (Get-FileHash "dist/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {throw "Cloudflare checksum mismatch: $actual"}
+          & ".\dist\cloudflared.exe" --version
+          if ($LASTEXITCODE -ne 0) {throw "Bundled Cloudflare client cannot execute"}
+          Write-Host "Cloudflare vendor binary verified and will be embedded inside the EXE."
           node scripts/build-sea.mjs
+      - name: Verify bundled tunnel bytes
+        shell: pwsh
+        run: |
+          $json = Get-Content "dist/sea-config.json" -Raw | ConvertFrom-Json
+          if (!$json.assets.'cloudflared.exe.br') {throw "Cloudflare client missing from single executable assets"}
+          if (!(Test-Path "dist/cloudflared.exe.br")) {throw "Compressed tunnel component missing"}
       - name: Create single executable with Node SEA
         shell: pwsh
         run: node --build-sea dist/sea-config.json
@@ -71,7 +86,7 @@ jobs:
           $bmp.Dispose()
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.7.exe" -Force
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.8.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -119,7 +134,7 @@ jobs:
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.7.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.7.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.8.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.8.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -131,5 +146,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.7.exe" "dist/RiftboundCompanion-v0.7.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.8.exe" "dist/RiftboundCompanion-v0.8.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}
