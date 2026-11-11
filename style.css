@@ -937,3 +937,13 @@ body:not(.home-visible):has(#game-app:fullscreen)>header{display:none}
  .free-agent-actions{flex-direction:column}
  .free-agent-actions button{width:100%}
 }
+
+
+/* Compact rule-and-catalogue readiness display in one-click free AI setup. */
+.ai-knowledge-status{margin:12px 0;padding:12px 14px;
+ background:rgba(19,52,44,.76);border:1px solid #5b9678;border-radius:10px}
+.ai-knowledge-status strong{font-size:12px;color:#d2edd2}
+.ai-knowledge-status p{font-size:11px!important;color:#c0d4cc!important;
+ line-height:1.55!important;margin:5px 0 7px}
+.ai-knowledge-status a{font-size:11px;color:#f2d69a;text-decoration:underline;text-underline-offset:3px}
+.ai-knowledge-status a:hover{color:#fff3d1}
