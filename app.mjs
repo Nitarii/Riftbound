@@ -4,6 +4,7 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
 import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName,isChosenChampion} from "./picker.mjs";
 import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
+import {createVoiceConversation} from "./voice-session.mjs";
 const $=id=>document.getElementById(id);
 // Declare the loopback destination so Chrome/Edge can request the right permission.
 // Browsers that do not implement the option simply ignore it.
@@ -212,6 +213,9 @@ $("setup-ai").onclick=()=>{
 $("start-human").onclick=()=>dispatch({type:"start",player:"human"});
 $("start-ai").onclick=()=>dispatch({type:"start",player:"ai"});
 let chatItems=[],chatCursor=0,chatBusy=false,agentLastSeen=null,sendingChat=false;
+let voiceController=null,voiceReplyCursor=0;
+let messageQueue=Promise.resolve();
+let lastVoiceDraft="";
 function renderChatStatus(){
  const label=$("chat-connection");
  if(!relay){label.textContent="Serveur déconnecté";label.dataset.status="offline";return;}
@@ -253,6 +257,12 @@ async function syncChat(){
   for(const m of result.messages||[]){
    if(m&&Number.isInteger(m.id)&&!ids.has(m.id)&&["human","ai"].includes(m.role)){
     chatItems.push(m);ids.add(m.id);
+    // Never read archived replies aloud on reconnect. Speak only new replies
+    // that arrived after this voice conversation was explicitly activated.
+    if(m.role==="ai"&&voiceController?.state().enabled&&m.id>voiceReplyCursor){
+      voiceReplyCursor=m.id;
+      voiceController.speak(m.text);
+    }
    }
    if(m?.id>chatCursor)chatCursor=m.id;
   }
@@ -277,25 +287,38 @@ async function sendChatMessage(message){
   return true;
  }catch(e){notify("Message non envoyé : "+e.message,true);return false;}
 }
+function isTurnAnnouncement(text){
+ return /^(?:je\s+)?(?:passe|termine|finis)\s+(?:mon\s+)?tour[\s.!?]*$/i.test(text)||
+  /^fin\s+de\s+(?:mon\s+)?tour[\s.!?]*$/i.test(text);
+}
+// Serialize all voice/text announcements. A slow local model must not cause
+// the next recognized utterance to be silently discarded.
+function enqueuePlayerAnnouncement(value){
+ const text=String(value||"").trim().slice(0,1200);
+ if(!text)return Promise.resolve(false);
+ const next=messageQueue.then(async()=>{
+  if(isTurnAnnouncement(text)){
+   if(!relay){notify("Connecte le serveur avant de passer ton tour.",true);return false;}
+   if(!await dispatch({type:"next-turn"}))return false;
+  }
+  return sendChatMessage(text);
+ });
+ messageQueue=next.catch(()=>false);
+ return next;
+}
 async function sendNote(){
- if(sendingChat)return;
  const input=$("notes"),text=input.value.trim();
  if(!text)return;
- sendingChat=true;$("send-note").disabled=true;
+ $("send-note").disabled=true;
  try{
-  if(/^(?:je\s+)?(?:passe|termine|finis)\s+(?:mon\s+)?tour[\s.!?]*$/i.test(text)||
-    /^fin\s+de\s+(?:mon\s+)?tour[\s.!?]*$/i.test(text)){
-   if(!relay){notify("Connecte le serveur pour passer ton tour à l'IA.",true);return;}
-   if(!await dispatch({type:"next-turn"}))return;
-  }
-  if(await sendChatMessage(text))input.value="";
- }finally{sendingChat=false;$("send-note").disabled=false;}
+  const sent=await enqueuePlayerAnnouncement(text);
+  if(sent&&input.value.trim()===text)input.value="";
+ }finally{$("send-note").disabled=false;}
 }
 async function passTurn(){
- if(sendingChat)return;
  if(!relay)return notify("Connecte le serveur pour passer le tour à l'IA.",true);
  if(!await dispatch({type:"next-turn"}))return;
- await sendChatMessage("Je termine mon tour. À toi de jouer.");
+ await enqueuePlayerAnnouncement("Je termine mon tour. À toi de jouer.");
 }
 $("next-turn").onclick=passTurn;
 $("chat-pass-turn").onclick=passTurn;
@@ -319,24 +342,71 @@ function interpretNote(){
 }
 $("interpret-note").onclick=interpretNote;
 const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(!SpeechAPI){$("voice-note").disabled=true;$("voice-note").title="Dictée non disponible sur ce navigateur";}
-else {
- let recognizer=null,recording=false;
- $("voice-note").onclick=()=>{
-  if(recording&&recognizer){recognizer.stop();return;}
-  recognizer=new SpeechAPI();recognizer.lang="fr-FR";
-  recognizer.interimResults=false;recognizer.continuous=false;
-  recognizer.onresult=e=>{
-   const phrase=Array.from(e.results).map(r=>r[0]?.transcript||"").join(" ").trim();
-   $("notes").value=[$("notes").value.trim(),phrase].filter(Boolean).join(" ");
-   $("notes").focus();
-   notify("Dictée prête. Appuie sur Entrée pour envoyer le message à l'IA.");
-  };
-  recognizer.onerror=e=>notify("Dictée indisponible : "+e.error,true);
-  recognizer.onend=()=>{recording=false;$("voice-note").textContent="🎙 Dicter";};
-  try{recognizer.start();recording=true;$("voice-note").textContent="■ Arrêter";}catch(e){notify(e.message,true);}
- };
+const voiceButton=$("voice-note"),voiceIndicator=$("voice-live"),voiceStatus=$("voice-live-text");
+const voiceReadReplies=$("voice-read-replies");
+function voiceUI(info){
+ const active=Boolean(info.enabled);
+ voiceButton.setAttribute("aria-pressed",String(active));
+ voiceButton.textContent=active?"■ Couper le micro":"🎙 Mode vocal";
+ voiceButton.title=active?"Désactiver la conversation mains libres":"Activer l'écoute continue et l'envoi automatique";
+ voiceIndicator.dataset.voiceState=info.phase;
+ voiceStatus.textContent=info.detail||(active?"Microphone actif. Parle naturellement.":"Mode vocal éteint.");
 }
+function showVoiceDraft(transcript){
+ const input=$("notes");
+ if(!transcript){
+  if(lastVoiceDraft&&input.value===lastVoiceDraft)input.value="";
+  lastVoiceDraft="";
+  return;
+ }
+ if(!input.value||input.value===lastVoiceDraft){
+  input.value=transcript;
+  lastVoiceDraft=transcript;
+ }
+}
+voiceController=createVoiceConversation({
+ Recognition:SpeechAPI,
+ synthesis:window.speechSynthesis||null,
+ Utterance:window.SpeechSynthesisUtterance||null,
+ onState:voiceUI,
+ onPreview:showVoiceDraft,
+ onTranscript:async text=>{
+  // The model receives the exact transcription through the normal chat API.
+  // Only explicit, unambiguous end-turn phrases advance the board automatically.
+  const success=await enqueuePlayerAnnouncement(text);
+  if(!success)notify("Phrase reconnue mais non envoyée. Vérifie le serveur local.",true);
+ },
+ silenceMs:1500,
+ restartMs:700
+});
+voiceController.setSpeechEnabled(voiceReadReplies.checked);
+voiceUI(voiceController.state());
+if(!SpeechAPI){
+ voiceButton.disabled=true;
+ voiceStatus.textContent="Reconnaissance vocale absente : utilise Chrome ou Edge à jour.";
+}
+voiceButton.onclick=async()=>{
+ if(voiceController.state().enabled){
+  voiceController.stop();
+  return;
+ }
+ if(!relay){
+  notify("Connecte le programme Windows avant d'activer la conversation vocale.",true);
+  return;
+ }
+ // Initialize the reply cursor with existing chat history, so that opening
+ // voice mode doesn't read back previous turns out loud.
+ await syncChat();
+ voiceReplyCursor=Math.max(chatCursor,...chatItems.map(m=>m.id),0);
+ if(!integratedAIStatus?.enabled&&!remoteSession?.url){
+  notify("Le micro va fonctionner, mais active ton adversaire IA pour obtenir ses réponses.",true);
+ }
+ const started=voiceController.start();
+ if(started)notify("Mode conversation activé. Parle, fais une courte pause et l'IA recevra ton message.");
+};
+voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);
+document.addEventListener("visibilitychange",()=>voiceController.setHidden(document.hidden));
+window.addEventListener("pagehide",()=>voiceController.stop());
 setInterval(()=>{if(relay)syncChat();else renderChatStatus();},2500);
 setInterval(()=>{if(localAI()&&integratedAIStatus?.enabled)aiQuery();},8000);
 
@@ -777,6 +847,7 @@ $("import-cards").onchange=async e=>{try{catalog=importCatalog(JSON.parse(await 
 const signalStatus=t=>{$("connection").textContent=t;};
 let sseRetry=null;
 function disconnect(){
+ voiceController?.stop();
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
