@@ -405,3 +405,29 @@ body.home-visible .header-actions > :not(.header-home){display:none!important}
  .chat-actions #send-note{margin-left:0}
  .chat-messages{max-height:270px}
 }
+
+
+/* v0.11: outbound integrated AI, no tunnel or external agent tools required. */
+.integrated-agent-panel{padding:19px 20px;margin-bottom:17px;border:1px solid #7b9c7e;
+ background:linear-gradient(135deg,#1a3935,#142b3b 70%);border-radius:14px}
+.integrated-heading{display:flex;align-items:center;gap:14px;margin-bottom:15px}
+.integrated-heading>span{flex:0 0 47px;display:grid;place-items:center;width:47px;height:47px;
+ border:1px solid #a8c894;border-radius:12px;background:#355649;color:#eacb83;font-size:25px}
+.integrated-heading h3{margin:0 0 3px;color:#e8dfae;font:700 22px "Barlow Condensed",Arial,sans-serif}
+.integrated-heading p{font-size:12px;line-height:1.55;margin:0;color:#bcd3ca}
+.ai-config-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}
+.ai-config-grid label{font-size:12px;min-width:0;color:#d6e4da}
+.ai-config-grid input,.ai-config-grid select{min-height:42px;border-color:#5e817a;border-radius:9px}
+#ai-key-label[hidden],#ai-endpoint-label[hidden]{display:none!important}
+.integrated-help{font-size:11px!important;color:#bbd2c9!important;margin-top:6px}
+.integrated-status{font-size:12px!important;color:#b4e7ca!important;margin:11px 0 0}
+.integrated-caution{font-size:11px!important;color:#b6c4bc!important;margin:11px 0 0;
+ padding-top:10px;border-top:1px solid #59776b;line-height:1.6!important}
+.remote-access-alternative{border:1px solid #425764;border-radius:10px;
+ padding:12px 15px;background:#10202b}
+.remote-access-alternative>summary{font-weight:600;color:#b0bfcd;cursor:pointer}
+.remote-access-alternative .remote-agent-panel{margin-top:13px}
+@media(max-width:650px){.ai-config-grid{grid-template-columns:1fr}
+ .integrated-agent-panel{padding:13px 12px}
+ .integrated-heading{align-items:flex-start}
+}
