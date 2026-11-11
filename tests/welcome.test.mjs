@@ -34,7 +34,7 @@ test("direct Windows download is a single exe with no Node dependency for the pl
 test("the UI is honest about physical cards, AI access and fan status",()=>{
  assert.match(html,/non commercial/);
  assert.match(html,/cartes physiques/i);
- assert.match(html,/Une IA extérieure|une IA distante|une IA distante|IA distante|IA extérieure|agent externe/i);
+ assert.match(html,/Une IA extérieure|une IA distante|IA distante|IA extérieure|agent externe|Un agent distant/i);
  assert.match(js,/const deck=resolvePrecon\(catalog,\$\("home-ai-deck"\)\.value\)/);
  assert.match(js,/type:"setup-human"/);
  assert.match(js,/type:"setup-ai"/);
