@@ -4,7 +4,7 @@ import {canonicalCode} from "./precons.mjs";
 // Piltover Archive artwork is a last-resort remote fallback only; no art is copied to GitHub.
 export const CARD_SOURCE="https://huggingface.co/datasets/Wysme/riftbound-cards/resolve/main/cards.json";
 export const CARD_SOURCE_BACKUP="https://raw.githubusercontent.com/slimtreble/Riftbound-card-data/main/cards.json";
-const STORAGE="riftbound-companion-catalog-v2";
+const STORAGE="riftbound-companion-catalog-v3";
 let cache=null;
 export function piltoverImage(code){
   const normalized=canonicalCode(code);
@@ -14,7 +14,21 @@ export function piltoverImage(code){
 export function normalizeCard(x){
   if(!x||typeof x!=="object")return null;
   const code=String(x.code||x.cardCode||x.card_code||x.publicCode||x.id||"").trim();
-  const name=String(x.fullName||x.full_name||x.name||x.title||"").trim();
+  const rawName=String(x.fullName||x.full_name||x.name||x.title||"").trim();
+  const cardType=String(x.cardType||x.card_type||x.type||"Unit");
+  const tags=Array.isArray(x.tags)?x.tags.map(String):[];
+  const cardTypeLabels=Array.isArray(x.cardTypeLabels)?x.cardTypeLabels:
+    Array.isArray(x.card_type_labels)?x.card_type_labels:
+    Array.isArray(x.typeLabels)?x.typeLabels:[];
+  // The source gallery may export a Legend under its epithet alone,
+  // e.g. "Bashful Bloom". Its champion tag identifies "Lillia".
+  const identity=cardType.toLowerCase().includes("legend")&&tags.length?tags[0]:
+    rawName.includes(",")?rawName.split(",")[0].trim():
+    cardTypeLabels.some(t=>String(t).toLowerCase()==="champion")&&tags.length?tags[0]:"";
+  const name=cardType.toLowerCase().includes("legend")&&identity&&
+    rawName.toLowerCase()!==identity.toLowerCase()&&
+    !rawName.toLowerCase().startsWith(identity.toLowerCase()+",")
+    ?identity+", "+rawName:rawName;
   if(!name||!code)return null;
   const domains=x.domains||x.colors||x.domain||[];
   const domainArray=Array.isArray(domains)?domains:typeof domains==="string"?[domains]:[];
@@ -24,10 +38,11 @@ export function normalizeCard(x){
   const image=riotUrl||(/^(https:\/\/)/i.test(officialImage)?officialImage:"")||piltoverImage(code);
   const imageFallback=riotUrl?piltoverImage(code):"";
   const subtitle=String(x.subtitle||"").trim();
-  return {code,name,type:String(x.cardType||x.card_type||x.type||"Unit"),image,imageFallback,
+  return {code,name,type:cardType,image,imageFallback,
+    championName:identity,cardTypeLabels:cardTypeLabels.map(String),
     domains:domainArray.map(String),text:String(x.abilityEffective||x.ability_effective||x.ability_corrected||x.ability||x.cardText||x.text||""),
     energy:x.energy??x.cost??null,power:x.power??null,might:x.might??null,
-    tags:Array.isArray(x.tags)?x.tags.map(String):[],
+    tags,
     set:String(x.cardSet||x.card_set||x.setName||x.set||""),subtitle,
     isVariant:Boolean(x.isVariant||x.is_variant||x.isAltArt||x.is_alt_art||x.isSigned||x.is_signed),rarity:String(x.rarity||""),
     sourceUrl:String(x.sourceUrl||x.source_url||"")};
