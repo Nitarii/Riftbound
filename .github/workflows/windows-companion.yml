@@ -48,6 +48,27 @@ jobs:
         run: |
           npm install --prefix dist/icon-tools --no-save --no-audit --no-fund @resvg/resvg-js@2.6.2 rcedit@5.0.2
           node scripts/apply-icon.mjs
+      - name: Verify actual Windows Explorer icon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Add-Type -AssemblyName System.Drawing
+          $exe=(Resolve-Path "dist/RiftboundCompanion.exe").Path
+          $icon=[System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $icon) {throw "No executable icon was extracted"}
+          $bmp=$icon.ToBitmap()
+          $goldPixels=0
+          for($x=0;$x -lt $bmp.Width;$x++){
+            for($y=0;$y -lt $bmp.Height;$y++){
+              $p=$bmp.GetPixel($x,$y)
+              if($p.A -gt 200 -and $p.R -gt 160 -and $p.G -gt 90 -and $p.R -gt ($p.B + 40)){$goldPixels++}
+            }
+          }
+          Write-Host "Extracted Windows icon: $($bmp.Width)x$($bmp.Height), gold pixels=$goldPixels"
+          $bmp.Dispose()
+          $icon.Dispose()
+          if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.5.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -95,6 +116,7 @@ jobs:
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.5.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.5.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -106,5 +128,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.5.exe" "dist/RiftboundCompanion-v0.5.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}
