@@ -19,7 +19,7 @@ export function cardPowerDomains(card){
 }
 export function planRunePayment(state,owner,card){
  if(!["human","ai"].includes(owner))return {error:"Propriétaire de rune inconnu."};
- const energy=Number(card?.energy);
+ const energy=card?.energy==null||card.energy===""?NaN:Number(card.energy);
  const power=card?.power==null?0:Number(card.power);
  if(!Number.isInteger(energy)||energy<0||!Number.isInteger(power)||power<0)
   return {error:"Coût de carte incomplet : énergie ou Power inconnus."};
