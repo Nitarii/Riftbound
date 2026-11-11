@@ -31,6 +31,14 @@ test("remote gateway separates temporary agent privileges from local admin",asyn
  assert.ok(session.agentToken.length>=40);
  const base="http://127.0.0.1:"+port;
  try {
+  const agentConsole=await fetch(base+"/agent");
+  assert.equal(agentConsole.status,200);
+  const consoleHtml=await agentConsole.text();
+  assert.match(consoleHtml,/Console de l'agent/);
+  assert.ok(!consoleHtml.includes(session.agentToken));
+  const consoleJS=await fetch(base+"/agent.js");
+  assert.equal(consoleJS.status,200);
+  assert.match(await consoleJS.text(),/Authorization/);
   const unauthorized=await fetch(base+"/api/state");
   assert.equal(unauthorized.status,401);
   const localSecret=await fetch(base+"/api/state",{headers:{Authorization:"Bearer my-local-admin-token"}});
