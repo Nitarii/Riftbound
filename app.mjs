@@ -666,6 +666,7 @@ try{setSidebarCollapsed(localStorage.getItem(sidebarKey)==="true");}catch{}
 const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 const voiceButton=$("voice-note"),voiceIndicator=$("voice-live"),voiceStatus=$("voice-live-text");
 const voiceReadReplies=$("voice-read-replies");
+let voiceUsingWhisper=false;
 const voiceTranscript=$("voice-transcript"),voiceHeard=$("voice-heard");
 const voiceTranscriptLabel=$("voice-transcript-label");
 const voiceAutoSend=$("voice-auto-send");
@@ -738,6 +739,7 @@ if(!SpeechAPI&&!navigator.mediaDevices?.getUserMedia){
 }
 voiceButton.onclick=async()=>{
  if(voiceController.state().enabled){
+  voiceUsingWhisper=false;
   // A final phrase recognized just before the user clicks "Stop" should
   // still be sent, rather than silently discarded during the delay.
   voiceController.flush();
@@ -755,20 +757,27 @@ voiceButton.onclick=async()=>{
  if(!integratedAIStatus?.enabled&&!remoteSession?.url){
   notify("Le micro va fonctionner, mais active ton adversaire IA pour obtenir ses réponses.",true);
  }
- let localReady=false;
+ let localReady=false,whisperDisabled=false;
  try{
   const response=await fetch(relay.url+"/api/speech/status",{
    ...localFetchOptions(relay.url),
    headers:{"Authorization":"Bearer "+relay.token},cache:"no-store"
   });
-  if(response.ok)localReady=Boolean((await response.json()).installed);
+  if(response.ok){
+   const current=await response.json();
+   whisperDisabled=Boolean(current.installed&&current.enabled===false);
+   localReady=Boolean(current.installed&&current.enabled!==false);
+  }
  }catch{}
  const requested=$("speech-source").value;
  if(requested==="local"&&!localReady){
-  notify("Whisper n'est pas encore installé. Installe-le dans le dossier choisi ou sélectionne Chrome.",true);
+  notify(whisperDisabled?
+   "Whisper est désactivé depuis le gestionnaire. Réactive-le pour utiliser la transcription locale.":
+   "Whisper n'est pas installé. Installe-le dans le dossier choisi ou sélectionne Chrome.",true);
   return;
  }
- if((requested==="auto"&&localReady)||requested==="local"){
+ const useWhisper=(requested==="auto"&&localReady)||requested==="local";
+ if(useWhisper){
   voiceController=createLocalVoiceConversation({
    onState:voiceUI,onPreview:showVoiceDraft,
    onTranscript:handleVoiceTranscript,
@@ -796,11 +805,34 @@ voiceButton.onclick=async()=>{
  voiceController.setSpeechEnabled(voiceReadReplies.checked);
  voiceController.setLanguage(uiLanguage);
  const started=await voiceController.start();
+ voiceUsingWhisper=Boolean(started&&useWhisper);
  if(started){voiceTranscript.hidden=true;voiceHeard.textContent="";}
  if(started)notify(localReady&&requested!=="chrome"?
   "Micro Whisper local activé · parole transcrite sur ton PC.":"Micro Chrome activé.");
 };
 voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);
+// The manager may disable Whisper while the browser microphone is listening.
+// Close that browser microphone too, rather than silently recording and sending
+// audio to an engine that has already been stopped.
+let speechLifecycleCheck=false;
+setInterval(async()=>{
+ if(!voiceUsingWhisper||!relay||!voiceController.state().enabled||speechLifecycleCheck)return;
+ speechLifecycleCheck=true;
+ try{
+  const session=relay;
+  const response=await fetch(session.url+"/api/speech/status",{
+   ...localFetchOptions(session.url),headers:{"Authorization":"Bearer "+session.token},
+   cache:"no-store",signal:AbortSignal.timeout(5000)
+  });
+  if(response.ok&&relay===session){
+   const status=await response.json();
+   if(status.enabled===false&&voiceUsingWhisper){
+    voiceUsingWhisper=false;voiceController.stop();
+    notify("Whisper a été désactivé dans le gestionnaire : le micro local a été coupé.");
+   }
+  }
+ }catch{}finally{speechLifecycleCheck=false;}
+},3500);
 $("language-select").value=uiLanguage;
 $("language-select").addEventListener("change",event=>{
  uiLanguage=event.target.value==="en"?"en":"fr";
@@ -1342,6 +1374,7 @@ async function attachLiveEvents(session){
    if(relay!==session)return;
    const data=JSON.parse(e.data);
    if(data.shutdown){
+    voiceUsingWhisper=false;voiceController.stop();
     disconnect();
     notify("Le compagnon et ses moteurs IA ont été arrêtés depuis le gestionnaire.");
     return;

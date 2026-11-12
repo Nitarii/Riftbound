@@ -115,8 +115,13 @@ export function createFreeLocalAI({
  let info={phase:"idle",progress:0,transferred:0,total:0,message:"IA gratuite CPU non installée.",
   error:"",model:MODEL_NAME,installed:false,ready:false};
  function set(partial){info={...info,...partial};}
- function status(){return {...info,models:FREE_MODELS,version:ENGINE_RELEASE,enginePort:PORT,
-  free:true,running:Boolean(job)};}
+ function status(){
+  const processActive=Boolean(active&&active.exitCode==null&&active.signalCode==null&&!active.killed);
+  return {...info,ready:Boolean(info.ready&&processActive),
+   installed:installed(),models:FREE_MODELS,version:ENGINE_RELEASE,enginePort:PORT,
+   free:true,running:Boolean(job),installing:Boolean(job&&!processActive),
+   processActive,pid:processActive&&Number.isSafeInteger(active.pid)?active.pid:null};
+ }
  function installed(){
   try{
    const saved=JSON.parse(fs.readFileSync(marker,"utf8"));
@@ -172,9 +177,15 @@ export function createFreeLocalAI({
   const args=["--model",modelFile,"--host",HOST,"--port",String(PORT),
    "--ctx-size","4096","--threads",String(Math.max(1,Math.min(4,os.availableParallelism?.()||4))),
    "--n-gpu-layers","0","--parallel","1","--alias",MODEL_NAME];
-  active=spawnImpl(executable,args,{cwd:path.dirname(executable),windowsHide:true,stdio:"ignore"});
-  active.once("error",error=>set({phase:"error",error:failure(error)}));
-  active.once("exit",()=>{active=null;});
+  const child=spawnImpl(executable,args,{cwd:path.dirname(executable),windowsHide:true,stdio:"ignore"});
+  active=child;
+  child.once("error",error=>set({phase:"error",ready:false,error:failure(error)}));
+  child.once("exit",()=>{
+   if(active===child){
+    active=null;
+    if(!stopping)set({ready:false,phase:"idle",message:"Le moteur Qwen s'est arrêté."});
+   }
+  });
   for(let i=0;i<150;i++){
    ensureRunning();
    if(await probe(1400))return;
@@ -220,7 +231,7 @@ export function createFreeLocalAI({
   stopping=true;
   if(extractProcess){stopOwnedProcess(extractProcess);extractProcess=null;}
   if(active){stopOwnedProcess(active);active=null;}
-  set({phase:"idle",ready:false,progress:0,message:"IA locale arrêtée."});
+  set({phase:"idle",ready:false,progress:0,installed:installed(),message:"IA locale arrêtée. Les modèles sont conservés."});
  }
  set({installed:installed(),message:installed()?"Moteur CPU installé. Active l'IA gratuite.":"IA gratuite CPU non installée."});
  return {start,resume,status,stop};

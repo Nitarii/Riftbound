@@ -21,6 +21,7 @@ import {makeCardClarification,resolveCardClarification} from "./clarification.mj
 import {createFreeLocalAI} from "./free-ai.mjs";
 import {createLocalWhisper} from "./whisper-local.mjs";
 import {createPortableManager,CURRENT_VERSION} from "./portable-manager.mjs";
+import {createProcessDashboard} from "./process-dashboard.mjs";
 import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 const packaged=sea.isSea();
@@ -290,6 +291,7 @@ const remoteAccess=createRemoteAccess({
  sendMessage:receiveAgentMessage,
  markAgentPoll:()=>conversation.markAgentPoll()
 });
+const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,remoteAccess});
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
@@ -403,6 +405,23 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="GET"&&url.pathname==="/api/manager/status"){
     json(res,200,manager.status(),req);return;
   }
+  // Process inventory includes ONLY children owned by this companion instance.
+  // No global Windows process enumeration and no stopping unrelated programs.
+  if(req.method==="GET"&&url.pathname==="/api/manager/processes"){
+    json(res,200,processDashboard.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/processes/stop"){
+    try{
+      const input=await body(req);
+      json(res,200,processDashboard.stop(input.target),req);
+    }catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/manager/processes/whisper/enable"){
+    try{
+      if(!manager.status().canLaunch)throw Error("Termine la vérification ou la mise à jour avant d'activer Whisper.");
+      json(res,200,processDashboard.enableWhisper(),req);
+    }catch(e){msg(res,409,String(e.message||e),req);}return;
+  }
   if(req.method==="POST"&&url.pathname==="/api/manager/stop"){
     try{json(res,200,manager.requestStop(await body(req)),req);}
     catch(e){msg(res,400,String(e.message||e),req);}return;
@@ -466,9 +485,8 @@ const server=http.createServer(async(req,res)=>{
     catch(e){msg(res,400,e.message,req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/disable"){
-    const wasFree=integratedAI.status().provider==="free";
     const result=integratedAI.disable();
-    if(wasFree)localFreeAI.stop();
+    localFreeAI.stop();
     json(res,200,result,req);return;
   }
   if(req.method==="GET"&&url.pathname==="/api/remote/status"){

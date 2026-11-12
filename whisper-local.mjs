@@ -78,6 +78,7 @@ export function createLocalWhisper({
   downloads=path.join(root,"downloads"),models=path.join(root,"models"),temp=path.join(root,"temp");
  const stamp=path.join(engineDir,".verified.json"),preferences=path.join(root,".speech-preferences.json");
  let selected="base",running=null,job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false;
+ let enabled=true; // Preserve the existing hands-free default for current users.
  const ensureRunning=()=>{if(stopping)throw Error("Installation vocale interrompue : fermeture du compagnon.");};
  async function unpack(zip,dir,env){
   if(extract){await extract(zip,dir,env);return;}
@@ -90,9 +91,15 @@ export function createLocalWhisper({
    if(status!==0)throw Error("Extraction de whisper.cpp impossible.");
   }finally{if(extractProc===proc)extractProc=null;}
  }
- try{const saved=JSON.parse(fs.readFileSync(preferences,"utf8"));
+ try{
+  const saved=JSON.parse(fs.readFileSync(preferences,"utf8"));
   if(WHISPER_OPTIONS[saved.selected])selected=saved.selected;
+  if(saved.enabled===false)enabled=false;
  }catch{}
+ function savePreferences(){
+  fs.mkdirSync(root,{recursive:true});
+  fs.writeFileSync(preferences,JSON.stringify({selected,enabled}),{mode:0o600});
+ }
  let info={phase:"idle",progress:0,error:"",message:"Transcription locale non installée."};
  const modelPath=id=>path.join(models,WHISPER_OPTIONS[id].file);
  const installed=id=>Boolean(findWhisper(engineDir)&&fs.existsSync(stamp)&&fs.existsSync(modelPath(id)));
@@ -100,8 +107,13 @@ export function createLocalWhisper({
   const ready=installed(selected);
   const effective=ready&&info.phase==="idle"?
    {...info,phase:"ready",progress:100,message:"Whisper "+selected+" installé dans ton dossier."}:info;
-  return {...effective,installed:ready,selected,processing:transcribing,
-  engineInstalled:Boolean(findWhisper(engineDir)),options:Object.fromEntries(
+  const processActive=Boolean(activeProc&&activeProc.exitCode==null&&
+   activeProc.signalCode==null&&!activeProc.killed);
+  return {...effective,installed:ready,selected,enabled,
+   processing:Boolean(transcribing&&processActive),processActive,
+   pid:processActive&&Number.isSafeInteger(activeProc.pid)?activeProc.pid:null,
+   installing:Boolean(job),
+   engineInstalled:Boolean(findWhisper(engineDir)),options:Object.fromEntries(
    Object.entries(WHISPER_OPTIONS).map(([id,c])=>[id,{label:c.label,bytes:c.bytes,installed:installed(id)}])),
   running:Boolean(job)};}
  async function prepare(id){
@@ -128,7 +140,8 @@ export function createLocalWhisper({
   await download(config.url,modelPath(id),config.sha256,
    (n,total)=>{info.progress=total?Math.round(n/total*100):Math.round(n/config.bytes*100);},fetchImpl);
   ensureRunning();
-  fs.writeFileSync(preferences,JSON.stringify({selected:id}),{mode:0o600});
+  enabled=true;
+  savePreferences();
   info={phase:"ready",progress:100,error:"",message:"Whisper "+id+" prêt, 100 % local."};
  }
  function begin(id="base"){
@@ -139,14 +152,25 @@ export function createLocalWhisper({
    message:"Installation vocale interrompue.",progress:0};}).finally(()=>{if(job===promise)job=null;});
   job=promise;return status();
  }
- function stop(){
+ function stop({disable=false}={}){
+  if(disable){
+   enabled=false;
+   savePreferences();
+  }
   stopping=true;
   if(extractProc)stopOwnedProcess(extractProc);
   extractProc=null;
   if(activeProc)stopOwnedProcess(activeProc);
   activeProc=null;transcribing=false;
  }
+ function enable(){
+  if(!installed(selected))throw Error("Installe d'abord Whisper avant de l'activer.");
+  enabled=true;stopping=false;savePreferences();
+  info={...info,phase:"ready",error:"",message:"Whisper activé : aucun processus tant qu'une transcription n'est pas demandée."};
+  return status();
+ }
  async function transcribe(buffer,{language="auto",cards=[]}={}){
+  if(!enabled)throw Error("Whisper désactivé dans le gestionnaire : réactive-le pour utiliser le micro local.");
   if(stopping)throw Error("Whisper arrêté.");
   if(!installed(selected))throw Error("Whisper n'est pas installé. Installe le modèle dans le compagnon.");
   if(transcribing)throw Error("Une transcription est déjà en cours.");
@@ -179,5 +203,5 @@ export function createLocalWhisper({
    for(const name of [wav,out+".txt",out+".json"])try{fs.rmSync(name,{force:true});}catch{}
   }
  }
- return {status,begin,stop,transcribe,root};
+ return {status,begin,stop,enable,transcribe,root};
 }
