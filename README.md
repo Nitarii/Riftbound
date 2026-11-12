@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.24.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.25.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.24.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.25.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,17 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.25 — Gestionnaire des processus : Qwen, Whisper et tunnel
+
+Le gestionnaire affiche à tout moment le statut **réel des processus lancés par cette instance de Riftbound** : modèle Qwen (serveur llama.cpp), moteur de transcription Whisper et tunnel Cloudflare. L'interface distingue `installé`, `activé mais au repos`, `processus actif`, `installation en cours` et `désactivé`. Quand c'est pertinent, le PID du moteur lancé est indiqué. Les états sont rafraîchis toutes les 1,5 secondes.
+
+- **■ Arrêter Qwen** : tue uniquement le serveur llama.cpp appartenant à Riftbound et désactive l'adversaire automatique dans les préférences. Les poids téléchargés restent sur place. **Activer Qwen** permet de redémarrer plus tard sans retélécharger un modèle intact.
+- **■ Désactiver Whisper** : interrompt la transcription locale en cours et bloque les transcriptions suivantes, **sans désinstaller** les modèles Base/Small. **Activer Whisper** rétablit les transcriptions sans relancer un processus permanent.
+- **■ Fermer le tunnel** : ferme l'accès distant optionnel sans toucher aux modèles locaux.
+- **■ Tout arrêter · garder le gestionnaire ouvert** : arrête/désactive Qwen, Whisper et le tunnel ensemble. L'interface et le serveur compagnon restent ouverts ; les fichiers, modèles et parties restent intacts.
+- **■ Quitter et arrêter les processus** : arrêt global incluant le serveur et le gestionnaire lui-même, comme auparavant.
+- **Protection du PC** : seuls les sous-processus réellement créés par Riftbound sont surveillés/terminés ; aucun `taskkill /IM` global ni processus d'autres logiciels n'est touché. L'état n'est pas une liste exhaustive de toutes les IA installées ou exécutées par d'autres applications.
 
 ## v0.24 — Moteur de confrontation Riftbound
 

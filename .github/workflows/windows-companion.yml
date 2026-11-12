@@ -26,6 +26,7 @@ on:
       - 'portable-manager.mjs'
       - 'release-policy.mjs'
       - 'process-lifecycle.mjs'
+      - 'process-dashboard.mjs'
       - 'local-voice.mjs'
       - 'manager.html'
       - 'voice-session.mjs'
@@ -131,7 +132,7 @@ jobs:
           $bmp.Dispose()
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.24.exe" -Force
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.25.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -156,12 +157,27 @@ jobs:
             if (!$portableStatus.portable -or $portableStatus.path -ne $env:RIFTBOUND_DATA_DIR) {throw "Windows companion wrote outside user-selected portable root"}
             if (!(Test-Path (Join-Path $portableStatus.path ".riftbound-install.json"))) {throw "Missing portable installation manifest"}
             $managerPage = Invoke-WebRequest "http://127.0.0.1:8878/manager.html" -UseBasicParsing
-            if (!$managerPage.Content.Contains("manager-stop") -or !$managerPage.Content.Contains("startup-screen")) {throw "Version gate / process stop UI missing"}
+            if (!$managerPage.Content.Contains("manager-stop") -or !$managerPage.Content.Contains("startup-screen") -or !$managerPage.Content.Contains("process-stop-all")) {throw "Version gate / live engine process UI missing"}
             if ($managerPage.StatusCode -ne 200 -or !$managerPage.Content.Contains("Désinstaller")) {throw "Bundled manager UI missing"}
             $speechJS = Invoke-WebRequest "http://127.0.0.1:8878/local-voice.mjs" -UseBasicParsing
             if (!$speechJS.Content.Contains("audioToWav")) {throw "Bundled offline speech UI missing"}
             if (!$portableStatus.canLaunch -or $portableStatus.updateState -ne "current") {throw "Latest portable companion should be startable"}
             $speechStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/speech/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
+            $head = @{Authorization = "Bearer ci-only-local-smoketest-token"}
+            $processes = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes" -Headers $head
+            if ($processes.scope -ne "companion-only" -or !$processes.companion.active) {throw "Process dashboard scope invalid"}
+            if ($processes.qwen.active -or $processes.whisper.active -or $processes.tunnel.active) {throw "Fresh companion should not claim an idle model is running"}
+            $pausedVoice = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"target":"whisper"}'
+            if ($pausedVoice.whisper.enabled -or !$pausedVoice.companion.active) {throw "Whisper did not disable / local manager was killed"}
+            $invalidTargetRejected = $false
+            try {
+              Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"target":"powershell"}' | Out-Null
+            } catch { $invalidTargetRejected = $true }
+            if (!$invalidTargetRejected) {throw "Arbitrary OS process termination must be forbidden"}
+            $stoppedEngines = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"target":"all"}'
+            if (!$stoppedEngines.ok -or !$stoppedEngines.companion.active) {throw "Stop-all must keep manager alive"}
+            $managerStillAlive = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes" -Headers $head
+            if ($managerStillAlive.whisper.enabled) {throw "Stop-all did not persist Whisper disable"}
             if ($speechStatus.folder -ne $env:RIFTBOUND_DATA_DIR) {throw "Speech model folder is not portable"}
             $page = Invoke-WebRequest "http://127.0.0.1:8878/" -UseBasicParsing
             if ($page.StatusCode -ne 200 -or !$page.Content.Contains("welcome-screen")) {throw "Bundled UI missing"}
@@ -214,7 +230,7 @@ jobs:
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.24.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.24.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.25.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.25.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -226,5 +242,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.24.exe" "dist/RiftboundCompanion-v0.24.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.25.exe" "dist/RiftboundCompanion-v0.25.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}

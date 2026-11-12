@@ -209,7 +209,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   const own=config;processing=true;lastError="";
   try{
    const game=getState(),revision=game.revision;
-   const stillCurrent=()=>getMessages(0).session===session;
+   const stillCurrent=()=>getMessages(0).session===session&&config===own&&!!config.enabled;
    if(game.pendingCombat){
     // The local opponent has already passed priority in the base combat
     // engine. Never call Qwen to fabricate a reaction or to skip the user's.
@@ -324,7 +324,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    }
    if(stillCurrent())sendMessage(groundedReply(reply,commands,game,english));
   }catch(e){
-   if(getMessages(0).session!==session)return;
+   if(getMessages(0).session!==session||config!==own||!config?.enabled)return;
    lastError=e?.name==="TimeoutError"?"Délai de réponse dépassé.":String(e?.message||e).slice(0,250);
    // Invalid JSON from a small language model must not freeze the AI turn.
    const current=getState();
