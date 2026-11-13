@@ -18,6 +18,8 @@ const setup=()=>{
  return applyCommand(s,{type:"start",player:"human"});
 };
 const boardMove=(state,unit,field=0)=>{
+ // A standard move is legal only in the controlling player's Main Phase.
+ if(state.phase!=="Main")state=applyCommand(state,{type:"phase",phase:"Main"});
  const uid=state.cards.find(c=>c.owner==="human"&&c.name===unit&&c.zone==="base")?.uid;
  return applyCommand(state,{type:"move",uid,zone:"battlefield",battlefield:field});
 };
