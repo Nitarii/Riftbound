@@ -148,7 +148,7 @@ function scheduleTemporaryHelperRemoval(helperExe){
    'del /f /q "%~f0" >nul 2>&1\r\n'+
    'rd "%~dp0" >nul 2>&1\r\n',{mode:0o600});
   const child=spawn("cmd.exe",["/d","/c",bat],{
-   cwd:parent,windowsHide:true,detached:true,stdio:"ignore"});
+   cwd:path.dirname(parent),windowsHide:true,detached:true,stdio:"ignore"});
   child.unref?.();
  }catch{}
 }
