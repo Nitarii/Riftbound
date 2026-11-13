@@ -333,6 +333,11 @@ export function applyCommand(old, command) {
   } else if(type==="combat-confirm-effects") {
     if(!s.pendingCombat)throw Error("Aucun combat en cours.");
     if(!c.confirm)throw Error("Confirmation explicite requise pour les effets de cartes.");
+    // The Combat screen already asks the human to resolve every printed
+    // triggered Attack/Defend/Showdown effect. Do not ask the same question
+    // a second time in the generic effects panel.
+    s.pendingEffects=s.pendingEffects.filter(e=>
+     !["attack","defend","showdown"].includes(e.trigger));
     s.pendingCombat.confirmedEffects=true;
     summary="Effets de combat confirmés comme résolus par le joueur physique.";
     if(s.pendingCombat.passes.human&&s.pendingCombat.passes.ai)settleCombat();
