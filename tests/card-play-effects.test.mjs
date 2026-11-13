@@ -67,5 +67,6 @@ test("no spare hand card means the AI refuses the mandatory-discard unit",()=>{
  state.cards=state.cards.filter(c=>c.name!=="Spare unit");
  state.players.ai.handCount--;
  const plan=planAutonomousAITurn(state);
- assert.equal(plan.commands.some(x=>x.type==="play-paid"),false);
+ assert.equal(plan.commands.some(x=>x.type==="play-paid"&&
+  state.cards.find(c=>c.uid===x.uid)?.name==="Chemtech Enforcer"),false);
 });
