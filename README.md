@@ -3,7 +3,14 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.33](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.34.exe)
+**Windows :** [Télécharger Riftbound Companion v0.35](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.35.exe)
+
+## v0.35 — Retour au gestionnaire depuis l'accueil
+
+- Le bouton **⚙ Gestionnaire** est désormais visible sur l'écran d'accueil du compagnon.
+- Depuis l'accueil connecté à l'application Windows, un clic retourne au gestionnaire dans le même onglet. Lors d'une partie, le gestionnaire s'ouvre dans un autre onglet afin de conserver le plateau.
+- Le gestionnaire ne peut être ouvert qu'avec une connexion authentifiée au serveur local : à défaut, l'interface guide vers la connexion du compagnon.
+- Une vérification de navigation réelle dans le navigateur s'ajoute aux contrôles automatiques de l'interface.
 
 ## v0.34 — Dégâts létaux et capacités de mort
 
