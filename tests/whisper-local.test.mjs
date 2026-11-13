@@ -7,7 +7,7 @@ import {EventEmitter} from "node:events";
 import {audioToWav,audioRms} from "../local-voice.mjs";
 import {
  WHISPER_RELEASE,WHISPER_OPTIONS,WHISPER_MODEL,WHISPER_ENGINE_SHA,
- whisperPrompt,whisperArguments,validateWAV,createLocalWhisper
+ whisperPrompt,whisperArguments,whisperServerArguments,validateWAV,createLocalWhisper
 } from "../whisper-local.mjs";
 
 test("official multilingual speech sources have pinned SHA-256 and CPU binaries",()=>{
@@ -93,4 +93,25 @@ test("speech installer, WAV and transcription output use only the selected folde
   assert.equal(persisted.status().selected,"small");
   assert.equal(persisted.status().installed,true);
  }finally{fs.rmSync(location,{recursive:true,force:true});}
+});
+
+test("warmed Whisper Small server is scoped to loopback and a private path",()=>{
+ const args=whisperServerArguments({model:"C:\\Riftbound\\speech\\models\\ggml-small.bin",
+  port:45678,threads:6,requestPath:"/local-secret"});
+ assert.equal(args[args.indexOf("--host")+1],"127.0.0.1");
+ assert.equal(args[args.indexOf("--port")+1],"45678");
+ assert.equal(args[args.indexOf("--request-path")+1],"/local-secret");
+ assert.ok(args.includes("--no-gpu"));
+ assert.throws(()=>whisperServerArguments({model:"x",port:80}),/Port local/);
+});
+test("hands-free speech uses shorter pauses and retains microphone capture while transcription runs",()=>{
+ const src=fs.readFileSync(new URL("../local-voice.mjs",import.meta.url),"utf8");
+ const app=fs.readFileSync(new URL("../app.mjs",import.meta.url),"utf8");
+ const relay=fs.readFileSync(new URL("../server.mjs",import.meta.url),"utf8");
+ assert.match(src,/silenceMs=650/);
+ assert.doesNotMatch(src,/hidden\|\|speaking\|\|busy\)return/);
+ assert.match(src,/queue\.push\(frames\)/);
+ assert.match(app,/await voiceController\.flush\(\)/);
+ assert.match(app,/\/api\/speech\/warm/);
+ assert.match(relay,/url\.pathname==="\/api\/speech\/warm"/);
 });
