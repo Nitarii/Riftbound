@@ -146,6 +146,15 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
  const summaries=[];
  for(const source of eligibleSources(state,event)){
   const compiled=compileCardAbilities(source);
+  // Passive, activated and keyword-dependent text needs arbitration whenever
+  // the source first enters play. It must never disappear simply because the
+  // current interpreter cannot attach it to a specific event yet.
+  if(trigger==="play"){
+   for(const issue of compiled.unsupported.filter(x=>x.trigger==="other")){
+    makePending(state,source,{trigger:"other",text:issue.text,optional:false},
+     actor,issue.reason);
+   }
+  }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
    const mark=state.turn+":"+actor+":"+trigger+":"+source.uid+":"+(event.field??"")+":"+ability.text;
    if(isTracked(trigger)&&state.effectMarks.includes(mark))continue;
