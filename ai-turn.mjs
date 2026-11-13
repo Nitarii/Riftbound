@@ -110,8 +110,17 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   for(let played=0;played<maxUnits;played++){
    const candidates=[...own(view,"hand"),...own(view,"champion")]
     .filter(c=>isPlayable(c))
-    .map(c=>({card:c,payment:planRunePayment(view,"ai",c),
-     effect:mandatoryPlayEffects(c)}))
+    .map(c=>{
+     const normal=planRunePayment(view,"ai",c);
+     const canAccelerate=isUnit(c)&&/\baccelerate\b/i.test(c.text||"")&&
+       targetForConquest(view)!==null;
+     const extra=canAccelerate?planRunePayment(view,"ai",{
+       ...c,energy:Number(c.energy||0)+1,power:Number(c.power||0)+1
+     }):null;
+     const accelerate=Boolean(extra&&!extra.error);
+     return {card:c,accelerate,payment:accelerate?extra:normal,
+       effect:mandatoryPlayEffects(c)};
+    })
     .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
     .filter(x=>!x.payment.error&&x.discardUids!==null);
    if(!candidates.length)break;
@@ -124,9 +133,9 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
       (a.card.might??0)*2+(a.card.energy??0)-a.payment.power*2)||
     a.payment.power-b.payment.power||
     String(a.card.code).localeCompare(String(b.card.code)));
-   const {card,payment,discardUids}=candidates[0];
+   const {card,payment,discardUids,accelerate}=candidates[0];
    const discarded=discardUids.map(uid=>view.cards.find(c=>c.uid===uid)?.name||"carte");
-   apply({type:"play-paid",uid:card.uid,zone:"base",discardUids});
+   apply({type:"play-paid",uid:card.uid,zone:"base",discardUids,accelerate});
    if(view.pendingEffects?.length){
     refused.push("Effet de "+card.name+" à résoudre : "+view.pendingEffects[0].text);
     break;
