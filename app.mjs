@@ -4,7 +4,6 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {parseNarration} from "./narration.mjs";
 import {filteredPickerCards,randomExampleCards,championIdentity,legendSearchName,isChosenChampion} from "./picker.mjs";
 import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
-import {createVoiceConversation} from "./voice-session.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
@@ -663,7 +662,6 @@ function setSidebarCollapsed(collapsed){
 }
 collapseButton.onclick=()=>setSidebarCollapsed(!$("game-app").classList.contains("history-collapsed"));
 try{setSidebarCollapsed(localStorage.getItem(sidebarKey)==="true");}catch{}
-const SpeechAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 const voiceButton=$("voice-note"),voiceIndicator=$("voice-live"),voiceStatus=$("voice-live-text");
 const voiceReadReplies=$("voice-read-replies");
 let voiceUsingWhisper=false;
@@ -720,20 +718,25 @@ function showVoiceDraft(transcript){
  }
  displayHeard(transcript);
 }
-voiceController=createVoiceConversation({
- Recognition:SpeechAPI,
- synthesis:window.speechSynthesis||null,
- Utterance:window.SpeechSynthesisUtterance||null,
- onState:voiceUI,
- onPreview:showVoiceDraft,
+voiceController=createLocalVoiceConversation({
+ onState:voiceUI,onPreview:showVoiceDraft,
  onTranscript:handleVoiceTranscript,
- silenceMs:1500,
- restartMs:700
+ sendAudio:async blob=>{
+  if(!relay)throw Error("Relais local déconnecté.");
+  const response=await fetch(relay.url+"/api/speech/transcribe",{
+   ...localFetchOptions(relay.url),method:"POST",
+   headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"audio/wav"},
+   body:blob
+  });
+  const result=await response.json();
+  if(!response.ok)throw Error(result.error||"Whisper Small n'a pas pu transcrire l'audio.");
+  return result;
+ }
 });
 voiceController.setSpeechEnabled(voiceReadReplies.checked);
 voiceController.setLanguage(uiLanguage);
 voiceUI(voiceController.state());
-if(!SpeechAPI&&!navigator.mediaDevices?.getUserMedia){
+if(!navigator.mediaDevices?.getUserMedia){
  voiceButton.disabled=true;
  voiceStatus.textContent="Reconnaissance vocale indisponible dans ce navigateur.";
 }
@@ -776,20 +779,6 @@ voiceButton.onclick=async()=>{
   return;
  }
  const useWhisper=true;
- voiceController=createLocalVoiceConversation({
-  onState:voiceUI,onPreview:showVoiceDraft,
-  onTranscript:handleVoiceTranscript,
-  sendAudio:async blob=>{
-   const response=await fetch(relay.url+"/api/speech/transcribe",{
-    ...localFetchOptions(relay.url),method:"POST",
-    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"audio/wav"},
-    body:blob
-   });
-   const result=await response.json();
-   if(!response.ok)throw Error(result.error||"Whisper Small n'a pas pu transcrire l'audio.");
-   return result;
-  }
- });
  voiceController.setSpeechEnabled(voiceReadReplies.checked);
  voiceController.setLanguage(uiLanguage);
  const started=await voiceController.start();
