@@ -189,7 +189,7 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "    if([DateTime]::UtcNow -gt $handoffDeadline){throw 'Le serveur n a pas autorisé la fin de la désinstallation.'}",
   "    Start-Sleep -Milliseconds 100",
   "  }",
-  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){
+  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){",
   "    Wait-Process -Id $pidToWait -Timeout 60 -ErrorAction Stop",
   "  }",
   "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){throw 'L application Riftbound ne se ferme pas.'}",
