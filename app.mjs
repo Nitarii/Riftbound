@@ -343,7 +343,8 @@ function cardFromInput(id,type){
 }
 function selectCard(c){
   selected=c;$("detail-name").textContent=c.name;$("detail-text").textContent=c.text||"Aucun texte enregistré.";
-  $("detail-image").innerHTML=cardHTML(c,true,true);$("card-dialog").showModal();
+  $("detail-state").textContent=c.exhausted?"Épuisée · aperçu redressé":"";
+  $("detail-image").innerHTML=cardHTML({...c,exhausted:false},true,true);$("card-dialog").showModal();
 }
 function showBattlefieldDetails(index){
  const raw=state.battlefields?.[index]?.card;
@@ -354,6 +355,7 @@ function showBattlefieldDetails(index){
  selectCard(card);
  selected=null;
  $("detail-add").parentElement.hidden=true;
+ $("card-dialog").querySelector(".dialog-edit-fields").hidden=true;
  $("card-dialog").classList.add("battlefield-readonly");
  $("detail-text").textContent=card.text||"Texte de l'effet non disponible dans ce catalogue. Actualise les cartes.";
 }
@@ -378,7 +380,8 @@ document.addEventListener("click",e=>{
 });
 function showInstance(c) {
   selected=c;$("detail-name").textContent=c.name;$("detail-text").textContent=c.text||"Clique sur les commandes ci-dessous pour changer l'état.";
-  $("detail-image").innerHTML=cardHTML(c,true,true);$("detail-owner").value=c.owner;
+  $("detail-state").textContent=c.exhausted?"Épuisée · aperçu redressé":"Prête";
+  $("detail-image").innerHTML=cardHTML({...c,exhausted:false},true,true);$("detail-owner").value=c.owner;
   $("detail-zone").value=["base","battlefield","hand","trash","banished","runes"].includes(c.zone)?c.zone:"base";
   $("detail-bf").value=String(c.battlefield||0);$("detail-add").textContent="Déplacer";
   let bar=$("detail-card-actions");if(!bar){bar=document.createElement("div");bar.id="detail-card-actions";bar.className="line";$("detail-add").parentElement.after(bar);}
@@ -386,6 +389,7 @@ function showInstance(c) {
   $("card-dialog").showModal();
 }
 $("detail-close").onclick=()=>$("card-dialog").close();
+$("card-dialog").addEventListener("click",e=>{if(e.target===$("card-dialog"))$("card-dialog").close();});
 $("detail-add").onclick=()=>{
   if(!selected)return;
   const cmd=selected.uid?{type:"move",uid:selected.uid,zone:$("detail-zone").value,battlefield:+$("detail-bf").value}:
@@ -395,6 +399,7 @@ $("detail-add").onclick=()=>{
 $("card-dialog").addEventListener("close",()=>{
  const bar=$("detail-card-actions");if(bar)bar.remove();
  $("detail-add").parentElement.hidden=false;
+ $("card-dialog").querySelector(".dialog-edit-fields").hidden=false;
  $("card-dialog").classList.remove("battlefield-readonly");
  $("detail-add").textContent="Placer";
 });
