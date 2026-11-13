@@ -446,7 +446,7 @@ const server=http.createServer(async(req,res)=>{
       if(!manager.status().canLaunch)throw Error("Termine la mise à jour ou la vérification avant de démarrer l'IA.");
       const input=await body(req);
       if(input?.confirmFolder!==userData)throw Error("Choisis et confirme le dossier d'installation dans le gestionnaire Windows.");
-      const opponent=localFreeAI.start(LOCAL_AI_MODEL);
+      const opponent=localFreeAI.start(input.model||LOCAL_AI_MODEL,{backend:input.backend||"auto"});
       const voice=speech.begin(WHISPER_MODEL);
       json(res,202,{...opponent,speech:voice},req);
     }catch(e){msg(res,400,e.message,req);}return;
