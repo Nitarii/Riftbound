@@ -190,11 +190,12 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "    Start-Sleep -Milliseconds 100",
   "  }",
   "  Save-Status 'authorized' 'Signal d autorisation reçu : attente de fermeture de Riftbound.'",
-  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){",
-  "    Wait-Process -Id $pidToWait -Timeout 60 -ErrorAction Stop",
+  "  $deadline=[DateTime]::UtcNow.AddSeconds(45)",
+  "  while(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){",
+  "    if([DateTime]::UtcNow -gt $deadline){throw 'L application Riftbound ne se ferme pas.'}",
+  "    Start-Sleep -Milliseconds 250",
   "  }",
   "  Save-Status 'exited' 'Le processus Riftbound est fermé, nettoyage en cours.'",
-  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){throw 'L application Riftbound ne se ferme pas.'}",
   "  Save-Status 'removing' 'Suppression des fichiers gérés par Riftbound.'",
  ];
  // Any unrelated files are left intact. The marker is removed only at the end
