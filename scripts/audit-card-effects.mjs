@@ -1,6 +1,7 @@
 // Optional comprehensive audit against the public effective-text card corpus.
 // This measures parser coverage, NOT 100% validated rules fidelity.
 import fs from "node:fs";
+import path from "node:path";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards} from "../catalog.mjs";
 import {compileCardAbilities} from "../effect-engine.mjs";
 import {mandatoryPlayEffects} from "../play-effects.mjs";
@@ -67,6 +68,6 @@ else{
 const output=args.indexOf("--output");
 if(output>=0){
  const filepath=args[output+1];if(!filepath)throw Error("Missing --output path");
- fs.mkdirSync(new URL(".",new URL("file://"+process.cwd()+"/"+filepath)),{recursive:true});
+ fs.mkdirSync(path.dirname(path.resolve(filepath)),{recursive:true});
  fs.writeFileSync(filepath,JSON.stringify(result,null,2));
 }
