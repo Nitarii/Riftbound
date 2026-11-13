@@ -33,6 +33,8 @@ const patterns=[
  ["self-buff",new RegExp("^(?:i get|i gain|get|gain)\\s*\\+("+AMOUNT+")\\s+(?:might|\\{might\\})(?:\\s+this turn)?$","i")],
  ["damage-enemy",new RegExp("^deal\\s+("+AMOUNT+")\\s+damage\\s+to\\s+(?:(?:an?|one|target)\\s+)?enemy\\s+unit$","i")],
  ["ready-self",/^(?:ready|redresse(?:r|z|s)?)\s+(?:me|this unit)$/i],
+ ["channel-exhausted",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?\s+exhausted$/i],
+ ["channel",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?$/i],
  ["exhaust-self",/^(?:exhaust|[ée]puise(?:r|z|s)?)\s+(?:me|this unit)$/i]
 ];
 function parseInstructions(raw){
@@ -63,6 +65,43 @@ export function compileCardAbilities(card){
  if(!normalize(card?.text))return {abilities,unsupported};
  for(let line of splitClauses(card.text)){
   if(reminder.test(line))continue;
+  // Riftbound printed keyword syntax is semantic, not decorative:
+  // [Deathknell] — Draw 1 triggers on death; [Legion] — ... only applies
+  // after another card has been played this turn.
+  let dependent="",keyword="";
+  const prefix=/^\[([a-z][a-z -]*)(?:\s+\d+)?\]\s*(?:[—–-]\s*)?(.*)$/i.exec(line);
+  if(prefix){
+   keyword=prefix[1].toLowerCase().trim();
+   const trailing=prefix[2].trim();
+   if(keyword==="deathknell"){
+    const body=trailing.replace(/\s*\(when i die,?\s*get the effect\.?\)\.?$/i,"").trim();
+    const parsed=parseInstructions(body);
+    const ability={trigger:"die",text:line,optional:false,
+     steps:parsed.steps,supported:!parsed.reason,keyword};
+    abilities.push(ability);
+    if(parsed.reason)unsupported.push({trigger:"die",text:line,reason:parsed.reason});
+    continue;
+   }
+   if(keyword==="legion"){
+    dependent="legion";
+    line=trailing.replace(/\s*\(get the effect if you've played another card this turn\.?\)\.?$/i,"").trim();
+   }else if(keyword==="vision"){
+    // Vision = Predict on play. The controller looks at their next card
+    // and may recycle it; the AI uses only its own deck to decide.
+    const ability={trigger:"play",text:line,optional:false,steps:[{kind:"predict"}],
+     supported:true,keyword};
+    abilities.push(ability);continue;
+   }else if(keyword==="temporary"){
+    // Temporary's required kill happens before Hold scoring in next-turn.
+    continue;
+   }else if(["assault","shield","tank","backline","ganking","accelerate",
+       "action","reaction","unique","hidden"].includes(keyword)){
+    // These keywords affect timing/cost/combat; the keyed engine handles them
+    // independently. An additional instruction on the same line is not ignored.
+    if(!trailing||/^\([^)]*\)\.?$/.test(trailing))continue;
+    line=trailing;
+   }
+  }
   line=line.replace(/^\[(?:assault|shield|tank|backline|accelerate|ganking|reaction|action)\b[^\]]*\]\s*/i,"").trim();
   if(!line||/^\([^)]*\)$/.test(line))continue;
   let trigger="",body=line;
@@ -79,7 +118,7 @@ export function compileCardAbilities(card){
   }
   const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
   const {steps,reason}=parseInstructions(body);
-  const ability={trigger,text:line,optional,steps,supported:!reason};
+  const ability={trigger,text:line,optional,steps,supported:!reason,...(dependent?{condition:dependent}:{}),...(keyword?{keyword}:{})};
   abilities.push(ability);
   if(reason)unsupported.push({trigger,text:line,reason});
  }
