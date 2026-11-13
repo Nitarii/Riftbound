@@ -69,6 +69,8 @@ export function matchSpokenCard(catalog,phrase){
  const ranked=rankSpokenCards(catalog,phrase,{limit:3});
  if(!ranked.length)return {card:null,candidates:[]};
  const best=ranked[0],second=ranked[1];
+ if(compact(phrase)===compact(best.card.name))
+  return {card:best.card,score:1,candidates:ranked.map(r=>r.card.name)};
  const margin=best.score-(second?.score||0);
  // Short or ambiguous names always require explicit confirmation.
  const distinctive=tokens(phrase).some(q=>
