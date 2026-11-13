@@ -94,7 +94,7 @@ async function run({name,path:root,port,otherFile}){
   if(fs.existsSync(launchLog)){
    const text=fs.readFileSync(launchLog,"utf8");
    console.error("Helper launch:",text);
-   const pid=/Helper spawned PID (\\d+)/.exec(text)?.[1];
+   const pid=/Helper spawned PID (\d+)/.exec(text)?.[1];
    if(pid){
     try{
      const command="Get-CimInstance Win32_Process -Filter 'ProcessId="+pid+"' | Select-Object ProcessId,Name,ParentProcessId,CreationDate,CommandLine | Format-List | Out-String";
