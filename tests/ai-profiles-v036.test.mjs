@@ -45,6 +45,9 @@ test("llama.cpp args never accept arbitrary paths as model names and switch only
  assert.equal(flag(cpu),"0");
  assert.equal(gpu[gpu.indexOf("--threads")+1],"8");
  assert.ok(gpu.includes("--ctx-size"));
+ assert.deepEqual(gpu.slice(-2),["--reasoning","off"]);
+ const light=llamaServerArgs({...base,model:DEFAULT_LOCAL_MODEL,backend:"cpu"});
+ assert.ok(!light.includes("--reasoning"),"4B instruct profile needs no reasoning flag");
  assert.throws(()=>llamaServerArgs({...base,model:"../../arbitrary"}),/non pris en charge/);
 });
 test("Windows manager offers local 4B/9B and Vulkan/CPU but not an external key",()=>{
