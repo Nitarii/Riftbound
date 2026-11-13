@@ -255,6 +255,27 @@ $("combat-order-button").onclick=()=>{
  };
  container.append(select,confirm);container.hidden=false;
 };
+function renderPendingEffects(){
+ const pending=state.pendingEffects?.[0]||null;
+ const panel=$("pending-effect-panel");
+ if(!panel)return;
+ panel.hidden=!pending;
+ $("next-turn").disabled=Boolean(pending);
+ if(!pending)return;
+ $("pending-effect-card").textContent=pending.cardName+
+  " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
+  (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
+ $("pending-effect-description").textContent=pending.text;
+ $("pending-effect-reason").textContent=pending.reason+
+  " · Applique l'effet réel et les choix nécessaires avant de confirmer.";
+}
+$("pending-effect-confirm").onclick=()=>{
+ const pending=state.pendingEffects?.[0];
+ if(!pending)return;
+ const confirmed=confirm("As-tu réellement résolu l'effet de "+pending.cardName+
+  " ?\\n"+pending.text+"\\n\\nConfirmer ne simule aucun effet : le plateau attend ta résolution physique.");
+ if(confirmed)dispatch({type:"effect-confirm",id:pending.id,confirm:true});
+};
 let previousCardLocations=new Map();
 function render(){
   $("turn").textContent=state.started?(uiLanguage==="en"?"TURN ":"TOUR ")+state.turn+" · "+(state.active==="human"?(uiLanguage==="en"?"PLAYER":"JOUEUR"):"AI")+" · "+state.phase.toUpperCase():(uiLanguage==="en"?"GAME NOT STARTED":"PARTIE NON COMMENCÉE");
@@ -291,6 +312,7 @@ function render(){
     $("units-"+i).innerHTML=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i).map(c=>cardHTML(c)).join("");
   });
   renderCombatPanel();
+  renderPendingEffects();
   const historyEntries=Array.isArray(state.history)?state.history:[];
   const historyHTML=h=>'<li><small>#'+h.revision+' · '+
     new Date(h.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})+
