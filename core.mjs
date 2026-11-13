@@ -3,6 +3,7 @@ import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "
 import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent} from "./effect-runtime.mjs";
+import {drawMainCards} from "./draw-rules.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
@@ -17,7 +18,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -65,6 +66,8 @@ export function applyCommand(old, command) {
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
   const p=c.player||"ai";
+  if(s.finished&&["next-turn","play-paid","combat-attack","draw","channel"].includes(type))
+   throw Error("Partie terminée : le vainqueur est "+s.winner+".");
   let summary="";
   if(s.pendingCombat&&["next-turn","phase","play-paid","combat-attack"].includes(type)&&
     type!=="combat-attack")throw Error("Combat en cours : résous les réactions et les dégâts avant de poursuivre.");
@@ -454,32 +457,32 @@ export function applyCommand(old, command) {
       if(type==="channel")s.turnActions={...s.turnActions,channeled:(s.turnActions?.channeled||0)+n};
       else s.turnActions={...s.turnActions,drawn:(s.turnActions?.drawn||0)+n};
     }
-    const stock=type==="draw"?"main":"runes",dst=type==="draw"?"hand":"runes";
-    if(p==="ai"){
-      for(let i=0;i<n;i++){
-        const card=s.decks.ai[stock].shift();if(!card)break;
-        // The preview planner and committed reducer MUST agree on generated
-        // UIDs. Stable IDs prevent a later paid play referencing an unknown
-        // card drawn/channelled earlier in the same atomic batch.
-        const stableUid="c_auto_"+p+"_"+type+"_"+s.revision+"_"+i;
-        place(s,p,card,dst,undefined,false,stableUid);
-        if(dst==="hand")s.players.ai.handCount++;
-      }
-      s.players.ai.deckCount=s.decks.ai.main.length;
-      s.players.ai.runeCount=s.decks.ai.runes.length;
-    } else if(type==="draw"){
-      s.players.human.handCount+=n;
-      if(Number.isInteger(s.players.human.deckCount))s.players.human.deckCount=Math.max(0,s.players.human.deckCount-n);
-    }else {
-      const actual=Math.min(n,s.players.human.runeCount);
-      for(let i=0;i<actual;i++)place(s,"human",{code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
-      s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
-    }
-    summary=p+" : "+(type==="draw"?"pioche ":"canalise ")+n+" (sans arbitrage automatique)";
+    let drawn=0,burnOuts=0;
     if(type==="draw"){
+     const result=drawMainCards(s,p,n,{place,deckCard});
+     drawn=result.actual;burnOuts=result.burnOuts;
+    }else if(p==="ai"){
+     for(let i=0;i<n;i++){
+      const card=s.decks.ai.runes.shift();if(!card)break;
+      place(s,p,card,"runes",undefined,false,"c_auto_"+p+"_channel_"+s.revision+"_"+i);
+     }
+     s.players.ai.runeCount=s.decks.ai.runes.length;
+    }else{
+     const actual=Math.min(n,s.players.human.runeCount);
+     for(let i=0;i<actual;i++)place(s,"human",
+      {code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
+     s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
+    }
+    summary=p+" : "+(type==="draw"?"pioche "+drawn:"canalise "+n)+
+     (burnOuts?" · Burn Out ×"+burnOuts:"");
+    if(type==="draw"&&drawn){
+     for(let i=0;i<drawn;i++){
       const triggered=processCardEvent(s,{trigger:"draw",actor:p},{place,deckCard});
       if(triggered.length)summary+=" · "+triggered.join(" · ");
+      if(s.pendingEffects.length)break;
+     }
     }
+    if(s.winner)summary+=" · Victoire "+(s.winner==="ai"?"IA":"joueur");
   } else if(type==="mulligan") {
     checkOwner(p);
     if(p!=="ai")throw Error("Mulligan physique à effectuer avec les vraies cartes");
@@ -508,6 +511,13 @@ export function applyCommand(old, command) {
       if(triggered.length)summary+=" · "+triggered.join(" · ");
      }
     }
+   }
+  }
+  if(!s.winner){
+   for(const owner of ["ai","human"])if(s.players[owner].score>=8){
+    s.winner=owner;s.finished=true;
+    summary+=" · Victoire "+(owner==="ai"?"IA":"joueur");
+    break;
    }
   }
   maybeRecord(s,summary);
