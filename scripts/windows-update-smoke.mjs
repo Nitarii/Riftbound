@@ -73,6 +73,14 @@ async function beginUpdate(pid,staged,expected){
   version:CURRENT_VERSION,port});
  const result=launchMaintenance(script,{root,env});
  if(!result?.pid)throw Error("Independent updater did not launch");
+ // Require the detached PowerShell helper to announce itself BEFORE shutting
+ // down the last working manager. This also yields actionable CI diagnostics.
+ await waitUntil(async()=>{
+  const status=readUpdateStatus(root);
+  if(status?.phase==="waiting")return true;
+  if(status?.phase==="failed")throw Error("Updater reported failure: "+status.message);
+  return false;
+ },{timeout:12000,label:"independent updater handshake (PID "+result.pid+")"});
  await stopCurrent();
  return result;
 }
