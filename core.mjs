@@ -95,7 +95,7 @@ export function applyCommand(old, command) {
   }
   function settleCombat(){
     const fight=s.pendingCombat;
-    if(s.pendingEffects?.length)throw Error("Effet de carte en attente avant la résolution du combat.");
+    if(s.pendingEffects?.length)throw Error("Effets de cartes en attente avant la résolution du combat.");
     if(!fight||!fight.passes.human||!fight.passes.ai)
       throw Error("Attends que les deux joueurs aient passé leur fenêtre de réactions.");
     if(fight.warnings.length&&!fight.confirmedEffects)
