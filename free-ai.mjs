@@ -1,4 +1,4 @@
-// Portable and fully free opponent: llama.cpp CPU-only Windows x64 + Qwen3 0.6B.
+// Portable and fully free opponent: llama.cpp CPU-only Windows x64 + Qwen3 4B Instruct 2507.
 // The player downloads both once with a single click; no driver, cloud API,
 // paid account, setup wizard, external launcher, or always-on network required.
 import fs,{createReadStream} from "node:fs";
@@ -12,16 +12,17 @@ import {once} from "node:events";
 const ENGINE_RELEASE="b12277";
 const ENGINE_FILE="llama-b12277-bin-win-cpu-x64.zip";
 const ENGINE_SHA256="5943df89ff76289e16fd9c9600a38871b47f20272c589c3b803eca2181f67a08";
-const MODEL_FILE="Qwen3-0.6B-Q8_0.gguf";
-const MODEL_SHA256="9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031";
-const MODEL_NAME="qwen3:0.6b";
+const MODEL_FILE="qwen3-4b-instruct-2507-Q4_K_M.gguf";
+const MODEL_SHA256="1571ec5115bcfed4b4327fc27b5f44ea284806caf5331eef89326191c9b031d6";
+export const LOCAL_AI_MODEL="qwen3:4b-instruct-2507";
+const MODEL_NAME=LOCAL_AI_MODEL;
 const ENGINE_URL="https://github.com/ggml-org/llama.cpp/releases/download/"+ENGINE_RELEASE+"/"+ENGINE_FILE;
-const MODEL_URL="https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/"+MODEL_FILE+"?download=true";
+const MODEL_URL="https://huggingface.co/Open4bits/Qwen3-4B-Instruct-2507-GGUF/resolve/main/"+MODEL_FILE+"?download=true";
 const HOST="127.0.0.1",PORT=11435;
 const ORIGIN="http://"+HOST+":"+PORT;
-const EXPECTED_MODEL_SIZE=639000000;
-export const FREE_MODELS=[{id:MODEL_NAME,label:"Qwen3 0.6B · CPU · recommandé pour les petits PC",
- size:"639 Mo",profile:"universal"}];
+const EXPECTED_MODEL_SIZE=2_500_000_000;
+export const FREE_MODELS=[{id:MODEL_NAME,label:"Qwen3 4B Instruct 2507 · local",
+ size:"2,5 Go"}];
 export const FREE_ENGINE_VERSION=ENGINE_RELEASE;
 export const FREE_ENGINE_PORT=PORT;
 export const FREE_ENGINE_ORIGIN=ORIGIN;
@@ -30,7 +31,7 @@ export const FREE_MODEL_DOWNLOAD={url:MODEL_URL,sha256:MODEL_SHA256,bytes:EXPECT
 
 export function freeModelID(value){
  if(value===undefined||value===null||value==="")return MODEL_NAME;
- if(value!==MODEL_NAME)throw Error("Modèle indisponible. Utilise le modèle gratuit compatible CPU.");
+ if(value!==MODEL_NAME)throw Error("Un seul modèle local est disponible : Qwen3 4B Instruct 2507.");
  return MODEL_NAME;
 }
 export function verifiedDownloadHash(bytes,expected){
@@ -118,7 +119,7 @@ export function createFreeLocalAI({
  function status(){
   const processActive=Boolean(active&&active.exitCode==null&&active.signalCode==null&&!active.killed);
   return {...info,ready:Boolean(info.ready&&processActive),
-   installed:installed(),models:FREE_MODELS,version:ENGINE_RELEASE,enginePort:PORT,
+   installed:installed()&&modelPresent(),engineInstalled:installed(),models:FREE_MODELS,version:ENGINE_RELEASE,enginePort:PORT,
    free:true,running:Boolean(job),installing:Boolean(job&&!processActive),
    processActive,pid:processActive&&Number.isSafeInteger(active.pid)?active.pid:null};
  }
@@ -128,7 +129,7 @@ export function createFreeLocalAI({
    return saved.engine===ENGINE_SHA256&&Boolean(findServer(engineFolder));
   }catch{return false;}
  }
- function modelPresent(){return fs.existsSync(modelFile)&&fs.statSync(modelFile).size>500000000;}
+ function modelPresent(){return fs.existsSync(modelFile)&&fs.statSync(modelFile).size>2_000_000_000;}
  async function probe(timeout=1200){
   try{
    const response=await fetchImpl(ORIGIN+"/health",{signal:AbortSignal.timeout(timeout)});
@@ -160,7 +161,7 @@ export function createFreeLocalAI({
    if(await fileSHA256(modelFile)===MODEL_SHA256)return;
    fs.rmSync(modelFile,{force:true});
   }
-  set({phase:"model",message:"Téléchargement du modèle Qwen3 gratuit (639 Mo)…",
+  set({phase:"model",message:"Téléchargement de Qwen3 4B Instruct (environ 2,5 Go)…",
    transferred:0,total:EXPECTED_MODEL_SIZE,progress:0});
   await downloadVerified(MODEL_URL,modelFile,MODEL_SHA256,(bytes,total)=>
    set({transferred:bytes,total:total||EXPECTED_MODEL_SIZE,
@@ -175,7 +176,7 @@ export function createFreeLocalAI({
   const executable=findServer(engineFolder);
   if(!executable)throw Error("L'exécutable CPU est introuvable.");
   const args=["--model",modelFile,"--host",HOST,"--port",String(PORT),
-   "--ctx-size","4096","--threads",String(Math.max(1,Math.min(4,os.availableParallelism?.()||4))),
+   "--ctx-size","8192","--threads",String(Math.max(1,Math.min(8,os.availableParallelism?.()||4))),
    "--n-gpu-layers","0","--parallel","1","--alias",MODEL_NAME];
   const child=spawnImpl(executable,args,{cwd:path.dirname(executable),windowsHide:true,stdio:"ignore"});
   active=child;
@@ -201,7 +202,7 @@ export function createFreeLocalAI({
    await installEngine();
   }
   if(!modelPresent()){
-   if(!download)throw Error("Le modèle gratuit n'est pas encore téléchargé.");
+   if(!download)throw Error("Le nouveau modèle Qwen3 4B doit être installé depuis le bouton unique.");
    await downloadModel();
   }else if(await fileSHA256(modelFile)!==MODEL_SHA256){
    if(!download)throw Error("Le modèle n'est pas valide ; relance l'installation.");
@@ -213,6 +214,8 @@ export function createFreeLocalAI({
   ensureRunning();
   await onReady(MODEL_NAME);
   ensureRunning();
+  // Delete only the old, known Qwen3 0.6B file, and only after the new model started successfully.
+  try{fs.rmSync(path.join(modelFolder,"Qwen3-0.6B-Q8_0.gguf"),{force:true});}catch{}
   set({phase:"ready",ready:true,installed:true,progress:100,transferred:0,total:0,
    message:"✓ IA gratuite prête, sans GPU, abonnement ni requête payante."});
  }
@@ -226,7 +229,7 @@ export function createFreeLocalAI({
   return status();
  }
  function start(model=MODEL_NAME){freeModelID(model);return begin(true);}
- function resume(model=MODEL_NAME){freeModelID(model);return job?status():installed()?begin(false):status();}
+ function resume(model=MODEL_NAME){freeModelID(model);return job?status():installed()&&modelPresent()?begin(false):status();}
  function stop(){
   stopping=true;
   if(extractProcess){stopOwnedProcess(extractProcess);extractProcess=null;}
