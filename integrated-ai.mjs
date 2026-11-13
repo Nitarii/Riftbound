@@ -204,7 +204,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   if(config)configure({...config,enabled:false});
   return status();
  }
- async function respond(message,session){
+ async function respond(message,session,{actionApplied=false}={}){
   if(!config?.enabled||getMessages(0).session!==session)return;
   const own=config;processing=true;lastError="";
   try{
@@ -219,12 +219,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     );
     return;
    }
-   // Routine player actions are applied by the deterministic parser before
-   // this callback. Silence generic "I'm listening" responses for those
-   // actions: the changed board/history is already the acknowledgement.
-   if(game.started&&game.active==="human"&&
-      /\b(?:joue|pose|play|place|mets|pioch\w*|draw|runes?|canalis\w*|channel|epuis\w*|exhaust)\b/i.test(
-       normalizePlayerAnnouncement(message)))return;
+   if(actionApplied&&game.started&&game.active==="human")return;
    // The deterministic engine owns the AI's turn. An untrusted 0.6B model
    // must not select imaginary payments, score without a capture, or end its
    // turn before moving ready units onto a battlefield.
@@ -347,10 +342,10 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    sendMessage((own.provider==="free"?"⚠️ ":"⚠️ Impossible de joindre l'IA intégrée : ")+lastError);
   }finally{processing=false;}
  }
- function onHumanMessage(text){
+ function onHumanMessage(text,{actionApplied=false}={}){
   if(!config?.enabled)return;
   const session=getMessages(0).session;
-  queue=queue.then(()=>respond(text,session)).catch(e=>{lastError=String(e?.message||e);processing=false;});
+  queue=queue.then(()=>respond(text,session,{actionApplied})).catch(e=>{lastError=String(e?.message||e);processing=false;});
  }
  return {configure,disable,status,onHumanMessage};
 }
