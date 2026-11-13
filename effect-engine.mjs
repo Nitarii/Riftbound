@@ -16,6 +16,7 @@ const TRIGGERS=[
  ["attack",/^(?:when you attack)\s*[,:\-]\s*(.*)$/i],
  ["showdown",/^(?:when (?:a|the) showdown begins)\s*[,:\-]\s*(.*)$/i],
  ["draw",/^(?:when you draw (?:a|one|1) card)\s*[,:\-]\s*(.*)$/i],
+ ["discard",/^(?:when you discard me|when i(?:'m| am) discarded)\s*[,:\-]\s*(.*)$/i],
  ["ally-play",/^(?:when you play (?:a|another) (?:unit|spell|card|gear))\s*[,:\-]\s*(.*)$/i]
 ];
 function splitClauses(raw){
@@ -139,7 +140,7 @@ export function onPlayInstructions(card,{playedBefore=0}={}){
    (a.condition!=="legion"||playedBefore>0)).flatMap(a=>a.steps),
   unsupported:all.unsupported.filter(a=>a.trigger==="play"),all};
 }
-export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","ally-play"];
+export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","discard","ally-play"];
 export function inspectCards(cards){
  const result={cards:0,withText:0,fullySupported:0,partial:0,unhandled:0,byTrigger:{},examples:[]};
  for(const card of cards||[]){
