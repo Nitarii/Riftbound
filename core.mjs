@@ -49,23 +49,6 @@ function maybeRecord(s,summary) {
   s.history=s.history.slice(0,120);
 }
 function deckCard(c) {return validateCard(c);}
-// Mandatory start-of-turn housekeeping belongs to the shared reducer.
-// The physical player follows the draws on their table, with no spoken
-// announcements and no disclosure of their hidden hand.
-function advanceStandardTurn(state){
-  let next=state;
-  const who=next.active;
-  const openingRuneCount=next.turn===1&&who!==next.firstPlayer?3:2;
-  const remainingRunes=who==="ai"?next.decks.ai.runes.length:next.players.human.runeCount;
-  next=applyCommand(next,{type:"phase",phase:"Channel"});
-  const runes=Math.min(openingRuneCount,Math.max(0,remainingRunes||0));
-  if(runes)next=applyCommand(next,{type:"channel",player:who,count:runes});
-  next=applyCommand(next,{type:"phase",phase:"Draw"});
-  const remainingCards=who==="ai"?next.decks.ai.main.length:next.players.human.deckCount;
-  if(remainingCards>0)next=applyCommand(next,{type:"draw",player:who,count:1});
-  next=applyCommand(next,{type:"phase",phase:"Main"});
-  return next;
-}
 export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=cp(old||createState()), c=command, type=string(c.type,40);
@@ -406,9 +389,6 @@ export function applyCommand(old, command) {
    }
   }
   maybeRecord(s,summary);
-  // Standard start-of-turn steps run once, for both the human and AI.
-  // Optional triggered card effects still need their own handling.
-  if(type==="start"||type==="next-turn")return advanceStandardTurn(s);
   return s;
 }
 export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal"];
