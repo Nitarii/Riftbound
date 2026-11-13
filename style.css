@@ -37,7 +37,7 @@ dialog{max-width:830px}
 /* Guided home: intentionally shown before the full board. */
 body.home-visible #game-app{display:none}
 body:not(.home-visible) #welcome-screen{display:none}
-body.home-visible .header-actions > :not(.header-home){display:none!important}
+body.home-visible .header-actions > :not(.header-home):not(.header-manager){display:none!important}
 .header-home{border-color:#aa956b;color:#f0d9a5}
 .welcome-screen{max-width:1300px;margin:0 auto;padding:28px 22px 45px}
 .welcome-hero{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(285px,.8fr);gap:24px;align-items:stretch;margin-bottom:22px}
