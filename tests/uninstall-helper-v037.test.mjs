@@ -20,7 +20,7 @@ test("standalone uninstall starts a copy OUTSIDE the chosen root and requires a 
   const started=launchUninstallHelper({root,exePath:original,pid:12345},{
    env:{...process.env,LOCALAPPDATA:local},
    spawnImpl:(file,args,options)=>{
-    if(file==="cmd.exe"){
+    if(file==="powershell.exe"){
      janitor={file,args,options};
      return {pid:54322,unref(){}};
     }
@@ -30,12 +30,11 @@ test("standalone uninstall starts a copy OUTSIDE the chosen root and requires a 
   assert.equal(started.pid,54321);
   assert.equal(started.janitorPid,54322);
   assert.equal(started.janitorReady,path.join(started.helperDir,"janitor-ready.signal"));
-  assert.equal(janitor.file,"cmd.exe");
-  assert.equal(janitor.args.at(-2),"/c");
-  assert.match(janitor.args.at(-1),/^start "" \/min powershell[.]exe /);
-  assert.equal(janitor.options.env.RIFTBOUND_JANITOR_FILE,
-   path.join(started.helperDir,"janitor.ps1"));
-  assert.equal(janitor.options.detached,false);
+  assert.equal(janitor.file,"powershell.exe");
+  assert.equal(janitor.args.at(-2),"-File");
+  assert.equal(janitor.args.at(-1),path.join(started.helperDir,"janitor.ps1"));
+  assert.equal(janitor.options.detached,true);
+  assert.equal(janitor.options.windowsHide,false);
   assert.equal(janitor.options.stdio,"ignore");
   assert.equal(janitor.options.cwd,path.dirname(started.helperDir));
   const janitorScript=fs.readFileSync(path.join(started.helperDir,"janitor.ps1"),"utf8");
