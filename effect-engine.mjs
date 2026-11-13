@@ -6,13 +6,17 @@ const toCount=x=>({one:1,two:2,three:3,a:1,an:1,un:1,une:1,deux:2,trois:3})[Stri
 // A continuous Shield modifier is checked during combat, not on card play.
 // Recognize this grammar for ALL cards, without hardcoding individual names.
 export function conditionalShieldRule(value){
- const text=String(value?.text??value??"").replace(/[’‘]/g,"'").trim();
- const match=/^I have \[Shield\s+(\d{1,2})\] while I'm at a battlefield with exactly (one|two|three|\d{1,2}) other units? you control\.\s*(?:\(\+\d+\s+(?:\{might\}|Might|\[S\]) while I'm a defender\.\))?\s*$/i.exec(text);
- if(!match)return null;
- const number={one:1,two:2,three:3}[match[2].toLowerCase()]??Number(match[2]);
- const shield=Number(match[1]);
- return Number.isInteger(number)&&Number.isInteger(shield)&&number>=0&&number<=12&&shield>=0&&shield<=30?
-  {kind:"conditional-shield",shield,otherFriendlyUnits:number}:null;
+ const text=String(value?.text??value??"").replace(/[’‘]/g,"'");
+ const pattern=/^I have \[Shield\s+(\d{1,2})\] while I'm at a battlefield with exactly (one|two|three|\d{1,2}) other units? you control\.\s*(?:\(\+\d+\s+(?:\{might\}|Might|\[S\]) while I'm a defender\.\))?\s*$/i;
+ for(const line of text.split(/\r?\n/)){
+  const match=pattern.exec(line.trim());
+  if(!match)continue;
+  const number={one:1,two:2,three:3}[match[2].toLowerCase()]??Number(match[2]);
+  const shield=Number(match[1]);
+  if(Number.isInteger(number)&&Number.isInteger(shield)&&number>=0&&number<=12&&shield>=0&&shield<=30)
+   return {kind:"conditional-shield",shield,otherFriendlyUnits:number};
+ }
+ return null;
 }
 export function migrateLegacyPassivePendingEffects(state){
  if(!state||!Array.isArray(state.pendingEffects))return state;
