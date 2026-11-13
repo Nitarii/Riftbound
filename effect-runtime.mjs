@@ -97,7 +97,7 @@ function applySteps(state,source,steps,actor,place,deckCard){
      const card=state.decks.ai.main.shift();
      if(!card)break;
      place(state,"ai",card,"hand",undefined,false,
-      "c_effect_draw_"+state.revision+"_"+source.uid+"_"+i);
+      "c_effect_draw_"+state.revision+"_"+source.uid+"_"+state.cards.length+"_"+i);
      state.players.ai.handCount++;
      state.players.ai.deckCount=state.decks.ai.main.length;
     }else{
@@ -147,7 +147,7 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
  for(const source of eligibleSources(state,event)){
   const compiled=compileCardAbilities(source);
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
-   const mark=state.turn+":"+actor+":"+trigger+":"+source.uid+":"+(event.field??"");
+   const mark=state.turn+":"+actor+":"+trigger+":"+source.uid+":"+(event.field??"")+":"+ability.text;
    if(isTracked(trigger)&&state.effectMarks.includes(mark))continue;
    if(isTracked(trigger))state.effectMarks.push(mark);
    if(state.effectMarks.length>500)state.effectMarks=state.effectMarks.slice(-250);
