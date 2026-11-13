@@ -107,3 +107,23 @@ test("remaining trigger prevents automatic upkeep from advancing during unresolv
  assert.throws(()=>applyCommand(s,{type:"next-turn"}),/en attente/);
  assert.equal(advanceMandatoryTurn(s).revision,s.revision);
 });
+
+test("unrecognized passive/activated gear text is never silently skipped",()=>{
+ let s=setup();
+ s=add(s,card("Protective Gear","Gear",{energy:1,
+  text:"Friendly buffed units have [Deflect]."}));
+ s=play(s,"Protective Gear");
+ assert.equal(s.pendingEffects.length,1);
+ assert.match(s.pendingEffects[0].text,/Deflect/);
+ assert.throws(()=>applyCommand(s,{type:"next-turn"}),/en attente/);
+});
+test("a continuous ally play trigger on a different in-play card is recognized",()=>{
+ let s=setup();
+ s=add(s,card("Watcher","Unit",{
+  text:"When you play a unit, draw 1."}),"base");
+ s=add(s,card("New Ally","Unit",{energy:1}));
+ const before=s.players.ai.deckCount;
+ s=play(s,"New Ally");
+ assert.equal(s.players.ai.deckCount,before-1);
+ assert.match(s.message,/Watcher/);
+});
