@@ -383,7 +383,7 @@ const server=http.createServer(async(req,res)=>{
   // Allow reading and maintenance during updates, but never start or mutate a
   // physical game from an unverified or confirmed outdated Windows executable.
   if(req.method==="POST"&&["/api/messages","/api/command",
-      "/api/ai/config","/api/speech/install","/api/speech/transcribe",
+      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe",
       "/api/remote/start"].includes(url.pathname)&&
      !manager.status().canLaunch){
    msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
@@ -501,6 +501,11 @@ const server=http.createServer(async(req,res)=>{
      if(input?.confirmFolder!==userData)throw Error("Confirme le dossier choisi avant l'installation de Whisper.");
      json(res,202,speech.begin(WHISPER_MODEL),req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/speech/warm"){
+   try{json(res,202,speech.warm(),req);}
+   catch(e){msg(res,400,String(e.message||e),req);}
+   return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/transcribe"){
     try{
