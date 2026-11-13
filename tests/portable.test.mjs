@@ -67,7 +67,7 @@ test("migration moves only old companion files, never unrelated AppData files",(
   assert.equal(fs.readFileSync(path.join(installed,".riftbound-local-state.json"),"utf8"),"{}");
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
-test("uninstaller uses a manifest checked against the exact installation and an allowlist",()=>{
+test("uninstaller validates the installation, waits for helper acknowledgement and keeps unrelated files",async()=>{
  const base=makeRoot();
  try{
   const exe=fakeExe(path.join(base,"Riftbound Companion"));
@@ -85,12 +85,44 @@ test("uninstaller uses a manifest checked against the exact installation and an 
    expectedSha256:"a".repeat(64),version:"0.26.0"}),/Start-Process -FilePath \$exe/);
   assert.throws(()=>updateScript({root:install.root,exePath:exe,
    staged:path.join(base,"outside.exe")}),/dossier choisi/);
-  let launched="",shutdown=false;
+  assert.match(script,/Save-Status 'waiting'/);
+  assert.match(script,/Save-Status 'failed'/);
+  assert.match(script,/ReparsePoint/);
+  assert.match(script,/Remove-Managed \$m/);
+  let launched="",launchOptions=null,shutdown=false;
   const manager=createPortableManager({root:install.root,exePath:exe,portable:true,
-   launch:code=>{launched=code;},shutdown:()=>{shutdown=true;}});
-  assert.throws(()=>manager.uninstall({confirm:"YES",folder:install.root}),/confirmation/);
-  assert.deepEqual(manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root}).ok,true);
+   launch:(code,options)=>{
+    launched=code;launchOptions=options;
+    fs.mkdirSync(path.join(install.root,"updates"),{recursive:true});
+    fs.writeFileSync(path.join(install.root,"updates","uninstall-status.json"),
+     JSON.stringify({phase:"waiting",message:"ready"}));
+    return {pid:3333};
+   },shutdown:()=>{shutdown=true;}});
+  await assert.rejects(manager.uninstall({confirm:"YES",folder:install.root}),/confirmation/);
+  const done=await manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root});
+  assert.equal(done.ok,true);
+  assert.equal(done.uninstalling,true);
+  assert.equal(manager.status().shuttingDown,true);
+  assert.equal(launchOptions.root,install.root);
+  assert.equal(launchOptions.mode,"uninstall");
   assert.match(launched,/Wait-Process/);
+ }finally{fs.rmSync(base,{recursive:true,force:true});}
+});
+test("uninstaller does not shut down if independent cleanup cannot be launched",async()=>{
+ const base=makeRoot();
+ try{
+  const exe=fakeExe(path.join(base,"Riftbound Companion"));
+  const install=initializePortableInstall({packaged:true,exePath:exe,platform:"win32",
+   chooser:()=>path.dirname(exe)});
+  let closed=false;
+  const manager=createPortableManager({root:install.root,exePath:exe,portable:true,
+   launch:()=>{throw Error("PowerShell unavailable");},shutdown:()=>{closed=true;}});
+  await assert.rejects(manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root}),
+   /PowerShell unavailable/);
+  assert.equal(manager.status().shuttingDown,false);
+  assert.equal(closed,false);
+  assert.ok(fs.existsSync(exe));
+  assert.ok(fs.existsSync(path.join(install.root,INSTALL_MARKER)));
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
 test("version update accepts only a newer official release and verified digests",()=>{
