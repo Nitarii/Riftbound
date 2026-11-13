@@ -180,7 +180,7 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "try{",
   "  Save-Status 'starting' 'Vérification du manifeste avant la désinstallation.'",
   "  if(!(Test-Path -LiteralPath $m)){throw 'Manifeste d installation absent.'}",
-  "  $manifest=Get-Content -LiteralPath $m -Raw | ConvertFrom-Json",
+  "  $manifest=Get-Content -LiteralPath $m -Raw -Encoding UTF8 | ConvertFrom-Json",
   "  if($manifest.id -ne "+quoted(INSTALL_ID)+" -or $manifest.instance -ne "+quoted(info.instance)+" -or $manifest.path -ne $r){throw 'Manifeste du dossier incohérent.'}",
   "  if((Get-Item -LiteralPath $r -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Le dossier est un lien ou une jonction.'}",
   "  Save-Status 'waiting' 'Assistant de désinstallation prêt. Arrêt du compagnon en attente.'",
