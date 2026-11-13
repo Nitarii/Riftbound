@@ -2,11 +2,11 @@ import {onPlayInstructions} from "./effect-engine.mjs";
 // A generic, card-agnostic preflight remains backwards compatible with the
 // older planSafeAITurn and payment tests.
 const RESTRICTION=/\b(?:play only|can't play|cannot play|additional cost|as an additional cost|must pay|you may only play|ne peut etre jouee que|co[uû]t suppl[ée]mentaire)\b/i;
-export function mandatoryPlayEffects(card){
+export function mandatoryPlayEffects(card,{playedBefore=0}={}){
  const text=String(card?.text||"");
  if(RESTRICTION.test(text))
   return {supported:false,discard:0,reason:"conditions de jeu supplémentaires"};
- const compiled=onPlayInstructions(card);
+ const compiled=onPlayInstructions(card,{playedBefore});
  const discard=compiled.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
  const issue=compiled.unsupported[0];
  return {supported:!issue,discard:issue?0:discard,reason:issue?.reason||""};
