@@ -151,46 +151,91 @@ export function moveLegacyFiles(source,target,{fsImpl=fs}={}){
 }
 export function uninstallScript({root,exePath,pid=process.pid}){
  const info=readMarker(root);
+ if(!Number.isSafeInteger(pid)||pid<1)throw Error("PID du compagnon invalide.");
+ if(!exePattern.test(path.basename(exePath))||
+    resolved(path.dirname(exePath))!==resolved(root))
+  throw Error("Exécutable hors du dossier de l'installation : désinstallation refusée.");
+ const r=resolved(root),old=resolved(legacyDataFolder());
  const lines=[
   "$ErrorActionPreference='Stop'",
-  "$r="+quoted(root),"$pidToWait="+Number(pid),
-  "try{Wait-Process -Id $pidToWait -Timeout 50 -ErrorAction SilentlyContinue}catch{}",
+  "$r="+quoted(r),"$pidToWait="+pid,
   "$m=Join-Path $r "+quoted(INSTALL_MARKER),
+  "$statusFile=Join-Path $r 'updates\uninstall-status.json'",
+  "function Save-Status([string]$phase,[string]$message){",
+  "  $dir=Split-Path -Parent $statusFile",
+  "  if(!(Test-Path -LiteralPath $dir)){New-Item -ItemType Directory -Path $dir -Force | Out-Null}",
+  "  $json=@{phase=$phase;message=$message}|ConvertTo-Json -Compress",
+  "  [IO.File]::WriteAllText($statusFile,$json,[Text.UTF8Encoding]::new($false))",
+  "}",
+  "function Remove-Managed([string]$itemPath){",
+  "  if(!(Test-Path -LiteralPath $itemPath)){return}",
+  "  $item=Get-Item -LiteralPath $itemPath -Force",
+  "  if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Lien symbolique ou jonction non supprimé : '+$itemPath}",
+  "  for($attempt=0;$attempt -lt 25;$attempt++){",
+  "    try{Remove-Item -LiteralPath $itemPath -Recurse -Force -ErrorAction Stop;return}",
+  "    catch{if($attempt -eq 24){throw};Start-Sleep -Milliseconds 300}",
+  "  }",
+  "}",
   "if(!(Test-Path -LiteralPath $m)){exit 4}",
   "$manifest=Get-Content -LiteralPath $m -Raw | ConvertFrom-Json",
   "if($manifest.id -ne "+quoted(INSTALL_ID)+" -or $manifest.instance -ne "+quoted(info.instance)+" -or $manifest.path -ne $r){exit 5}",
-  "foreach($n in @("+[...OWNED_DIRS,...OWNED_FILES].map(quoted).join(",")+")){"+
-   "$p=Join-Path $r $n; if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Recurse -Force}}",
-  "Get-ChildItem -LiteralPath $r -File | Where-Object { $_.Name -match '^RiftboundCompanion(-v[0-9.]+)?[.]exe$' -or $_.Name -match '^cloudflared-[a-f0-9]{16}[.]exe$' } | ForEach-Object {Remove-Item -LiteralPath $_.FullName -Force}",
-  "Remove-Item -LiteralPath $m -Force",
-  "try{Remove-Item -LiteralPath $r -ErrorAction SilentlyContinue}catch{}"
+  "if((Get-Item -LiteralPath $r -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){exit 6}",
+  "try{",
+  "  Save-Status 'waiting' 'Assistant de désinstallation prêt. Arrêt du compagnon en attente.'",
+  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){",
+  "    Wait-Process -Id $pidToWait -Timeout 60 -ErrorAction Stop",
+  "  }",
+  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){throw 'L application Riftbound ne se ferme pas.'}",
+  "  Save-Status 'removing' 'Suppression des fichiers gérés par Riftbound.'",
  ];
- const old=legacyDataFolder();
- if(resolved(old)!==resolved(root)&&!inside(resolved(old),resolved(root))){
+ // Any unrelated files are left intact. The marker is removed only at the end
+ // so a partially failed cleanup can still be retried without trusting names.
+ for(const name of [...OWNED_DIRS].filter(n=>n!=="updates")){
+  lines.push("  Remove-Managed (Join-Path $r "+quoted(name)+")");
+ }
+ for(const name of OWNED_FILES){
+  lines.push("  Remove-Managed (Join-Path $r "+quoted(name)+")");
+ }
+ lines.push(
+  "  Get-ChildItem -LiteralPath $r -File -Force | Where-Object { $_.Name -match '^RiftboundCompanion(-v[0-9.]+)?[.]exe$' -or $_.Name -match '^cloudflared-[a-f0-9]{16}[.]exe$' } | ForEach-Object {Remove-Managed $_.FullName}"
+ );
+ if(old!==r&&!inside(old,r)){
   lines.push(
-   "$old="+quoted(old),
-   "if(Test-Path -LiteralPath $old){",
-   "foreach($n in @("+[...OWNED_DIRS,...OWNED_FILES].map(quoted).join(",")+")){"+
-    "$p=Join-Path $old $n;if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Recurse -Force}}",
-   "Get-ChildItem -LiteralPath $old -File | Where-Object {$_.Name -match '^cloudflared-[0-9a-f]{16}[.]exe$'} | ForEach-Object {Remove-Item -LiteralPath $_.FullName -Force}",
-   "try{Remove-Item -LiteralPath $old -ErrorAction SilentlyContinue}catch{}",
-   "}"
+   "  $old="+quoted(old),
+   "  if(Test-Path -LiteralPath $old){",
+   "    if((Get-Item -LiteralPath $old -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Ancien dossier lié : nettoyage refusé.'}",
+   ...[...OWNED_DIRS,...OWNED_FILES].map(n=>"    Remove-Managed (Join-Path $old "+quoted(n)+")"),
+   "    Get-ChildItem -LiteralPath $old -File -Force | Where-Object {$_.Name -match '^cloudflared-[a-f0-9]{16}[.]exe$'} | ForEach-Object {Remove-Managed $_.FullName}",
+   "    if(!(Get-ChildItem -LiteralPath $old -Force | Select-Object -First 1)){Remove-Item -LiteralPath $old -Force}",
+   "  }"
   );
  }
+ lines.push(
+  "  Remove-Managed (Join-Path $r 'updates')",
+  "  Remove-Managed $m",
+  "  if(!(Get-ChildItem -LiteralPath $r -Force | Select-Object -First 1)){Remove-Item -LiteralPath $r -Force}",
+  "}catch{",
+  "  try{Save-Status 'failed' ([string]$_.Exception.Message)}catch{}",
+  "  exit 7",
+  "}"
+ );
  return lines.join("\n");
 }
 export const updateScript=buildUpdateScript;
 export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
- spawnSyncImpl=spawnSync,root=null}={}){
+ spawnSyncImpl=spawnSync,root=null,mode="update"}={}){
+ if(!["update","uninstall"].includes(mode))throw Error("Type de maintenance invalide.");
  let args,output=null;
  const options={detached:true,windowsHide:true,stdio:"ignore",env};
  if(root){
-  const base=resolved(root),file=path.join(base,"updates","companion-update.ps1");
+  const base=resolved(root),file=path.join(base,"updates",
+   mode==="uninstall"?"companion-uninstall.ps1":"companion-update.ps1");
   if(!inside(base,file))throw Error("Script de mise à jour hors dossier interdit.");
   fs.mkdirSync(path.dirname(file),{recursive:true});
   // Windows PowerShell 5.1 needs a UTF-8 BOM to reliably read French paths.
   fs.writeFileSync(file,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
-  options.cwd=base;
+  // The uninstall helper must not have its CWD inside the folder to remove.
+  options.cwd=mode==="uninstall"?path.parse(base).root:base;
   // Parse the script before touching the old EXE: a syntax error must never
   // close the user's currently working manager.
   if(process.platform==="win32"){
@@ -213,8 +258,10 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
    "-EncodedCommand",encoded];
-  output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
-  options.stdio=["ignore",output,output];
+  if(mode==="update"){
+   output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
+   options.stdio=["ignore",output,output];
+  }
  }else{
   args=["-NoProfile","-NonInteractive","-EncodedCommand",powershellEncoded(script)];
  }
@@ -231,7 +278,7 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
    "\\nÉchec de démarrage PowerShell : "+error.message+"\\n");}catch{}
  });
  child.once?.("exit",(code,signal)=>{
-  if(root)try{fs.appendFileSync(path.join(root,"updates","maintenance-output.log"),
+  if(root&&mode==="update")try{fs.appendFileSync(path.join(root,"updates","maintenance-output.log"),
     "\\nHelper terminé : code="+code+" signal="+signal+"\\n");}catch{}
  });
  child.unref?.();
