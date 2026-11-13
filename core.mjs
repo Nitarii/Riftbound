@@ -61,6 +61,7 @@ export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=cp(old||createState()), c=command, type=string(c.type,40);
   s.pendingEffects??=[];s.effectMarks??=[];
+  s.effectWork=0; // New action has its own bounded resolution budget.
   s.turnActions??={channeled:0,drawn:0};
   s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
@@ -107,7 +108,7 @@ export function applyCommand(old, command) {
       throw Error("Effets de cartes à vérifier : confirme leur résolution avant le calcul.");
     const preview=previewCombat(s,fight.battlefield,fight.attacker,fight.orders);
     if(!preview.ready)throw Error(preview.error);
-    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean);
+    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean).map(c=>({...c}));
     const outcome=applyCombatResult(s,preview,{previousController:fight.previousController});
     const triggered=[];
     for(const unit of dying)
@@ -208,9 +209,10 @@ export function applyCommand(old, command) {
     const temporaryDeaths=[];
     for(const card of s.cards.filter(x=>x.owner===s.active&&
       ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
+     const lastKnown={...card};
      card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
      temporaryDeaths.push(card.name);
-     processCardEvent(s,{trigger:"die",actor:card.owner,source:card},{place,deckCard});
+     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},{place,deckCard});
     }
     s.beginningScoringDue=true;
     // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
@@ -433,9 +435,10 @@ export function applyCommand(old, command) {
           (v.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
         const might=effectiveMight(v,role);
         if(might!==null&&v.damage>=might){
+          const lastKnown={...v};
           v.zone="trash";v.battlefield=null;v.exhausted=false;v.damage=0;
           summary=v.name+" vaincue par les dégâts.";
-          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:v},{place,deckCard});
+          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:lastKnown},{place,deckCard});
           if(triggered.length)summary+=" · "+triggered.join(" · ");
         }
       }
