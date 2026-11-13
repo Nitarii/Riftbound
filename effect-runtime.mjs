@@ -77,6 +77,7 @@ function buildSteps(state,source,ability,actor,choices){
  if(selected===null||selected.length!==required||new Set(selected).size!==selected.length)
   return {reason:"Choisis le nombre exact de cartes distinctes à défausser."};
  let discarded=0;
+ const reservedDeflect=new Set();
  for(const step of ability.steps){
   let detail={...step};
   if(step.kind==="discard"){
@@ -98,8 +99,15 @@ function buildSteps(state,source,ability,actor,choices){
    if(!target||!unit(target)||!["base","battlefield"].includes(target.zone)||
       (enemy&&target.owner===actor)||(friendly&&target.owner!==actor))
     return {reason:"Choisis une unité valide pour cet effet."};
-   if(/\bdeflect\b/i.test(target.text||""))
-    return {reason:"La cible possède Deflect : coût de ciblage non vérifié."};
+   if(target.owner!==actor&&/\bdeflect\b/i.test(target.text||"")){
+    if(actor!=="ai")
+     return {reason:"Deflect : le joueur doit payer et confirmer 1 Power pour choisir cette cible."};
+    const rune=state.cards.find(r=>r.owner===actor&&r.zone==="runes"&&
+     !reservedDeflect.has(r.uid));
+    if(!rune)return {reason:"Deflect : aucune rune à recycler pour payer 1 Power."};
+    reservedDeflect.add(rune.uid);
+    detail.deflectRuneUid=rune.uid;
+   }
    detail.targetUid=target.uid;
   }
   if(step.kind==="predict"&&actor==="human")
@@ -117,6 +125,15 @@ function applySteps(state,source,steps,actor,place,deckCard){
  const logs=[];
  for(const step of steps){
   const n=step.count;
+  if(step.deflectRuneUid){
+   const rune=state.cards.find(c=>c.uid===step.deflectRuneUid);
+   if(!rune||rune.zone!=="runes"||rune.owner!==actor)
+    throw Error("Rune Deflect invalide après finalisation.");
+   state.decks.ai.runes.push(deckCard(rune));
+   state.cards=state.cards.filter(c=>c.uid!==rune.uid);
+   state.players.ai.runeCount=state.decks.ai.runes.length;
+   logs.push("Deflect : 1 Power payé par recyclage de "+rune.name);
+  }
   if(step.kind==="discard"){
    const names=[];
    for(const uid of step.uids){
