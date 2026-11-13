@@ -3,6 +3,7 @@
 // This is not the complete Riot chain/priority/continuous-effect rules engine.
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
+import {drawMainCards} from "./draw-rules.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
@@ -136,23 +137,9 @@ function applySteps(state,source,steps,actor,place,deckCard){
    logs.push("canalise "+actual+" rune(s)"+
     (step.kind==="channel-exhausted"?" épuisées":""));
   }else if(step.kind==="draw"){
-   let actual=0;
-   for(let i=0;i<n;i++){
-    if(actor==="ai"){
-     const card=state.decks.ai.main.shift();
-     if(!card)break;
-     place(state,"ai",card,"hand",undefined,false,
-      "c_effect_draw_"+state.revision+"_"+source.uid+"_"+state.cards.length+"_"+i);
-     state.players.ai.handCount++;
-     state.players.ai.deckCount=state.decks.ai.main.length;
-    }else{
-     if(state.players.human.deckCount<=0)break;
-     state.players.human.handCount++;
-     state.players.human.deckCount--;
-    }
-    actual++;
-   }
-   logs.push("pioche "+actual+" carte(s)");
+   const result=drawMainCards(state,actor,n,{place,deckCard});
+   logs.push("pioche "+result.actual+" carte(s)"+
+    (result.burnOuts?" (Burn Out ×"+result.burnOuts+")":""));
   }else if(step.kind==="ready-runes"||step.kind==="exhaust-runes"){
    const exhaust=step.kind==="exhaust-runes";
    const cards=state.cards.filter(c=>c.owner===actor&&c.zone==="runes"&&
