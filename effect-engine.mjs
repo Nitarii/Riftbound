@@ -118,15 +118,25 @@ export function compileCardAbilities(card){
   }
   const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
   const {steps,reason}=parseInstructions(body);
-  const ability={trigger,text:line,optional,steps,supported:!reason,...(dependent?{condition:dependent}:{}),...(keyword?{keyword}:{})};
+  // Match event card type rather than firing "play a unit" when a spell
+  // or gear is played. "Another" already excludes the played card itself.
+  const playedType=trigger==="ally-play"?(
+   /\b(?:a|another)\s+(unit|spell|gear)\b/i.exec(line)?.[1]?.toLowerCase()||"card"
+  ):undefined;
+  const limit=/\b(?:once|first time)(?:\s+each|\s+this|\s+a)?\s+turn\b/i.test(line)?1:
+   Number(/\b(?:twice|two times)\s+(?:each|this)\s+turn\b/i.test(line)?2:0);
+  const ability={trigger,text:line,optional,steps,supported:!reason,
+   ...(dependent?{condition:dependent}:{}),...(keyword?{keyword}:{}),
+   ...(playedType?{playedType}:{}),...(limit?{perTurnLimit:limit}:{})};
   abilities.push(ability);
   if(reason)unsupported.push({trigger,text:line,reason});
  }
  return {abilities,unsupported};
 }
-export function onPlayInstructions(card){
+export function onPlayInstructions(card,{playedBefore=0}={}){
  const all=compileCardAbilities(card);
- return {steps:all.abilities.filter(a=>a.trigger==="play"&&a.supported).flatMap(a=>a.steps),
+ return {steps:all.abilities.filter(a=>a.trigger==="play"&&a.supported&&
+   (a.condition!=="legion"||playedBefore>0)).flatMap(a=>a.steps),
   unsupported:all.unsupported.filter(a=>a.trigger==="play"),all};
 }
 export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","ally-play"];
