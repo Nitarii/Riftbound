@@ -147,13 +147,19 @@ function scheduleTemporaryHelperRemoval(helperExe){
   const externalTemp=path.join(process.env.LOCALAPPDATA||
    path.join(os.homedir(),"AppData","Local"),"Temp");
   const quoted=s=>"'"+String(s).replace(/'/g,"''")+"'";
+  const traceFile=path.join(parent,"cleanup-diagnostic.txt");
+  const trace=message=>{try{fs.appendFileSync(traceFile,message+"\\n");}catch{}};
+  trace("cleanup scheduled");
   const script=[
    "$ErrorActionPreference='SilentlyContinue'",
    "$exe="+quoted(helperExe),
    "$dir="+quoted(parent),
+   "$trace="+quoted(traceFile),
+   "try{[IO.File]::AppendAllText($trace,'powershell started' + [Environment]::NewLine)}catch{}",
    "for($i=0;$i -lt 120;$i++){",
    "  if(Test-Path -LiteralPath $exe){Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue}",
    "  if(!(Test-Path -LiteralPath $exe)){break}",
+   "  if($i -eq 0){try{[IO.File]::AppendAllText($trace,'exe still present' + [Environment]::NewLine)}catch{}}",
    "  Start-Sleep -Milliseconds 250",
    "}",
    "if(!(Test-Path -LiteralPath $exe)){",
@@ -169,8 +175,14 @@ function scheduleTemporaryHelperRemoval(helperExe){
    cwd:path.dirname(parent),windowsHide:true,detached:false,stdio:"ignore",
    env:{...process.env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
   });
+  trace("cleanup child spawned pid="+child.pid);
+  child.once?.("error",e=>trace("cleanup child error="+e.message));
+  child.once?.("exit",(code,signal)=>trace("cleanup child exit="+code+"/"+signal));
   child.unref?.();
- }catch{}
+ }catch(error){
+  try{fs.appendFileSync(path.join(path.dirname(helperExe),"cleanup-diagnostic.txt"),
+   "cleanup scheduling failed="+String(error.message||error)+"\\n");}catch{}
+ }
 }
 export async function runUninstallHelper({env=process.env}={}){
  if(process.platform!=="win32")throw Error("Désinstallateur autonome réservé à Windows.");
