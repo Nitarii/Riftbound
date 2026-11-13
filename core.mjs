@@ -246,6 +246,13 @@ export function applyCommand(old, command) {
      (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"")+
      (triggered.length?" · "+triggered.join(" · "):"")+
      (s.pendingEffects.length?" · Effet en attente : "+s.pendingEffects[0].cardName:"");
+  } else if(type==="effect-confirm") {
+    const pending=s.pendingEffects[0];
+    if(!pending)throw Error("Aucun effet de carte en attente.");
+    if(!c.confirm||c.id!==pending.id)
+     throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
+    s.pendingEffects.shift();
+    summary="Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
     checkOwner(p);
@@ -327,6 +334,10 @@ export function applyCommand(old, command) {
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
     if(origin==="base"&&zone==="battlefield"&&v.owner===s.active)
       beginCombat(v.battlefield,v.owner,[v.uid]);
+    if(zone!==origin){
+      const triggered=processCardEvent(s,{trigger:"move",actor:v.owner,source:v},{place,deckCard});
+      if(triggered.length)summary+=" · "+triggered.join(" · ");
+    }
   } else if(type==="remove") {
     const v=getCard(s,string(c.uid,80));
     s.cards=s.cards.filter(x=>x.uid!==v.uid);
@@ -356,6 +367,8 @@ export function applyCommand(old, command) {
         if(might!==null&&v.damage>=might){
           v.zone="trash";v.battlefield=null;v.exhausted=false;v.damage=0;
           summary=v.name+" vaincue par les dégâts.";
+          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:v},{place,deckCard});
+          if(triggered.length)summary+=" · "+triggered.join(" · ");
         }
       }
     }
@@ -398,6 +411,10 @@ export function applyCommand(old, command) {
       s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
     }
     summary=p+" : "+(type==="draw"?"pioche ":"canalise ")+n+" (sans arbitrage automatique)";
+    if(type==="draw"){
+      const triggered=processCardEvent(s,{trigger:"draw",actor:p},{place,deckCard});
+      if(triggered.length)summary+=" · "+triggered.join(" · ");
+    }
   } else if(type==="mulligan") {
     checkOwner(p);
     if(p!=="ai")throw Error("Mulligan physique à effectuer avec les vraies cartes");
@@ -420,11 +437,15 @@ export function applyCommand(old, command) {
     const owner=battlefieldController(s,i);
     if(owner===s.active){
      const scored=scoreNewControl(old,s,owner,i);
-     if(scored)summary+=" · "+scored;
+     if(scored){
+      summary+=" · "+scored;
+      const triggered=processCardEvent(s,{trigger:"conquer",actor:owner,field:i},{place,deckCard});
+      if(triggered.length)summary+=" · "+triggered.join(" · ");
+     }
     }
    }
   }
   maybeRecord(s,summary);
   return s;
 }
-export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal"];
+export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal","effect-confirm"];
