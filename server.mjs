@@ -504,7 +504,7 @@ const server=http.createServer(async(req,res)=>{
     catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/manager/uninstall"){
-    try{json(res,200,manager.uninstall(await body(req)),req);}
+    try{json(res,200,await manager.uninstall(await body(req)),req);}
     catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="GET"&&url.pathname==="/api/speech/status"){
