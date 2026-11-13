@@ -10,7 +10,7 @@ test("standalone uninstall starts a copy OUTSIDE the chosen root and requires a 
  const base=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-uninstall-helper-"));
  const root=path.join(base,"Install - François O'Brien");
  const local=path.join(base,"local");
- fs.mkdirSync(local);
+ fs.mkdirSync(path.join(local,"Temp"),{recursive:true});
  const original=path.join(root,"RiftboundCompanion.exe");
  try{
   fs.mkdirSync(root,{recursive:true});
