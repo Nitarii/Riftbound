@@ -49,13 +49,17 @@ function selectTarget(state,kind,source,actor){
 }
 function buildSteps(state,source,ability,actor,choices){
  const instructions=[],previous=choices?.discardUids||[];
+ const required=ability.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
+ const selected=previous.length?previous:
+  required?chooseRequiredDiscards(state,source.uid,required):[];
+ if(selected===null||selected.length!==required||new Set(selected).size!==selected.length)
+  return {reason:"Choisis le nombre exact de cartes distinctes à défausser."};
  let discarded=0;
  for(const step of ability.steps){
   let detail={...step};
   if(step.kind==="discard"){
    if(actor!=="ai")return {reason:"Le joueur physique doit choisir et défausser ses cartes cachées."};
-   const uids=previous.length?previous.slice(discarded,discarded+step.count):
-    chooseRequiredDiscards(state,source.uid,step.count);
+   const uids=selected.slice(discarded,discarded+step.count);
    if(!uids||uids.length!==step.count||new Set(uids).size!==uids.length)
     return {reason:"Cartes à défausser insuffisantes ou choix de main incomplet."};
    if(!uids.every(uid=>state.cards.some(c=>c.uid===uid&&c.owner===actor&&
@@ -73,7 +77,7 @@ function buildSteps(state,source,ability,actor,choices){
    return {reason:"Source de l'effet absente du plateau."};
   instructions.push(detail);
  }
- if(previous.length&&discarded!==previous.length)
+ if(discarded!==selected.length)
   return {reason:"Le nombre de cartes défaussées ne correspond pas au texte."};
  return {instructions};
 }
