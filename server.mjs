@@ -18,6 +18,7 @@ import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
 import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
 import {planPlayerSequence} from "./player-sequence.mjs";
+import {correctSpokenCardPhrase} from "./card-voice.mjs";
 import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
@@ -366,7 +367,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -576,9 +577,17 @@ const server=http.createServer(async(req,res)=>{
       seen.add(key);cards.push(card);
       if(cards.length>=28)break;
      }
-     json(res,200,await speech.transcribe(Buffer.concat(chunks),{
+     const result=await speech.transcribe(Buffer.concat(chunks),{
       language:"auto",cards
-     }),req);
+     });
+     // The recognizer prompt is intentionally short; resolve the *entire*
+     // locally cached catalogue afterwards, including names not in the prompt.
+     // Report the original heard phrase whenever a safe correction was made.
+     const correction=correctSpokenCardPhrase(known,result.text,{
+      expectCardName:Boolean(pendingSpokenPlay&&Date.now()-pendingSpokenPlay.time<30000)
+     });
+     json(res,200,{...result,...correction,
+      rawText:correction.corrected?correction.rawText:result.text},req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){
