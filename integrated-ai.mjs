@@ -2,13 +2,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import {applyCommand} from "./core.mjs";
+import {LOCAL_AI_MODEL} from "./free-ai.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
 import {planSafeAITurn,planAutonomousAITurn,describeAITurn} from "./ai-turn.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
-const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:"qwen3:0.6b"};
+const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:LOCAL_AI_MODEL};
 const COMMANDS=new Set(["move","add","exhaust","exhaust-runes","ready","flip","damage","counter","score",
  "draw","channel","mulligan","phase","next-turn","note"]);
 function providerURL(source){
@@ -23,7 +24,7 @@ export function validateAIConfig(input,previous={}){
  if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Configuration IA invalide.");
  const provider=String(input.provider||"");
  if(!Object.hasOwn(PROVIDERS,provider)&&provider!=="compatible")throw Error("Fournisseur non pris en charge.");
- const model=String(input.model||DEFAULT_MODELS[provider]||"").trim();
+ const model=provider==="free"?LOCAL_AI_MODEL:String(input.model||DEFAULT_MODELS[provider]||"").trim();
  if(!model||model.length>100||!/^[\w./:+-]+$/.test(model))throw Error("Identifiant de modèle invalide.");
  const endpoint=provider==="compatible"?providerURL(input.endpoint):PROVIDERS[provider];
  const supplied=typeof input.apiKey==="string"?input.apiKey.trim():"";
@@ -165,7 +166,7 @@ export const SYSTEM_PROMPT=[
  "Réponds uniquement par un objet JSON avec deux propriétés : reply (une véritable réponse naturelle à la situation du joueur, dans sa langue) et commands (un tableau de commandes autorisées, huit maximum). Si aucune action précise n’est sûre, retourne un tableau vide et explique brièvement pourquoi. Ne copie jamais les instructions, un exemple de format, ni une phrase générique répétitive.",
  "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
 ].join("\n");
-// The 0.6B model has a small 4096-token local context: keep its instructions
+// The 4B Instruct model uses an 8192-token context: keep its instructions
 // bounded, reserving space for actual card information and structured output.
 export const FREE_SYSTEM_PROMPT=[
  "You are a physical Riftbound opponent. Understand French, English, mixed language and typos. Never see or ask for the human's hidden hand.",
@@ -220,7 +221,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     return;
    }
    if(actionApplied&&game.started&&game.active==="human")return;
-   // The deterministic engine owns the AI's turn. An untrusted 0.6B model
+   // The deterministic engine owns the AI's turn. A language model
    // must not select imaginary payments, score without a capture, or end its
    // turn before moving ready units onto a battlefield.
    if(game.started&&game.active==="ai"){
@@ -240,22 +241,22 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";
-   const transcript=getMessages(0).messages.slice(free?-2:-8)
-    .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?140:1200)}));
+   const transcript=getMessages(0).messages.slice(-8)
+    .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?450:1200)}));
    const payload={
-    model:own.model,temperature:free?0.25:0.3,max_tokens:free?380:1100,
+    model:own.model,temperature:free?0.2:0.3,max_tokens:free?650:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
     messages:[
      {role:"system",content:free?FREE_SYSTEM_PROMPT:SYSTEM_PROMPT},
-     {role:"user",content:(own.provider==="free"?"/no_think\n":"")+JSON.stringify({
+     {role:"user",content:JSON.stringify({
       latestHumanMessage:message,
       normalizedPlayerAnnouncement:normalizePlayerAnnouncement(message),
       preferredReplyLanguage:detectMessageLanguage(message),
       conversation:transcript,
       board:modelBoardState(game),
       gameReference:buildGameKnowledge(game,message,catalog,{
-       maxCards:free?6:18,maxText:free?180:700,
-       ruleCount:free?2:5
+       maxCards:free?12:18,maxText:free?500:700,
+       ruleCount:free?5:5
       }),
       // Retained for API compatibility with previously supported model prompts.
       knownCards:(free?[]:relevantCards(catalog,message))
@@ -285,7 +286,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     response=await sendRequest({
      model:own.model,temperature:0.2,max_tokens:240,
      messages:[{role:"system",content:FREE_SYSTEM_PROMPT},
-      {role:"user",content:"/no_think\\n"+JSON.stringify(smallContext)}]
+      {role:"user",content:JSON.stringify(smallContext)}]
     });
    }
    if(!stillCurrent())return;
