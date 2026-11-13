@@ -242,6 +242,7 @@ export function createLocalWhisper({
   if(extractProc)stopOwnedProcess(extractProc);
   extractProc=null;
   if(activeProc)stopOwnedProcess(activeProc);
+  stopServer();
   activeProc=null;transcribing=false;
  }
  function enable(){
@@ -264,6 +265,14 @@ export function createLocalWhisper({
    prompt:whisperPrompt(cards)});
   transcribing=true;
   try{
+   try{
+    const rapid=await transcribeOnServer(buffer,{language,cards});
+    if(rapid)return rapid;
+   }catch{
+    // If a persistent server crashes, keep transcription available via CLI.
+    stopServer();
+   }
+   if(stopping)throw Error("Whisper arrêté.");
    fs.writeFileSync(wav,buffer,{mode:0o600,flag:"wx"});
    const result=await new Promise((resolve,reject)=>{
     const proc=spawnImpl(binary,args,{cwd:path.dirname(binary),windowsHide:true,stdio:"ignore",env});
@@ -284,5 +293,5 @@ export function createLocalWhisper({
    for(const name of [wav,out+".txt",out+".json"])try{fs.rmSync(name,{force:true});}catch{}
   }
  }
- return {status,begin,stop,enable,transcribe,root};
+ return {status,begin,stop,enable,warm,transcribe,root};
 }
