@@ -13,6 +13,7 @@ on:
       - 'core.mjs'
       - 'battlefield-rules.mjs'
       - 'player-sequence.mjs'
+      - 'turn-upkeep.mjs'
       - 'chat-scrolling.mjs'
       - 'catalog.mjs'
       - 'precons.mjs'
