@@ -51,6 +51,11 @@ function maybeRecord(s,summary) {
   s.history=s.history.slice(0,120);
 }
 function deckCard(c) {return validateCard(c);}
+function entersNaturallyReady(card){
+ const text=String(card?.text||"").replace(/^\[Accelerate\][^\n]*/gim,"");
+ return /\benters? (?:the board )?ready\b/i.test(text);
+}
+
 export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=cp(old||createState()), c=command, type=string(c.type,40);
@@ -189,7 +194,7 @@ export function applyCommand(old, command) {
     checkOwner(p);const v=place(s,p,c.card,c.zone||"base",c.battlefield,c.faceDown);
     // Standard units are played exhausted, unless their card text explicitly says otherwise.
     if(c.fromHand&&/unit/i.test(v.type||"")&&["base","battlefield"].includes(v.zone))
-      v.exhausted=!/enters? (?:the board )?ready/i.test(v.text||"");
+      v.exhausted=!entersNaturallyReady(v);
     if(v.zone==="hand")s.players[p].handCount++;
     if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
@@ -222,7 +227,7 @@ export function applyCommand(old, command) {
     const field=Number(c.battlefield);
     if(dest==="battlefield"&&(isGear||!Number.isInteger(field)||field<0||
       field>=s.battlefields.length||battlefieldController(s,field)!=="ai"))
-     throw Error("La carte ne peut entrer que dans une zone autorisée.");
+     throw Error("L’IA ne peut jouer cette carte que sur un champ de bataille déjà contrôlé.");
     const accelerate=Boolean(c.accelerate);
     if(accelerate&&(!/^unit$/i.test(v.type||"")||!/\baccelerate\b/i.test(v.text||"")))
      throw Error("Accelerate n'est pas disponible sur cette unité.");
@@ -241,7 +246,7 @@ export function applyCommand(old, command) {
     if(v.zone==="hand")s.players.ai.handCount--;
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
     v.exhausted=isSpell||isGear||accelerate?false:
-      !/enters? (?:the board )?ready/i.test(v.text||"");
+      !entersNaturallyReady(v);
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
