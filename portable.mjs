@@ -266,14 +266,16 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   // a tiny Unicode-safe bootstrap, rather than encoding the entire script.
   // Load into memory before executing, so even the helper's own .ps1 is no
   // longer opened when Windows removes the updates directory.
-  const command=mode==="uninstall"?
-   "Write-Output 'Riftbound uninstall bootstrap started'; "+ 
-   "[ScriptBlock]::Create([IO.File]::ReadAllText("+quoted(file)+")).Invoke(); "+
-   "Write-Output 'Riftbound uninstall bootstrap finished'":script;
-  const encoded=powershellEncoded(command);
-  if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
-  args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
-   "-EncodedCommand",encoded];
+  if(mode==="uninstall"){
+   // Using -File makes Windows pass the exact Unicode path as an argument,
+   // without expanding a large encoded command through the command line.
+   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",file];
+  }else{
+   const encoded=powershellEncoded(script);
+   if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
+   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
+    "-EncodedCommand",encoded];
+  }
   if(mode==="update"){
    output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
    options.stdio=["ignore",output,output];
