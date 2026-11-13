@@ -142,6 +142,7 @@ function startCleanupJanitor(helperDir,helperExe,helperPid,{env=process.env,spaw
  // Launch the janitor FROM THE STILL-RUNNING MANAGER, not from the one-shot
  // uninstaller which Windows can terminate before its own child executes.
  const ready=path.join(helperDir,"janitor-ready.signal");
+ const phase=path.join(helperDir,"janitor-phase.txt");
  const scriptFile=path.join(helperDir,"janitor.ps1");
  const q=value=>"'"+String(value).replace(/'/g,"''")+"'";
  const script=[
@@ -151,17 +152,23 @@ function startCleanupJanitor(helperDir,helperExe,helperPid,{env=process.env,spaw
   "$dir="+q(helperDir),
   "$self="+q(scriptFile),
   "$ready="+q(ready),
+  "$phase="+q(phase),
+  "[IO.File]::WriteAllText($phase,'started',[Text.Encoding]::ASCII)",
   "[IO.File]::WriteAllText($ready,'READY',[Text.Encoding]::ASCII)",
   "$limit=[DateTime]::UtcNow.AddSeconds(120)",
-  "while(Get-Process -Id $targetPid -ErrorAction SilentlyContinue){",
-  "  if([DateTime]::UtcNow -ge $limit){exit 7}",
+  "while($true){",
+  "  $p=Get-Process -Id $targetPid -ErrorAction SilentlyContinue",
+  "  if(!$p -or $p.HasExited -or $p.ProcessName -ne 'RiftboundUninstall'){break}",
+  "  if([DateTime]::UtcNow -ge $limit){[IO.File]::WriteAllText($phase,'helper-exit-timeout');exit 7}",
   "  Start-Sleep -Milliseconds 250",
   "}",
+  "[IO.File]::WriteAllText($phase,'helper-exited',[Text.Encoding]::ASCII)",
   "for($i=0;$i -lt 120;$i++){",
   "  try{Remove-Item -LiteralPath $exe -Force -ErrorAction Stop;break}",
   "  catch{Start-Sleep -Milliseconds 250}",
   "}",
-  "if(Test-Path -LiteralPath $exe){exit 8}",
+  "if(Test-Path -LiteralPath $exe){[IO.File]::WriteAllText($phase,'exe-delete-failed');exit 8}",
+  "[IO.File]::WriteAllText($phase,'exe-deleted',[Text.Encoding]::ASCII)",
   "Remove-Item -LiteralPath $ready -Force -ErrorAction SilentlyContinue",
   "Remove-Item -LiteralPath $self -Force -ErrorAction SilentlyContinue",
   "for($i=0;$i -lt 40;$i++){",
@@ -175,7 +182,7 @@ function startCleanupJanitor(helperDir,helperExe,helperPid,{env=process.env,spaw
   path.join(os.homedir(),"AppData","Local"),"Temp");
  const janitor=spawnImpl("powershell.exe",["-NoProfile","-NonInteractive",
   "-ExecutionPolicy","Bypass","-File",scriptFile],{
-  cwd:path.dirname(helperDir),windowsHide:true,detached:false,stdio:"ignore",
+  cwd:path.dirname(helperDir),windowsHide:true,detached:true,stdio:"ignore",
   env:{...env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
  });
  if(!validPid(janitor?.pid))throw Error("Impossible de démarrer le nettoyeur temporaire.");
