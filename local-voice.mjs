@@ -28,49 +28,76 @@ export function createLocalVoiceConversation({
  mediaDevices=navigator.mediaDevices,AudioContextCtor=window.AudioContext||window.webkitAudioContext,
  synthesis=window.speechSynthesis,Utterance=window.SpeechSynthesisUtterance,
  onTranscript=()=>{},onPreview=()=>{},onState=()=>{},sendAudio,
- silenceMs=1350,threshold=.012
+ silenceMs=650,threshold=.012
 }={}){
  let enabled=false,hidden=false,phase="off",detail="",speaking=false,speechEnabled=true;
  let stream=null,ctx=null,processor=null,source=null,output=null,locale="fr-FR";
  let speechStart=0,lastVoice=0,buffer=[],preRoll=[],busy=false,utterances=[],currentSpeech=null;
+ let queue=[],captureId=0,voicedMs=0,consecutiveVoice=0,noiseFloor=.003;
  const state=()=>({enabled,phase,detail,speaking,listening:Boolean(enabled&&!hidden&&!speaking),
   speechEnabled,available:!!mediaDevices?.getUserMedia,noSpeech:0});
  const emit=(p=phase,d=detail)=>{phase=p;detail=d;onState(state());};
- const clearBuffers=()=>{buffer=[];preRoll=[];speechStart=0;lastVoice=0;};
+ const clearBuffers=()=>{buffer=[];preRoll=[];speechStart=0;lastVoice=0;voicedMs=0;consecutiveVoice=0;};
+ async function drainQueue(){
+  if(busy||!queue.length||!enabled)return;
+  busy=true;const session=captureId;
+  while(queue.length&&enabled&&session===captureId){
+   const frames=queue.shift();
+   emit("captured","Transcription Whisper locale…");
+   try{
+    const blob=audioToWav(frames,ctx?.sampleRate||48000);
+    const response=await sendAudio(blob);
+    if(!enabled||session!==captureId)break;
+    const text=String(response?.text||"").trim();
+    if(text){
+     onPreview(text);
+     emit("captured","Entendu : "+text.slice(0,100));
+     await onTranscript(text);
+    }else emit("listening","Aucune phrase reconnue.");
+   }catch(e){
+    if(enabled&&session===captureId)emit("error","Whisper : "+String(e?.message||e).slice(0,140));
+   }
+  }
+  busy=false;
+  if(enabled&&!hidden&&!speaking)emit("listening","Micro actif · parle naturellement.");
+ }
  async function finalize(){
-  if(!speechStart||busy||!buffer.length){clearBuffers();return;}
-  const frames=buffer;clearBuffers();busy=true;
-  emit("captured","Parole enregistrée · Whisper transcrit localement…");
-  try{
-   const blob=audioToWav(frames,ctx?.sampleRate||48000);
-   const response=await sendAudio(blob);
-   const text=String(response?.text||"").trim();
-   if(text){
-    onPreview(text);
-    emit("captured","Whisper a entendu : "+text.slice(0,100));
-    await onTranscript(text);
-   }else emit("listening","Aucune phrase suffisamment claire. Écoute reprise.");
-  }catch(e){emit("error","Whisper : "+String(e?.message||e).slice(0,140));}
-  finally{busy=false;if(enabled&&!hidden&&!speaking)emit("listening","Micro local actif · parle naturellement.");}
+  if(!speechStart||!buffer.length){clearBuffers();return;}
+  const frames=buffer;
+  const duration=performance.now()-speechStart;
+  const voiced=voicedMs;
+  clearBuffers();
+  if(voiced<130||duration<240)return; // Reject clicks and very short noise.
+  if(queue.length>=3){
+   emit("waiting","Transcription en retard : attends un instant avant de poursuivre.");
+   return;
+  }
+  queue.push(frames);
+  void drainQueue();
  }
  function processAudio(event){
-  if(!enabled||hidden||speaking||busy)return;
+  if(!enabled||hidden||speaking)return;
   const data=new Float32Array(event.inputBuffer.getChannelData(0));
   const level=audioRms(data),now=performance.now();
-  if(level>=threshold){
-   lastVoice=now;
-   if(!speechStart){
-    speechStart=now;buffer=preRoll.splice(0);
-    emit("hearing","Parole détectée · enregistrement local…");
-   }
+  const frameMs=1000*data.length/(ctx?.sampleRate||48000);
+  if(!speechStart&&level<Math.max(threshold,noiseFloor*3))
+   noiseFloor=noiseFloor*.98+level*.02;
+  const isVoice=level>=Math.max(threshold,noiseFloor*3);
+  if(isVoice){consecutiveVoice++;lastVoice=now;if(speechStart)voicedMs+=frameMs;}
+  else consecutiveVoice=0;
+  if(!speechStart&&consecutiveVoice>=2){
+   speechStart=now-frameMs;
+   voicedMs=frameMs*consecutiveVoice;
+   buffer=preRoll.splice(0);
+   emit("hearing","Je t'écoute…");
   }
   if(speechStart){
    buffer.push(data);
-   if((now-speechStart>18000)||(!((now-lastVoice)<silenceMs)&&now-speechStart>=350))
-    finalize();
+   if(now-speechStart>=15000||(now-lastVoice>=silenceMs&&now-speechStart>=250))
+    void finalize();
   }else{
    preRoll.push(data);
-   const limit=Math.ceil((ctx?.sampleRate||48000)*.28/data.length);
+   const limit=Math.ceil((ctx?.sampleRate||48000)*.34/data.length);
    if(preRoll.length>limit)preRoll.shift();
   }
  }
@@ -89,7 +116,7 @@ export function createLocalVoiceConversation({
    output=ctx.createGain();output.gain.value=0;
    source.connect(processor);processor.connect(output);output.connect(ctx.destination);
    processor.onaudioprocess=processAudio;
-   enabled=true;hidden=false;clearBuffers();
+   enabled=true;hidden=false;queue=[];noiseFloor=.003;captureId++;clearBuffers();
    emit("listening","Whisper local actif · aucune voix envoyée à Chrome.");
    return true;
   }catch(e){
@@ -98,7 +125,7 @@ export function createLocalVoiceConversation({
   }
  }
  function stop(){
-  enabled=false;
+  enabled=false;captureId++;queue=[];
   if(processor){processor.onaudioprocess=null;try{processor.disconnect();}catch{}}
   try{source?.disconnect();output?.disconnect();}catch{}
   stream?.getTracks().forEach(track=>track.stop());
