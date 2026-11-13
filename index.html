@@ -231,6 +231,15 @@
     <button id="next-turn" class="primary">Tour suivant →</button>
   </div>
 </section>
+<section id="pending-effect-panel" class="pending-effect-panel" hidden
+ aria-live="polite" aria-label="Effet de carte à résoudre">
+ <div class="pending-effect-copy">
+  <strong id="pending-effect-card">Effet de carte</strong>
+  <p id="pending-effect-description"></p>
+  <small id="pending-effect-reason"></small>
+ </div>
+ <button type="button" id="pending-effect-confirm" class="primary">J’ai résolu cet effet</button>
+</section>
 <nav class="workspace-mobile" aria-label="Changer de panneau sur petit écran">
   <button type="button" data-workspace-view="board" aria-pressed="true">Plateau</button>
   <button type="button" data-workspace-view="history" aria-pressed="false">Historique</button>
