@@ -86,6 +86,7 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
   assert.throws(()=>updateScript({root:install.root,exePath:exe,
    staged:path.join(base,"outside.exe")}),/dossier choisi/);
   assert.match(script,/Save-Status 'waiting'/);
+  assert.match(script,/uninstall-go[.]signal/);
   assert.match(script,/Save-Status 'failed'/);
   assert.match(script,/ReparsePoint/);
   assert.match(script,/Remove-Managed \$m/);
@@ -105,6 +106,7 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
   assert.equal(manager.status().shuttingDown,true);
   assert.equal(launchOptions.root,install.root);
   assert.equal(launchOptions.mode,"uninstall");
+  assert.equal(fs.readFileSync(path.join(install.root,"updates","uninstall-go.signal"),"utf8"),"GO");
   assert.match(launched,/Wait-Process/);
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
@@ -139,7 +141,7 @@ test("Windows uninstall launches a short Unicode-safe script bootstrap, never a 
   });
   assert.equal(launched.pid,98765);
   const cmd=Buffer.from(argv.at(-1),"base64").toString("utf16le");
-  assert.match(cmd,/^& '.*companion-uninstall\.ps1'$/);
+  assert.match(cmd,/^\[ScriptBlock\]::Create\(\[IO\.File\]::ReadAllText\('.*companion-uninstall\.ps1'\)\)\.Invoke\(\)$/);
   assert.ok(argv.at(-1).length<1000,"PowerShell bootstrap must fit OS command line");
   assert.equal(options.cwd,path.parse(root).root);
   assert.deepEqual(options.stdio,["ignore","pipe","pipe"]);
