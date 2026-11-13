@@ -79,8 +79,16 @@ export function launchUninstallHelper({root,exePath,pid=process.pid},{
   });
   if(!validPid(child?.pid))throw Error("L'assistant autonome ne s'est pas lancé.");
   child.unref?.();
-  const janitor=startCleanupJanitor(helperDir,helperExe,child.pid,{env,spawnImpl});
-  return {pid:child.pid,helperDir,janitorReady:janitor.ready,janitorPid:janitor.pid};
+  // The main uninstall helper is authoritative. The janitor only deletes its
+  // own disposable copy from the user's Temp folder: a janitor failure must
+  // never prevent removal of the dedicated Riftbound installation.
+  let janitor=null,janitorWarning="";
+  try{janitor=startCleanupJanitor(helperDir,helperExe,child.pid,{env,spawnImpl});}
+  catch(error){janitorWarning="Nettoyage différé de l'assistant temporaire : "+
+   String(error?.message||error).slice(0,180);}
+  return {pid:child.pid,helperDir,
+   janitorReady:janitor?.ready||null,janitorPid:janitor?.pid||null,
+   janitorWarning};
  }catch(error){
   try{fs.rmSync(helperDir,{recursive:true,force:true});}catch{}
   throw error;
