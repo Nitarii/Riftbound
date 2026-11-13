@@ -255,7 +255,11 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   // Passing a Unicode folder via -File can fail silently on some Windows
   // PowerShell 5.1 configurations. Execute the already parsed, bounded script
   // as UTF-16LE EncodedCommand instead; still keep .ps1 for diagnostics.
-  const encoded=powershellEncoded(script);
+  // A full uninstall script can exceed PowerShell's Windows command-line
+  // limits after UTF-16 + base64 expansion. Launch the already parsed .ps1 via
+  // a tiny Unicode-safe bootstrap, rather than encoding the entire script.
+  const command=mode==="uninstall"?"& "+quoted(file):script;
+  const encoded=powershellEncoded(command);
   if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
    "-EncodedCommand",encoded];
