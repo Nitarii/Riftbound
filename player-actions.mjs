@@ -202,13 +202,16 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
     return fail("Le coût de "+card.name+" est indisponible : paiement non vérifiable.",
       "The cost of "+card.name+" is missing; payment cannot be verified.");
    const energy=Number(card.energy),ready=preview.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&!c.exhausted).length;
-   const spent=spend?num(spend[1]):0;
-   if(energy>0&&!spend)return fail("Précise le nombre de runes épuisées pour jouer "+card.name+".",
-      "Say how many runes you exhaust to play "+card.name+".");
-   if(spend&&(!Number.isInteger(spent)||spent<energy||spent>ready))
+   const spent=spend?num(spend[1]):energy;
+   // Energy is printed on the card: infer payment without making the player
+   // announce a number. A spoken number must still be checked against the card.
+   if(Number(card.power||0)>0)return fail(
+    "Cette carte exige aussi du Power de domaine : confirme les runes à recycler avant de la jouer.",
+    "This card also requires domain Power: confirm which runes to recycle before playing.");
+   if(!Number.isInteger(spent)||spent!==energy||spent>ready)
     return fail("Paiement invalide pour "+card.name+" : "+energy+" énergie, "+ready+" runes prêtes, "+spent+" annoncées.",
       "Invalid payment for "+card.name+": "+energy+" energy, "+ready+" ready runes, "+spent+" announced.");
-   if(spend&&spent>0)add({type:"exhaust-runes",player:"human",count:spent});
+   if(spent>0)add({type:"exhaust-runes",player:"human",count:spent});
    add({type:"phase",phase:"Main"});
    add({type:"add",player:"human",card,zone:"base",fromHand:true});
   }else if(spend){
