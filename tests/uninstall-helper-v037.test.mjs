@@ -33,7 +33,7 @@ test("standalone uninstall starts a copy OUTSIDE the chosen root and requires a 
   assert.equal(janitor.file,"powershell.exe");
   assert.equal(janitor.args.at(-2),"-File");
   assert.equal(janitor.args.at(-1),path.join(started.helperDir,"janitor.ps1"));
-  assert.equal(janitor.options.detached,true);
+  assert.equal(janitor.options.detached,false);
   assert.equal(janitor.options.stdio,"ignore");
   assert.equal(janitor.options.cwd,path.dirname(started.helperDir));
   const janitorScript=fs.readFileSync(path.join(started.helperDir,"janitor.ps1"),"utf8");
