@@ -29,6 +29,16 @@ function startState(){
  state=applyCommand(state,{type:"start",player:"human"});
  return state;
 }
+
+test("language model cannot invent AI points or play cards without paying",()=>{
+ const state=startState();
+ const uid=state.cards.find(c=>c.owner==="ai"&&c.zone==="hand").uid;
+ assert.throws(()=>validateAgentCommands([{type:"move",uid,zone:"base"}],state,"Je joue"),/moteur de paiement/);
+ assert.throws(()=>validateAgentCommands([{type:"score",player:"ai",value:1}],state,"J'ai marqué un point"),/points de l'IA/);
+ const human=state.cards.find(c=>c.owner==="human"&&c.zone==="legend");
+ assert.throws(()=>validateAgentCommands([{type:"damage",uid:human.uid,value:2}],state,"Bonjour"),/aucun dégât/);
+ assert.throws(()=>validateAgentCommands([{type:"score",player:"human",value:1}],state,"Bonjour"),/changement de score/);
+});
 test("the outbound context never exposes physical player's hidden cards, or deck order",()=>{
  const state=startState(),out=modelBoardState(state),text=JSON.stringify(out);
  assert.ok(text.includes("AI hidden"));
@@ -43,7 +53,7 @@ test("the opponent cannot reset games, invent AI cards or manipulate a hidden ha
  assert.throws(()=>validateAgentCommands([{type:"move",uid:secret.uid,zone:"base"}],state,"Je joue"),/main physique/);
  assert.throws(()=>validateAgentCommands([{type:"score",player:"ai",value:50}],state,"Je joue"),/Score/);
 });
-test("local opponent uses outbound chat completion, keeps credentials local and applies a valid batch",async()=>{
+test("local opponent keeps credentials private and rejects unpaid AI plays",async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-ai-test-"));
  let state=startState(),requests=[],messages=[];
  let resolveReply;
@@ -72,8 +82,8 @@ test("local opponent uses outbound chat completion, keeps credentials local and 
   assert.ok(!JSON.stringify(conf).includes("secret-test-api-key"));
   ai.onHumanMessage("Ton tour.");
   await Promise.race([completed,new Promise((_,reject)=>setTimeout(()=>reject(Error("AI response timed out")),1500))]);
-  assert.match(messages[0],/déploie une unité/);
-  assert.equal(state.cards.find(c=>c.uid===hand.uid).zone,"base");
+  assert.match(messages[0],/moteur de paiement|carte/);
+  assert.equal(state.cards.find(c=>c.uid===hand.uid).zone,"hand");
   assert.equal(requests.length,1);
   assert.equal(requests[0].options.headers.Authorization,"Bearer secret-test-api-key");
   assert.equal(requests[0].url,"https://api.openai.com/v1/chat/completions");
