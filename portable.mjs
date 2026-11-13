@@ -262,6 +262,10 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   if(mode==="update"){
    output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
    options.stdio=["ignore",output,output];
+  }else{
+   // No file handle in the installation folder: write early errors through
+   // short-lived append operations, then allow the directory to be deleted.
+   options.stdio=["ignore","pipe","pipe"];
   }
  }else{
   args=["-NoProfile","-NonInteractive","-EncodedCommand",powershellEncoded(script)];
@@ -272,6 +276,15 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
  if(!child||!Number.isSafeInteger(child.pid)||child.pid<1){
   try{child?.kill?.();}catch{}
   throw Error("Impossible de démarrer l'outil de mise à jour PowerShell.");
+ }
+ if(root&&mode==="uninstall"){
+  const logFile=path.join(root,"updates","uninstall-launch.log");
+  const append=text=>{try{fs.appendFileSync(logFile,String(text).slice(0,4096));}catch{}};
+  child.stdout?.on("data",append);
+  child.stderr?.on("data",append);
+  child.once?.("exit",(code,signal)=>{
+   if(code!==0)append("Helper terminated: code="+code+" signal="+signal+"\\n");
+  });
  }
  child.once?.("error",error=>{
   console.error("Outil de maintenance :",error.message);
