@@ -219,6 +219,12 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     );
     return;
    }
+   // Routine player actions are applied by the deterministic parser before
+   // this callback. Silence generic "I'm listening" responses for those
+   // actions: the changed board/history is already the acknowledgement.
+   if(game.started&&game.active==="human"&&
+      /\b(?:joue|pose|play|place|mets|pioch\w*|draw|runes?|canalis\w*|channel|epuis\w*|exhaust)\b/i.test(
+       normalizePlayerAnnouncement(message)))return;
    // The deterministic engine owns the AI's turn. An untrusted 0.6B model
    // must not select imaginary payments, score without a capture, or end its
    // turn before moving ready units onto a battlefield.
