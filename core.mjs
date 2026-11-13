@@ -1,6 +1,7 @@
 // Shared board state; automatic scoring only for uncontested fields, never card effects.
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
+import {mandatoryPlayEffects} from "./play-effects.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
@@ -185,8 +186,14 @@ export function applyCommand(old, command) {
     const v=getCard(s,string(c.uid,80));
     if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||!/^unit$/i.test(v.type||""))
       throw Error("La carte ne peut pas être jouée depuis cette zone.");
-    if(/\b(?:play only|can'?t play|cannot play|additional cost|pay an additional cost|ne peut etre jouee que)\b/i.test(v.text||""))
-      throw Error("Conditions de jeu supplémentaires : arbitrage manuel requis.");
+    const onPlay=mandatoryPlayEffects(v);
+    if(!onPlay.supported)throw Error(v.name+" : "+onPlay.reason+". Effet à résoudre avant de jouer.");
+    const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
+    if(discardUids.length!==onPlay.discard||new Set(discardUids).size!==discardUids.length)
+     throw Error(v.name+" : défausse obligatoire de "+onPlay.discard+" carte(s) non choisie.");
+    const discardCards=discardUids.map(uid=>getCard(s,string(uid,80)));
+    if(discardCards.some(x=>x.owner!=="ai"||x.zone!=="hand"||x.uid===v.uid))
+     throw Error("La défausse obligatoire doit venir de la main de l'IA.");
     const dest=c.zone||"base";
     if(dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
     const field=Number(c.battlefield);
@@ -204,12 +211,17 @@ export function applyCommand(old, command) {
     s.cards=s.cards.filter(card=>!removed.has(card.uid));
     s.players.ai.runeCount=s.decks.ai.runes.length;
     if(v.zone==="hand")s.players.ai.handCount--;
+    for(const card of discardCards){
+     card.zone="trash";card.battlefield=null;card.exhausted=false;
+     s.players.ai.handCount--;
+    }
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
     v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":"sur "+s.battlefields[field].card.name)+
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
-     paid.domains.join("/")+")";
+     paid.domains.join("/")+")"+
+     (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"");
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
     checkOwner(p);
