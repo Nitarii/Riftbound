@@ -9,7 +9,7 @@ Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à 
 
 - Le gestionnaire Windows permet de choisir le modèle local : **Qwen3 4B Instruct 2507** (~2,5 Go) ou **Qwen3.5 9B Q4_K_M** (~5,7 Go, téléchargement facultatif). Les deux variantes sont disponibles hors ligne après installation, et vérifiées SHA-256.
 - **GPU Vulkan** (AMD, NVIDIA, Intel Arc) en mode automatique si un GPU discret est détecté, avec **CPU obligatoire en solution de secours**. L'utilisateur peut aussi choisir GPU préféré ou CPU uniquement. Les moteurs proviennent de llama.cpp b12277, vérifiés SHA-256, et restent dans le dossier local choisi.
-- Le modèle avancé peut mieux interpréter la conversation et les textes de cartes, mais **les actions et paiements du jeu restent validés par le moteur déterministe**. La prise en charge des capacités complexes n'est pas encore exhaustive.
+- Le modèle avancé peut mieux interpréter la conversation et les textes de cartes. Les suggestions de déplacement/redressement/épuisement des **cartes physiques publiques** ne sont appliquées que si l'annonce nomme explicitement la carte et, pour un déplacement, le terrain. Le moteur du jeu revalide ensuite la commande. **Aucun modèle ne peut attribuer librement des points, payer des runes ou inventer des cartes.** La prise en charge des capacités complexes n'est pas encore exhaustive.
 - **Vocal** : la fin de phrase est détectée après 480 ms de silence (contre 650 ms) ; la transcription ne bloque plus sur les mises à jour distantes du catalogue. Whisper Small reste local, sur CPU dans cette version.
 - L'application ne télécharge aucun modèle sans action utilisateur ; le mode 4B préexistant et les données de partie sont conservés.
 
