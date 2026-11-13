@@ -21,7 +21,10 @@ test("Windows manager selects either validated local model and accelerates on GP
  const html=fs.readFileSync(new URL("../manager.html",import.meta.url),"utf8");
  assert.match(html,/id="ai-install"/);
  assert.match(html,/id="ai-profile"/);
- assert.match(html,/value="qwen3.5:9b-q4km"/);
+ assert.match(html,/data-ai-model="qwen3.5:9b-q4km"/);
+ assert.match(html,/id="model-recommendation"/);
+ assert.match(html,/id="activity-monitor"/);
+ assert.doesNotMatch(html,/<details\b|<select\b/i);
  assert.match(html,/id="ai-backend"/);
  assert.match(html,/const model=\$\("ai-profile"\)\.value/);
  assert.doesNotMatch(html,/qwen3:0\.6b|Whisper Base|id="speech-model"|id="speech-install"/);

@@ -45,16 +45,19 @@ test("llama.cpp args never accept arbitrary paths as model names and switch only
  assert.equal(flag(cpu),"0");
  assert.equal(gpu[gpu.indexOf("--threads")+1],"8");
  assert.ok(gpu.includes("--ctx-size"));
+ assert.deepEqual(gpu.slice(-2),["--reasoning","off"]);
+ const light=llamaServerArgs({...base,model:DEFAULT_LOCAL_MODEL,backend:"cpu"});
+ assert.ok(!light.includes("--reasoning"),"4B instruct profile needs no reasoning flag");
  assert.throws(()=>llamaServerArgs({...base,model:"../../arbitrary"}),/non pris en charge/);
 });
 test("Windows manager offers local 4B/9B and Vulkan/CPU but not an external key",()=>{
  const page=fs.readFileSync(new URL("../manager.html",import.meta.url),"utf8");
  for(const id of ["ai-profile","ai-backend","ai-runtime","ai-install"])
   assert.match(page,new RegExp('id="'+id+'"'));
- assert.match(page,/value="qwen3\.5:9b-q4km"/);
- assert.match(page,/value="auto"/);
- assert.match(page,/value="cpu"/);
- assert.match(page,/value="vulkan"/);
+ assert.match(page,/data-ai-model="qwen3\.5:9b-q4km"/);
+ assert.match(page,/data-ai-backend="auto"/);
+ assert.match(page,/data-ai-backend="cpu"/);
+ assert.match(page,/data-ai-backend="vulkan"/);
  const server=fs.readFileSync(new URL("../server.mjs",import.meta.url),"utf8");
  assert.match(server,/backend:input\.backend\|\|"auto"/);
 });

@@ -3,7 +3,17 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.38](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.38.exe)
+**Windows :** [Télécharger Riftbound Companion v0.39](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.39.exe)
+
+## v0.39 — Voix, cartes, gestionnaire et profils matériels
+
+- La ponctuation finale transcrite par Whisper (par exemple « Je joue Disciple of Shen. ») ne fait plus échouer la reconnaissance d'une action de jeu. Les annonces séparées en deux segments (« Je joue. » puis le nom de la carte) sont regroupées pendant une courte fenêtre.
+- Une correction phonétique utilise **l'ensemble du catalogue déjà chargé en local**, pas seulement les quelques noms placés dans le prompt Whisper. Les correspondances incertaines demandent confirmation; le modèle ne peut jamais inventer une carte ou ignorer les coûts. Lorsqu'un nom est corrigé, la transcription originale reste visible.
+- Les réponses Qwen contenant du JSON valide entouré de texte sont récupérées ; les sorties invalides sont expliquées sans faire croire que le plateau a été modifié.
+- Sur Windows, un diagnostic local RAM/GPU présélectionne Qwen3 4B ou Qwen3.5 9B, avec choix manuel possible. L'appareil reste hors-ligne pour cette détection.
+- Le gestionnaire est désormais une seule page avec les options et les processus visibles ; les menus déroulants et repliables sont supprimés, les boutons redondants fusionnés.
+- Le logo Riftbound s'anime pendant les installations, mises à jour et désinstallation, avec indication du pourcentage réel et avertissement quand aucun avancement n'est observé. **Une animation ne prouve pas à elle seule qu'un transfert progresse.**
+- Le moteur de jeu continue de demander une clarification quand il manque une information ou quand un effet de carte n'est pas automatisé. La couverture exhaustive des effets Riftbound reste en cours.
 
 ## v0.38 — Désinstallation complète et écran final lisible
 

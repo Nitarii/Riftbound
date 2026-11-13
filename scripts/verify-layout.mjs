@@ -233,10 +233,10 @@ try{
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
  let upToDate=false,uninstallCalls=0,managerApiRequests=0;
  const managerPayload=()=>({
-  version:upToDate?"0.38.0":"0.26.0",portable:true,
+  version:upToDate?"0.39.0":"0.26.0",portable:true,
   path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
   canLaunch:upToDate,mustUpdate:!upToDate,
-  availableVersion:upToDate?null:"0.38.0",progress:0,
+  availableVersion:upToDate?null:"0.39.0",progress:0,
   error:"",updating:false,shuttingDown:false
  });
  await managerPage.route("**/api/**",async route=>{
@@ -286,7 +286,19 @@ try{
  // Mock an accepted uninstall handoff and simulate that localhost disappears.
  // The page must remain readable, hide stale process panels, and stop polling.
  managerPage.on("dialog",dialog=>dialog.accept());
- await managerPage.locator(".manager-advanced > summary").click();
+ ensure(await managerPage.locator(".manager-advanced").isVisible(),
+  "Maintenance must be visible without a dropdown or accordion");
+ ensure(await managerPage.locator("#process-dashboard").isVisible(),
+  "Process dashboard must remain visible without a dropdown");
+ ensure(await managerPage.locator("#model-choices button").count()===2,
+  "Both local models must be visible as buttons");
+ ensure(await managerPage.locator("#manager-dashboard details").count()===0,
+  "Manager still contains collapsed menus");
+ await managerPage.locator('[data-ai-model="qwen3.5:9b-q4km"]').click();
+ ensure(await managerPage.locator("#ai-profile").inputValue()==="qwen3.5:9b-q4km",
+  "Model-choice button did not update the pending install");
+ ensure(await managerPage.locator('[data-ai-model="qwen3.5:9b-q4km"]').getAttribute("aria-pressed")==="true",
+  "Selection state not visible for the model button");
  await managerPage.locator("#uninstall").click();
  await managerPage.waitForFunction(()=>
   document.querySelector("#startup-title")?.textContent?.includes("tu peux fermer cet onglet"));
@@ -313,9 +325,9 @@ try{
   const pathname=new URL(route.request().url()).pathname;
   const body=pathname==="/api/state"?{state:localState}:
    pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
-   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.38.0",
-    updateState:installedVersion==="0.38.0"?"current":"outdated",
-    mustUpdate:installedVersion!=="0.38.0",availableVersion:"0.26.0"}:
+   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.39.0",
+    updateState:installedVersion==="0.39.0"?"current":"outdated",
+    mustUpdate:installedVersion!=="0.39.0",availableVersion:"0.26.0"}:
    pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
    pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
   await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
@@ -334,7 +346,7 @@ try{
   "Outdated companion still permits skipping the install wizard");
  ensure(await gamePage.locator("#manager-open").count()===1,
   "Manager button missing from the main header");
- installedVersion="0.38.0";
+ installedVersion="0.39.0";
  await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));

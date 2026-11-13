@@ -18,6 +18,7 @@ import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
 import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
 import {planPlayerSequence} from "./player-sequence.mjs";
+import {correctSpokenCardPhrase} from "./card-voice.mjs";
 import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
@@ -237,6 +238,7 @@ if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
 // The physical player can correct the previous card name without a separate model request.
 // Pending actions are never executed until a real catalog card and all costs are verified.
 let pendingHumanAction=null;
+let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=text=>{
  const entry=conversation.post("human",text);
@@ -245,6 +247,23 @@ const receiveHumanMessage=text=>{
   try{catalog=await loadServerCatalog();}catch{}
   let announcement=entry.text;
   const english=detectMessageLanguage(entry.text)==="en";
+  const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
+   .toLowerCase().replace(/[.!?]+$/g,"").trim();
+  const barePlay=/^(?:(?:et|and)\s+)?(?:(?:je|j'|i)\s+)?(?:joue|jouer|pose|play|playing|place|mets)\s*(?:une?\s+carte|a\s+card)?$/i.test(normalized);
+  if(barePlay){
+   pendingSpokenPlay={revision:state.revision,time:Date.now(),prefix:english?"I play ":"Je joue "};
+   receiveAgentMessage(english?"I heard 'I play'. Which card?":
+    "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
+   return;
+  }
+  if(pendingSpokenPlay){
+   const previous=pendingSpokenPlay;pendingSpokenPlay=null;
+   if(!pendingHumanAction&&previous.revision===state.revision&&Date.now()-previous.time<30000&&
+     !/\b(?:joue|pose|play|place|mets|pioche|draw|termine|finis|end|channel|canalise)\b/i.test(normalized)&&
+     normalized.length>=4&&normalized.length<=90&&!/[?]/.test(entry.text)){
+    announcement=previous.prefix+entry.text;
+   }
+  }
   if(pendingHumanAction){
    const answer=resolveCardClarification(pendingHumanAction,entry.text,catalog,state,{english});
    if(answer.status==="waiting"){
@@ -273,6 +292,15 @@ const receiveHumanMessage=text=>{
   }
   if(plan.error){
    receiveAgentMessage(english?plan.errorEN:plan.error);
+   return;
+  }
+  if(plan.recognized&&!plan.commands?.length){
+   receiveAgentMessage(english?"Already reflected on the board.":"Cette action est déjà prise en compte sur le plateau.");
+   return;
+  }
+  if(!plan.recognized&&/\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
+   receiveAgentMessage(english?"I heard a card play, but the name or target is incomplete. Repeat the card name. No change was made.":
+    "J'ai entendu une annonce de carte, mais je n'ai pas pu identifier une action complète. Répète le nom de la carte. Le plateau n'a pas changé.");
    return;
   }
   if(plan.commands?.length){
@@ -339,7 +367,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -549,9 +577,17 @@ const server=http.createServer(async(req,res)=>{
       seen.add(key);cards.push(card);
       if(cards.length>=28)break;
      }
-     json(res,200,await speech.transcribe(Buffer.concat(chunks),{
+     const result=await speech.transcribe(Buffer.concat(chunks),{
       language:"auto",cards
-     }),req);
+     });
+     // The recognizer prompt is intentionally short; resolve the *entire*
+     // locally cached catalogue afterwards, including names not in the prompt.
+     // Report the original heard phrase whenever a safe correction was made.
+     const correction=correctSpokenCardPhrase(known.length?known:cards,result.text,{
+      expectCardName:Boolean(pendingSpokenPlay&&Date.now()-pendingSpokenPlay.time<30000)
+     });
+     json(res,200,{...result,...correction,
+      rawText:correction.corrected?correction.rawText:result.text},req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){

@@ -1,10 +1,11 @@
 // Bilingual, typo-tolerant interpretation of announced PHYSICAL actions.
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
+import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
  .replace(/[\u0300-\u036f]/g,"").replace(/[’‘]/g,"'").toLowerCase()
- .replace(/[,;:!?()[\]{}]+/g," ").replace(/[-–—]+/g," ")
+ .replace(/[.,;:!?()[\]{}]+/g," ").replace(/[-–—]+/g," ")
  .replace(/\s+/g," ").trim();
 const words=value=>clean(value).match(/[a-z0-9']+/g)||[];
 const num=value=>({un:1,une:1,one:1,a:1,an:1,deux:2,two:2,trois:3,three:3,quatre:4,four:4}[value]||Number(value));
@@ -72,56 +73,19 @@ function correctToken(token){
 }
 export const normalizePlayerAnnouncement=message=>clean(message).replace(/[a-z]+/g,correctToken);
 
-function catalogEntries(catalog){
- const byName=new Map();
- for(const card of catalog||[]){
-  if(!card?.name||!card?.code||card.isVariant)continue;
-  const key=clean(card.name);
-  if(!byName.has(key))byName.set(key,card);
- }
- return [...byName].map(([key,card])=>({key,card}));
-}
-function cardQuery(name){
- return clean(name).replace(/^(?:(?:un|une|a|an|the|my|mon|ma|le|la)\s+|l')+/,"").trim();
-}
-function rankedCards(catalog,name){
- const query=cardQuery(name),entries=catalogEntries(catalog);
- if(!query)return [];
- const exact=entries.filter(x=>x.key===query||clean(x.card.code)===query);
- if(exact.length)return exact.map(x=>({...x,score:0}));
- // User may invert spoken card names ("Poro Loyal" for "Loyal Poro").
- const parts=query.split(" ").filter(Boolean);
- if(parts.length>=2){
-  const key=parts.slice().sort().join(" ");
-  const swapped=entries.filter(x=>x.key.split(" ").filter(Boolean).sort().join(" ")===key);
-  if(swapped.length===1)return swapped.map(x=>({...x,score:0}));
- }
- const partial=query.length>=5?entries.filter(x=>x.key.includes(query)):[],prefix=partial.length===1?partial:[];
- if(prefix.length)return prefix.map(x=>({...x,score:0}));
- if(query.length<6)return [];
- const max=query.length>=8?2:1;
- return entries.map(x=>({...x,score:distance(query,x.key,max+2)}))
-  .filter(x=>x.score<=max+1).sort((a,b)=>a.score-b.score||a.key.localeCompare(b.key))
-  .slice(0,5);
-}
 export function findAnnouncedCard(catalog,name){
- const ranked=rankedCards(catalog,name);
- if(ranked.length!==1&&ranked.length===0)return null;
- if(!ranked.length)return null;
- const query=cardQuery(name),best=ranked[0];
- if(best.score===0)return ranked.length===1?best.card:null;
- const max=query.length>=8?2:1;
- if(best.score>max)return null;
- if(ranked[1]&&ranked[1].score<=best.score+1)return null;
- return best.card;
+ return matchSpokenCard(catalog,name).card;
 }
 function unknownCard(catalog,name){
- const possible=rankedCards(catalog,name).slice(0,3).map(x=>x.card.name);
+ const possible=rankSpokenCards(catalog,name,{limit:3})
+  .filter(x=>x.score>=.60).map(x=>x.card.name);
  const hints=possible.length?" Propositions : "+possible.join(" / ")+".":"";
  const hintsEN=possible.length?" Suggestions: "+possible.join(" / ")+".":"";
- return {...fail("Je ne peux pas identifier « "+name+" » avec certitude."+hints+" Précise le nom exact avant de déplacer une carte.",
-  "I cannot identify “"+name+"” confidently."+hintsEN+" Please confirm the exact card name before moving it."),
-   needsClarification:{kind:"card",query:name}};
+ return {...fail("Je ne peux pas identifier « "+name+" » avec certitude."+hints+
+  " Dis le nom exact de la carte ou confirme une proposition.",
+  "I cannot identify “"+name+"” confidently."+hintsEN+
+  " Please confirm the actual card name before playing it."),
+  needsClarification:{kind:"card",query:name}};
 }
 function expectedChannel(state){
  const first=state.firstPlayer||((state.history||[]).find(h=>/Début de partie/.test(h.text||""))?.text?.includes("IA")?"ai":"human");
