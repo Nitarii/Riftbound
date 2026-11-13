@@ -140,9 +140,10 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   text.match(new RegExp("\\b(?:canalise|channel)\\s+"+number+"\\b"));
  const draw=text.match(new RegExp("\\b(?:pioche|draw|prends|take)\\s+(?:(?:mes|my|the|les|des|de)\\s+)?"+number+"\\s+(?:cartes?|cards?)\\b"))||
   (/\b(?:pioche|draw)\s+(?:ma|une|la|my|one|a|the)\s+(?:carte|card)\b/.test(text)?["","1"]:null);
- const spend=text.match(new RegExp("\\b(?:exhaust|epuise|tap|spend|utilise|use)\\s+(?:(?:mes|my|les)\\s+)?"+number+"(?:\\s+runes?)?\\b"));
+ const spend=text.match(new RegExp("\\b(?:exhaust|epuise|tap|spend|utilise|use)\\s+(?:(?:mes|my|les)\\s+)?"+number+"(?:\\s+runes?)?\\b"))||
+  text.match(new RegExp("\\b(?:pour|for|avec|with|contre|cout|coute|payer|pay)\\s+"+number+"\\s+runes?\\b"));
  const play=text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{2,96}?)\s+(?:dans|sur|in|onto|on|to)\s+(?:(?:ma|mon|my|the|la|le)\s+)?(base|champ(?: de bataille)?|battlefield|terrain|field)\b/)||
-   text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{3,90}?)(?=\s+(?:et\s+je|and\s+i|puis\s+je|then\s+i)\b|$)/);
+   text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{3,90}?)(?=\s+(?:pour|for|avec|with|contre|cout|coute|payer|pay)\s+(?:\d+|un|une|one|two|deux|trois|three|four|quatre)\s+runes?\b|\s+(?:et\s+je|and\s+i|puis\s+je|then\s+i)\b|$)/);
  const endTurn=/\b(?:termine|finis|passe|end|finish|pass)\s+(?:(?:mon|my|le|the)\s+)?(?:tour|turn)\b|\b(?:mon|my)\s+(?:tour|turn)\s+(?:(?:is|est)\s+)?(?:fini|termine|over)\b/.test(text);
  const recognized=Boolean(channel||draw||spend||play||endTurn);
  if(!recognized)return {commands:[],recognized:false};
@@ -153,6 +154,9 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  try{
   if(channel){
    const count=num(channel[1]),expected=expectedChannel(preview);
+   if(preview.turnActions?.channeled===count){
+    // The mandatory runes were already channeled by the automatic start of turn.
+   }else{
    if(!Number.isInteger(count)||count!==expected)
     return fail("Tu dois canaliser "+expected+" runes pendant cette phase"+
       (state.turn===1?" (premier joueur : 2, second : 3).":"."),
@@ -163,17 +167,22 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
     "There are not enough runes in your deck.");
    add({type:"phase",phase:"Channel"});
    add({type:"channel",player:"human",count});
+   }
   }
   if(draw){
    if(!preview.turnActions?.channeled)return fail("Commence par canaliser les runes de ton tour.",
     "Channel your runes before drawing.");
    const count=num(draw[1]);
+   if(preview.turnActions?.drawn===count){
+    // Repeat of the normal draw; do not draw again.
+   }else{
    if(count!==1)return fail("Sans effet de carte confirmé, tu dois piocher 1 carte pendant la phase Draw.",
     "Without a confirmed card effect, draw 1 card during the Draw phase.");
    if(preview.turnActions?.drawn)return fail("Tu as déjà effectué ta pioche normale de ce tour.",
     "You already drew your standard card this turn.");
    add({type:"phase",phase:"Draw"});
    add({type:"draw",player:"human",count:1});
+   }
   }
   if(play){
    if(play[2]&&play[2]!=="base")return fail("Le déplacement direct vers un champ de bataille nécessite une vérification des règles. Précise l'action exacte.",
@@ -186,12 +195,9 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    if(preview.players.human.handCount<=0)
     return fail("Le compte de ta main est à zéro : vérifie-le avant de jouer une carte.",
       "Your hand count is zero. Update it before playing a card.");
-   if(!preview.turnActions?.channeled)
-    return fail("Annonce d'abord les runes canalisées pendant ce tour.",
-      "Please announce your rune channeling first.");
-   if(!preview.turnActions?.drawn)
-    return fail("Annonce d'abord ta pioche normale avant de jouer cette unité.",
-      "Please announce your normal draw before playing this unit.");
+   if(!preview.turnActions?.channeled||!preview.turnActions?.drawn)
+    return fail("Le début de tour n'est pas encore résolu sur le plateau.",
+      "The normal start of turn has not been completed on the board.");
    if(card.energy==null||card.energy===""||!Number.isFinite(Number(card.energy))||Number(card.energy)<0)
     return fail("Le coût de "+card.name+" est indisponible : paiement non vérifiable.",
       "The cost of "+card.name+" is missing; payment cannot be verified.");
