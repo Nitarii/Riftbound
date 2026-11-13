@@ -90,10 +90,10 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
   assert.match(script,/Save-Status 'failed'/);
   assert.match(script,/ReparsePoint/);
   assert.match(script,/Remove-Managed \$m/);
-  let launched="",launchOptions=null,shutdown=false;
+  let launched=null,launchOptions=null,shutdown=false;
   const manager=createPortableManager({root:install.root,exePath:exe,portable:true,
-   launch:(code,options)=>{
-    launched=code;launchOptions=options;
+   launch:(request,options)=>{
+    launched=request;launchOptions=options;
     fs.mkdirSync(path.join(install.root,"updates"),{recursive:true});
     fs.writeFileSync(path.join(install.root,"updates","uninstall-status.json"),
      JSON.stringify({phase:"waiting",message:"ready"}));
@@ -104,10 +104,11 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
   assert.equal(done.ok,true);
   assert.equal(done.uninstalling,true);
   assert.equal(manager.status().shuttingDown,true);
-  assert.equal(launchOptions.root,install.root);
-  assert.equal(launchOptions.mode,"uninstall");
+  assert.equal(launched.root,install.root);
+  assert.equal(launched.exePath,exe);
+  assert.ok(Number.isSafeInteger(launched.pid));
   assert.equal(fs.readFileSync(path.join(install.root,"updates","uninstall-go.signal"),"utf8"),"GO");
-  assert.match(launched,/Get-Process -Id \$pidToWait/);
+  assert.ok(launchOptions.env.TEMP.endsWith("temp"));
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
 test("uninstaller does not shut down if independent cleanup cannot be launched",async()=>{
