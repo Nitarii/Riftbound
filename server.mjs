@@ -84,8 +84,26 @@ async function loadServerCatalog(force=false) {
   return catalogPending;
 }
 let state=createState();
-try{state=JSON.parse(fs.readFileSync(stateFile,"utf8"));}catch{}
-function save(){fs.writeFileSync(stateFile,JSON.stringify(state,null,2));}
+const backupStateFile=stateFile+".bak";
+let primaryStateHealthy=false;
+const validSavedState=s=>Boolean(s&&typeof s==="object"&&!Array.isArray(s)&&
+ Number.isInteger(s.revision)&&Array.isArray(s.cards)&&Array.isArray(s.history)&&
+ Array.isArray(s.battlefields)&&s.players?.human&&s.players?.ai&&s.decks?.ai);
+for(const filename of [stateFile,backupStateFile]){
+ try{
+  const candidate=JSON.parse(fs.readFileSync(filename,"utf8"));
+  if(validSavedState(candidate)){state=candidate;primaryStateHealthy=filename===stateFile;break;}
+ }catch{}
+}
+function save(){
+ const temp=stateFile+"."+crypto.randomBytes(6).toString("hex")+".tmp";
+ try{
+  fs.writeFileSync(temp,JSON.stringify(state),{flag:"wx",mode:0o600});
+  if(primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
+  fs.renameSync(temp,stateFile);
+  primaryStateHealthy=true;
+ }finally{try{fs.rmSync(temp,{force:true});}catch{}}
+}
 function json(res,status,obj,req){
   headers(res,req);res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});
   res.end(JSON.stringify(obj));
@@ -307,6 +325,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
+const packagedAssetCache=new Map();
 const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
@@ -319,8 +338,10 @@ function serveFile(req,res,url){
  const mime=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":ext===".svg"?"image/svg+xml":"text/plain";
  try{
   let bytes;
-  if(packaged)bytes=Buffer.from(sea.getAsset(name));
-  else bytes=fs.readFileSync(path.join(root,name));
+  if(packaged){
+   bytes=packagedAssetCache.get(name);
+   if(!bytes){bytes=Buffer.from(sea.getAsset(name));packagedAssetCache.set(name,bytes);}
+  }else bytes=fs.readFileSync(path.join(root,name));
   headers(res,req);
   res.writeHead(200,{"Content-Type":mime+"; charset=utf-8","Cache-Control":"no-cache"});
   res.end(bytes);
@@ -580,8 +601,7 @@ server.listen(port,host,()=>{
   console.log("L'API principale est réservée à 127.0.0.1. Ne publie pas le jeton.");
   console.log("L'accès distant à une IA est DÉSACTIVÉ par défaut, et doit être démarré depuis le site.\n");
   if(packaged&&process.platform==="win32"){
-    console.log("Ouvre https://nitarii.github.io/Riftbound/ dans ton navigateur,");
-    console.log("puis clique sur « Autoriser la connexion locale » à l'étape 2.");
+    console.log("Le gestionnaire ouvre le plateau local en un clic, sans connexion manuelle.");
     console.log("Le programme n'ouvre plus un nouvel onglet automatiquement.");
     // The packaged executable opens the local management interface, where
     // the user can activate/disable AI, launch the site, update or uninstall.

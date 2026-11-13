@@ -76,7 +76,7 @@ export function createLocalWhisper({
   downloads=path.join(root,"downloads"),models=path.join(root,"models"),temp=path.join(root,"temp");
  const stamp=path.join(engineDir,".verified.json"),preferences=path.join(root,".speech-preferences.json");
  const selected=WHISPER_MODEL;
- let job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false;
+ let job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false,downloadAbort=null;
  let enabled=true; // Preserve the existing hands-free default for current users.
  const ensureRunning=()=>{if(stopping)throw Error("Installation vocale interrompue : fermeture du compagnon.");};
  async function unpack(zip,dir,env){
@@ -125,7 +125,8 @@ export function createLocalWhisper({
    info={phase:"engine",progress:0,error:"",message:"Téléchargement du moteur vocal officiel…"};
    const zip=path.join(downloads,WHISPER_ARCHIVE);
    await download(WHISPER_ENGINE_URL,zip,WHISPER_ENGINE_SHA,
-    (n,total)=>{info.progress=total?Math.round(n/total*100):0;},fetchImpl);
+    (n,total)=>{info.progress=total?Math.round(n/total*100):0;},fetchImpl,
+    {signal:downloadAbort?.signal});
    ensureRunning();
    info={...info,phase:"extracting",message:"Extraction du moteur vocal…"};
    await unpack(zip,engineDir,env);
@@ -136,7 +137,8 @@ export function createLocalWhisper({
   }
   info={phase:"model",progress:0,error:"",message:"Téléchargement de "+config.label+"…"};
   await download(config.url,modelPath(id),config.sha256,
-   (n,total)=>{info.progress=total?Math.round(n/total*100):Math.round(n/config.bytes*100);},fetchImpl);
+   (n,total)=>{info.progress=total?Math.round(n/total*100):Math.round(n/config.bytes*100);},fetchImpl,
+   {signal:downloadAbort?.signal});
   ensureRunning();
   enabled=true;
   savePreferences();
@@ -148,8 +150,9 @@ export function createLocalWhisper({
   if(job)return status();
   if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
   stopping=false;
-  const promise=prepare(id).catch(e=>{info={phase:"error",error:String(e.message||e).slice(0,250),
-   message:"Installation vocale interrompue.",progress:0};}).finally(()=>{if(job===promise)job=null;});
+  downloadAbort=new AbortController();
+  const promise=prepare(id).catch(e=>{if(stopping)return;info={phase:"error",error:String(e.message||e).slice(0,250),
+   message:"Installation vocale interrompue.",progress:0};}).finally(()=>{if(job===promise)job=null;downloadAbort=null;});
   job=promise;return status();
  }
  function stop({disable=false}={}){
@@ -158,6 +161,7 @@ export function createLocalWhisper({
    savePreferences();
   }
   stopping=true;
+  downloadAbort?.abort();
   if(extractProc)stopOwnedProcess(extractProc);
   extractProc=null;
   if(activeProc)stopOwnedProcess(activeProc);

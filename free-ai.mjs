@@ -42,34 +42,79 @@ async function fileSHA256(filename){
  for await(const chunk of createReadStream(filename,{highWaterMark:1024*1024}))sha.update(chunk);
  return sha.digest("hex");
 }
-export async function downloadVerified(url,target,expected,report=()=>{},fetchImpl=fetch){
+// Resume interrupted model downloads into a private .part file. Never promote
+// weights to the final filename until the entire SHA-256 has been checked.
+export async function downloadVerified(url,target,expected,report=()=>{},fetchImpl=fetch,
+ {signal,maxAttempts=3}={}){
  const temporary=target+".part";
  fs.mkdirSync(path.dirname(target),{recursive:true});
  if(fs.existsSync(target)){
   if(await fileSHA256(target)===expected)return fs.statSync(target).size;
   fs.rmSync(target,{force:true});
  }
- let completed=0;
- try{
-  const response=await fetchImpl(url,{redirect:"follow",signal:AbortSignal.timeout(2*60*60*1000)});
-  if(!response.ok||!response.body)throw Error("Téléchargement officiel HTTP "+response.status);
-  const total=Number(response.headers.get("content-length"))||0;
-  const digest=crypto.createHash("sha256");
-  const stream=fs.createWriteStream(temporary,{flags:"w",mode:0o600});
+ const tries=Math.max(1,Math.min(5,Number(maxAttempts)||3));
+ for(let attempt=0;attempt<tries;attempt++){
+  if(signal?.aborted)throw Error("Téléchargement annulé.");
+  let offset=fs.existsSync(temporary)?fs.statSync(temporary).size:0;
+  let stream=null;
   try{
+   const headers=offset?{Range:"bytes="+offset+"-"}:{};
+   const timeout=AbortSignal.timeout(2*60*60*1000);
+   const combined=signal?AbortSignal.any([signal,timeout]):timeout;
+   const response=await fetchImpl(url,{redirect:"follow",headers,signal:combined});
+   if(response.status===416&&offset){
+    fs.rmSync(temporary,{force:true});
+    continue;
+   }
+   if(!response.ok||!response.body){
+    const error=Error("Téléchargement officiel HTTP "+response.status);
+    if(response.status>=400&&response.status<500&&response.status!==408&&response.status!==429)error.fatal=true;
+    throw error;
+   }
+   if(offset&&response.status===206){
+    const range=String(response.headers.get("content-range")||"");
+    const match=/^bytes (\d+)-(\d+)\/(\d+|\*)$/i.exec(range);
+    if(!match||Number(match[1])!==offset){
+     fs.rmSync(temporary,{force:true});
+     throw Error("Réponse HTTP Range incohérente ; reprise à zéro.");
+    }
+   }else if(offset){
+    // Servers that ignore Range may return 200. Restart rather than append.
+    fs.rmSync(temporary,{force:true});
+    offset=0;
+   }else if(response.status===206){
+    const range=String(response.headers.get("content-range")||"");
+    if(!/^bytes 0-\d+\/(\d+|\*)$/i.test(range))
+     throw Error("Réponse HTTP partielle incorrecte.");
+   }
+   const length=Number(response.headers.get("content-length"))||0;
+   const total=length?offset+length:0;
+   stream=fs.createWriteStream(temporary,{flags:offset?"a":"w",mode:0o600});
+   let received=offset;
    for await(const chunk of response.body){
+    if(signal?.aborted)throw Error("Téléchargement annulé.");
     const part=Buffer.from(chunk);
-    completed+=part.length;digest.update(part);
+    received+=part.length;
     if(!stream.write(part))await once(stream,"drain");
-    report(completed,total);
+    report(received,total);
    }
    await new Promise((resolve,reject)=>stream.end(error=>error?reject(error):resolve()));
-  }catch(e){stream.destroy();throw e;}
-  if(digest.digest("hex")!==expected)
-   throw Error("Échec du contrôle d'intégrité SHA-256. Le fichier a été rejeté.");
-  fs.renameSync(temporary,target);
-  return completed;
- }catch(e){try{fs.rmSync(temporary,{force:true});}catch{}throw e;}
+   stream=null;
+   if(await fileSHA256(temporary)!==expected){
+    fs.rmSync(temporary,{force:true});
+    const error=Error("Échec du contrôle d'intégrité SHA-256. Le fichier a été rejeté.");
+    error.fatal=true;throw error;
+   }
+   if(signal?.aborted)throw Error("Téléchargement annulé.");
+   fs.renameSync(temporary,target);
+   return received;
+  }catch(error){
+   stream?.destroy();
+   if(signal?.aborted)throw Error("Téléchargement annulé.");
+   if(error?.fatal||attempt===tries-1)throw error;
+  }
+ }
+ throw Error("Téléchargement interrompu.");
 }
 function findServer(folder,depth=4){
  if(depth<0||!fs.existsSync(folder))return "";
@@ -100,7 +145,7 @@ export function createFreeLocalAI({
  const zipFile=path.join(root,"downloads",ENGINE_FILE);
  const modelFile=path.join(modelFolder,MODEL_FILE);
  const marker=path.join(engineFolder,".verified.json");
- let active=null,job=null,extractProcess=null,stopping=false;
+ let active=null,job=null,extractProcess=null,stopping=false,downloadAbort=null;
  const ensureRunning=()=>{if(stopping)throw Error("Installation IA interrompue : fermeture du compagnon.");};
  async function unpack(archive,directory){
   if(extract){await extract(archive,directory);return;}
@@ -146,7 +191,8 @@ export function createFreeLocalAI({
   fs.mkdirSync(engineFolder,{recursive:true});
   set({phase:"engine",message:"Téléchargement du petit moteur CPU (25 Mo)…",progress:0,transferred:0,total:0});
   await downloadVerified(ENGINE_URL,zipFile,ENGINE_SHA256,(bytes,total)=>
-   set({transferred:bytes,total,progress:total?Math.round(bytes/total*100):0}),fetchImpl);
+   set({transferred:bytes,total,progress:total?Math.round(bytes/total*100):0}),fetchImpl,
+   {signal:downloadAbort?.signal});
   ensureRunning();
   set({phase:"extracting",message:"Extraction du moteur CPU…",progress:0});
   await unpack(zipFile,engineFolder);
@@ -165,7 +211,8 @@ export function createFreeLocalAI({
    transferred:0,total:EXPECTED_MODEL_SIZE,progress:0});
   await downloadVerified(MODEL_URL,modelFile,MODEL_SHA256,(bytes,total)=>
    set({transferred:bytes,total:total||EXPECTED_MODEL_SIZE,
-    progress:Math.min(99,Math.round(bytes/(total||EXPECTED_MODEL_SIZE)*100))}),fetchImpl);
+    progress:Math.min(99,Math.round(bytes/(total||EXPECTED_MODEL_SIZE)*100))}),fetchImpl,
+   {signal:downloadAbort?.signal});
   ensureRunning();
  }
  async function runServer(){
@@ -222,9 +269,11 @@ export function createFreeLocalAI({
  function begin(download){
   if(job)return status();
   stopping=false;
-  const promise=prepare({download}).catch(error=>set({phase:"error",ready:false,
-   installed:installed(),error:failure(error),message:"Installation inachevée."}))
-  .finally(()=>{if(job===promise)job=null;});
+  downloadAbort=new AbortController();
+  const promise=prepare({download}).catch(error=>{
+   if(!stopping)set({phase:"error",ready:false,installed:installed(),
+    error:failure(error),message:"Installation inachevée."});
+  }).finally(()=>{if(job===promise)job=null;downloadAbort=null;});
   job=promise;
   return status();
  }
@@ -232,6 +281,7 @@ export function createFreeLocalAI({
  function resume(model=MODEL_NAME){freeModelID(model);return job?status():installed()&&modelPresent()?begin(false):status();}
  function stop(){
   stopping=true;
+  downloadAbort?.abort();
   if(extractProcess){stopOwnedProcess(extractProcess);extractProcess=null;}
   if(active){stopOwnedProcess(active);active=null;}
   set({phase:"idle",ready:false,progress:0,installed:installed(),message:"IA locale arrêtée. Les modèles sont conservés."});

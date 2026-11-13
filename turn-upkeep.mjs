@@ -19,5 +19,16 @@ export function advanceMandatoryTurn(state){
   if(remaining>0)next=applyCommand(next,{type:"draw",player:who,count:1});
  }
  if(!next.pendingCombat&&next.phase!=="Main")next=applyCommand(next,{type:"phase",phase:"Main"});
+ // Keep the reducer's exact revision and resource changes, but display a
+ // single understandable history entry rather than five phase transitions.
+ if(next.revision!==state.revision){
+  const runes=(next.turnActions?.channeled||0)-(state.turnActions?.channeled||0);
+  const drawn=(next.turnActions?.drawn||0)-(state.turnActions?.drawn||0);
+  const description="Début du tour : "+(runes?"+ "+runes+" runes":"pas de rune disponible")+
+   ", "+(drawn?"+ "+drawn+" carte":"pioche vide")+". "+(who==="ai"?"Tour de l’IA.":"À toi de jouer.");
+  next.history=[{revision:next.revision,at:new Date().toISOString(),text:description},
+   ...(state.history||[])].slice(0,120);
+  next.message=description;
+ }
  return next;
 }

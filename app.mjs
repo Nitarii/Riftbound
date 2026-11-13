@@ -403,6 +403,7 @@ $("card-dialog").addEventListener("click",e=>{
   $("card-dialog").close();dispatch({type:action,uid:selected.uid,...(["damage","heal"].includes(action)?{value:1}:{})});
 });
 function setActiveTab(name){
+ setToolsExpanded(true);
  const target=$("tab-"+name);
  if(!target)return;
  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
@@ -437,17 +438,27 @@ document.addEventListener("fullscreenchange",()=>{
  fullscreenButton.title=active?"Retour à la fenêtre":"Étendre le plateau sur tout l'écran";
 });
 function showHome(){document.body.classList.add("home-visible");renderWelcome();window.scrollTo({top:0,behavior:"smooth"});}
-function showGame(tab="setup"){
+function showGame(tab=""){
  if(companionGate){
   showHome();wizardStep=1;renderWelcome();
   notify("Termine la vérification ou la mise à jour du compagnon avant de lancer le plateau.",true);
   return;
  }
- setActiveTab(tab);
+ if(["setup","catalog","agent"].includes(tab)){setActiveTab(tab);setToolsExpanded(true);}
  document.body.classList.remove("home-visible");
  window.scrollTo({top:0,behavior:"smooth"});
 }
 $("go-home").onclick=showHome;
+function setToolsExpanded(open){
+ const drawer=document.querySelector("#game-app .bottom>.drawer");
+ const button=$("toggle-tools");
+ if(!drawer||!button)return;
+ drawer.classList.toggle("tools-expanded",!!open);
+ button.setAttribute("aria-expanded",String(!!open));
+ button.textContent=open?"Masquer les outils":"Outils avancés";
+}
+$("toggle-tools").onclick=()=>setToolsExpanded(
+ !document.querySelector("#game-app .bottom>.drawer")?.classList.contains("tools-expanded"));
 for(const tab of document.querySelectorAll(".tab"))tab.onclick=()=>setActiveTab(tab.dataset.tab);
 $("setup-human").onclick=()=>{
   const legend=cardFromInput("human-legend-input","legend"),champion=cardFromInput("human-champion-input","unit"),battlefield=cardFromInput("human-battlefield-input","battlefield");
@@ -896,7 +907,7 @@ $("ai-disable").onclick=async()=>{
  try{integratedAIStatus=await aiPost("disable");aiDisplay();notify("IA intégrée désactivée.");}
  catch(e){notify(e.message,true);}
 };
-$("ai-open-board").onclick=()=>showGame("setup");
+$("ai-open-board").onclick=()=>showGame();
 aiProviderFields(true);
 
 // One-click free local opponent. All downloads and generation run inside the
@@ -1474,8 +1485,9 @@ function renderWelcome(){
    $("welcome-progress-"+(i+1)).classList.toggle("active",wizardStep===i+1);
    const card=document.querySelector('.welcome-step[data-wizard-step="'+(i+1)+'"]');
    if(card){
-     card.hidden=wizardStep!==i+1;
-     card.setAttribute("aria-hidden",String(wizardStep!==i+1));
+     const visible=!companionGate&&(relay?i>=2:onboarding.preview?i<=2:i<=1);
+     card.hidden=!visible;
+     card.setAttribute("aria-hidden",String(!visible));
      card.classList.toggle("complete",steps[i]);
    }
  }
@@ -1490,7 +1502,7 @@ function renderWelcome(){
  $("home-prompt-status").textContent=steps[3]?"✓ Prompt copié":"À copier";
  $("home-prompt-status").classList.toggle("complete",steps[3]);
  $("home-resume").hidden=!state.started||Boolean(companionGate);
- $("home-resume").textContent=state.started?"Reprendre ma partie":"Voir le plateau";
+ $("home-resume").textContent="▶ Reprendre la partie";
 
  $("home-back").disabled=wizardStep===1;
  $("home-next").disabled=Boolean(companionGate)||!steps[wizardStep-1];
@@ -1742,7 +1754,7 @@ $("home-preview").onclick=()=>{
  notify("Mode aperçu activé. Une IA extérieure ne pourra pas piloter la table sans serveur.");
 };
 $("home-advanced-setup").onclick=()=>showGame("setup");
-$("home-resume").onclick=()=>showGame("setup");
+$("home-resume").onclick=()=>showGame();
 
 $("home-copy-prompt").onclick=async()=>{
  const ok=await copyAgentPrompt();
@@ -1770,9 +1782,10 @@ $("home-create-game").onclick=async()=>{
   $("human-battlefield-input").value=battlefield.name;
   $("precon-select").value=$("home-ai-deck").value;
   renderWelcome();
-  notify("Partie créée ! Deck IA : "+deck.label+(deck.warning?" · "+deck.warning:"")+". Tu peux maintenant copier le prompt puis ouvrir le plateau.");
+   notify("Partie prête : "+deck.label+".");
+   showGame();
  }catch(e){notify(e.message,true);}
- finally{button.disabled=false;button.textContent="Créer et démarrer ma partie";}
+  finally{button.disabled=false;button.textContent="▶ Commencer la partie";}
 };
 // The Windows single-file app opens this page with a one-time login token
 // in the URL fragment (never sent to the server), which is consumed immediately.
