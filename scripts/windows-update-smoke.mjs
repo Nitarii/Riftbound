@@ -5,7 +5,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import {spawn} from "node:child_process";
 import {setTimeout as sleep} from "node:timers/promises";
-import {launchMaintenance,updateScript,INSTALL_ID,INSTALL_MARKER} from "../portable.mjs";
+import {INSTALL_ID,INSTALL_MARKER} from "../portable.mjs";
+import {launchUpdateHelper} from "../update-helper.mjs";
 import {readUpdateStatus,updateLogPath} from "../update-transaction.mjs";
 import {CURRENT_VERSION} from "../release-policy.mjs";
 if(process.platform!=="win32")throw Error("Windows update smoke test must run on Windows.");
@@ -69,10 +70,15 @@ async function checkRunning(previous){
  return instance;
 }
 async function beginUpdate(pid,staged,expected){
- const script=updateScript({root,exePath:exe,staged,pid,expectedSha256:expected,
-  version:CURRENT_VERSION,port});
- const result=launchMaintenance(script,{root,env});
+ const result=launchUpdateHelper({root,exePath:exe,staged,pid,
+  expectedSha256:expected,version:CURRENT_VERSION,port},{env});
  if(!result?.pid)throw Error("Independent updater did not launch");
+ await waitUntil(async()=>{
+  const status=readUpdateStatus(root);
+  if(status?.phase==="waiting")return true;
+  if(status?.phase==="failed")throw Error("Updater failed: "+status.message);
+  return false;
+ },{timeout:15000,label:"downloaded SEA updater handshake (PID "+result.pid+")"});
  await stopCurrent();
  return result;
 }
@@ -91,13 +97,6 @@ try{
  await waitUntil(async()=>{const health=await request("/api/health");return health.ok?true:false;},
   {timeout:40000,label:"original Windows companion"});
  const pid=await runningPid();
- const probeFile=path.join(root,"updates","helper-probe.txt");
- const probeStatement="[System.IO.File]::WriteAllText('"+
-  probeFile.replace(/'/g,"''")+"','working')";
- const probeHelper=launchMaintenance(probeStatement,{root,env});
- await waitUntil(()=>fs.existsSync(probeFile),{timeout:8000,
-  label:"PowerShell helper can execute a minimal encoded command (PID "+probeHelper.pid+")"});
- console.log("PASS independent PowerShell launch probe");
  const checksum=shaFile(exe);
  // Transaction 1: a valid official-sized binary is actually installed, then
  // the new process must accept the SAME local browser authorization token.
@@ -113,9 +112,9 @@ try{
  // Transaction 2: corrupted download rejected, old executable must still be
  // available and the server must restart with persisted credentials.
  const corrupted=path.join(root,"updates","RiftboundCompanion-corrupted.exe");
- fs.writeFileSync(corrupted,"tampered binary");
+ fs.copyFileSync(original,corrupted); // runnable helper with deliberately mismatched SHA
  console.log("Update smoke: corrupted SHA must restore old app and manager...");
- await beginUpdate(updated.pid,corrupted,checksum);
+ await beginUpdate(updated.pid,corrupted,"0".repeat(64));
  const afterError=await checkRunning(updated.pid);
  await waitUntil(()=>readUpdateStatus(root)?.phase==="rolled-back"?true:false,
   {timeout:12000,label:"recovery log"});

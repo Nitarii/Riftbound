@@ -6,6 +6,7 @@ import {downloadVerified} from "./free-ai.mjs";
 import {inside,readMarker,uninstallScript,updateScript,launchMaintenance} from "./portable.mjs";
 import {readUpdateStatus,writeUpdateStatus,updateLogPath} from "./update-transaction.mjs";
 import {CURRENT_VERSION,OFFICIAL_RELEASE,compareVersions} from "./release-policy.mjs";
+import {launchUpdateHelper} from "./update-helper.mjs";
 export {CURRENT_VERSION,OFFICIAL_RELEASE,compareVersions} from "./release-policy.mjs";
 
 export function selectOfficialUpdate(release,current=CURRENT_VERSION){
@@ -23,7 +24,7 @@ export function selectOfficialUpdate(release,current=CURRENT_VERSION){
 
 export function createPortableManager({
  root,exePath=process.execPath,portable=false,fetchImpl=fetch,
- download=downloadVerified,launch=launchMaintenance,shutdown=()=>{},
+ download=downloadVerified,launch=launchMaintenance,launchUpdate=launchUpdateHelper,shutdown=()=>{},
  current=CURRENT_VERSION,skipStartupCheck=false,onOutdated=()=>{},sessionToken="",port=8787
 }={}){
  let phase="idle",progress=0,error="",available=null,updating=false,shuttingDown=false;
@@ -114,15 +115,15 @@ export function createPortableManager({
     progress=Math.min(100,Math.round(n/Math.max(1,total||asset.size||1)*100));
    },fetchImpl);
    phase="restarting";
-   const script=updateScript({root,exePath,staged,
-    expectedSha256:hash,version:candidate.version,port});
+   const request={root,exePath,staged,expectedSha256:hash,
+    version:candidate.version,port,pid:process.pid};
    writeUpdateStatus(root,"launching",candidate.version,
     "Téléchargement vérifié, démarrage du processus de maintenance.");
    const env={...process.env,TEMP:path.join(root,"temp"),TMP:path.join(root,"temp"),
     TMPDIR:path.join(root,"temp"),
     ...(sessionToken?{RIFTBOUND_TOKEN:sessionToken}:{})};
-   const launched=launch(script,{root,env});
-   if(launched===false)throw Error("Le processus de mise à jour n'a pas démarré.");
+   const launched=launchUpdate(request,{root,env});
+   if(!launched?.pid)throw Error("Le processus de mise à jour n'a pas démarré.");
    // Handshake: NEVER kill the old companion if PowerShell could not start.
    // The updater itself must write 'waiting' before the old server exits.
    let acknowledged=false;

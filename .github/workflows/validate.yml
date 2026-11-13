@@ -29,6 +29,7 @@ jobs:
           node --check clarification.mjs
           node --check portable.mjs
           node --check update-transaction.mjs
+          node --check update-helper.mjs
           node --check scripts/windows-update-smoke.mjs
           node --check portable-manager.mjs
           node --check release-policy.mjs

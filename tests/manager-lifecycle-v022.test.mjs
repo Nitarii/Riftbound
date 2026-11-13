@@ -18,12 +18,12 @@ const fetchRelease=source=>async url=>{
  return {ok:true,json:async()=>source};
 };
 test("the site and Windows app share a minimum version",()=>{
- assert.equal(CURRENT_VERSION,"0.26.0");
+ assert.equal(CURRENT_VERSION,"0.27.0");
  assert.equal(MINIMUM_COMPANION_VERSION,CURRENT_VERSION);
  assert.equal(compareVersions("0.21.0",CURRENT_VERSION),-1);
  assert.equal(companionNeedsUpdate("0.21"),true);
  assert.equal(companionNeedsUpdate(CURRENT_VERSION),false);
- assert.equal(companionNeedsUpdate("0.26.0"),false);
+ assert.equal(companionNeedsUpdate("0.27.0"),false);
  assert.equal(companionNeedsUpdate("not installed"),true);
  assert.equal(selectOfficialUpdate(release("0.27.0"),CURRENT_VERSION).version,"0.27.0");
 });
