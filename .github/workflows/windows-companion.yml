@@ -42,6 +42,7 @@ on:
       - 'combat-engine.mjs'
       - 'combat-voice.mjs'
       - 'rune-payment.mjs'
+      - 'play-effects.mjs'
       - 'app.mjs'
       - 'index.html'
       - 'style.css'
