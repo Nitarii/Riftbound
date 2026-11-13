@@ -3,7 +3,15 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.35](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.35.exe)
+**Windows :** [Télécharger Riftbound Companion v0.36](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.36.exe)
+
+## v0.36 — Profils IA gratuits, Vulkan et commandes vocales rapides
+
+- Le gestionnaire Windows permet de choisir le modèle local : **Qwen3 4B Instruct 2507** (~2,5 Go) ou **Qwen3.5 9B Q4_K_M** (~5,7 Go, téléchargement facultatif). Les deux variantes sont disponibles hors ligne après installation, et vérifiées SHA-256.
+- **GPU Vulkan** (AMD, NVIDIA, Intel Arc) en mode automatique si un GPU discret est détecté, avec **CPU obligatoire en solution de secours**. L'utilisateur peut aussi choisir GPU préféré ou CPU uniquement. Les moteurs proviennent de llama.cpp b12277, vérifiés SHA-256, et restent dans le dossier local choisi.
+- Le modèle avancé peut mieux interpréter la conversation et les textes de cartes, mais **les actions et paiements du jeu restent validés par le moteur déterministe**. La prise en charge des capacités complexes n'est pas encore exhaustive.
+- **Vocal** : la fin de phrase est détectée après 480 ms de silence (contre 650 ms) ; la transcription ne bloque plus sur les mises à jour distantes du catalogue. Whisper Small reste local, sur CPU dans cette version.
+- L'application ne télécharge aucun modèle sans action utilisateur ; le mode 4B préexistant et les données de partie sont conservés.
 
 ## v0.35 — Retour au gestionnaire depuis l'accueil
 
