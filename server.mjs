@@ -532,14 +532,17 @@ const server=http.createServer(async(req,res)=>{
       if(size>4_000_000)throw Error("Audio trop long (limite 4 Mo).");
       chunks.push(part);
      }
-     let cards=[];
-     try{
-      const list=await loadServerCatalog();
-      cards=[
-       ...state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai").slice(0,18),
-       ...list.filter(c=>/poro|shen|jinx|vex|rumble|fiora/i.test(c.name||"")).slice(0,16)
-      ];
-     }catch{}
+     // Speech must never wait on a remote card-catalog refresh. Use the
+     // current table and the already cached catalogue, entirely offline.
+     const visible=state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai");
+     const known=Array.isArray(catalogCache)?catalogCache:[];
+     const seen=new Set(),cards=[];
+     for(const card of [...visible,...known]){
+      const key=String(card.name||"").trim().toLowerCase();
+      if(!key||seen.has(key))continue;
+      seen.add(key);cards.push(card);
+      if(cards.length>=28)break;
+     }
      json(res,200,await speech.transcribe(Buffer.concat(chunks),{
       language:"auto",cards
      }),req);
