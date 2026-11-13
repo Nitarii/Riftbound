@@ -311,7 +311,7 @@ try{
   "Outdated companion still permits skipping the install wizard");
  ensure(await gamePage.locator("#manager-open").count()===1,
   "Manager button missing from the main header");
- installedVersion="0.33.0";
+ installedVersion="0.34.0";
  await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));
