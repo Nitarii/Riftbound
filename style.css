@@ -1952,3 +1952,10 @@ body:not(.home-visible) #game-app.history-collapsed{
 #pending-effect-panel p{margin:5px 0;color:#f2eee4;font-size:13px;line-height:1.5;white-space:pre-wrap}
 #pending-effect-panel small{color:#b5c7cf;font-size:11px;line-height:1.4}
 #pending-effect-panel button{min-height:42px;max-width:100%;white-space:normal}
+
+/* Completed match: keep scores visible without leaving the playmat. */
+#game-victory[hidden]{display:none!important}
+#game-victory{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;
+ padding:10px 16px;background:#183e34;border:1px solid #bda45a;border-radius:8px;margin:5px 0}
+#game-victory strong{color:#ffe19d;font-weight:750;font-size:17px}
+#game-victory button{padding:7px 12px}

@@ -77,6 +77,7 @@ test("real played units and moved units show exhausted; awaken readies them",()=
  s=applyCommand(s,{type:"next-turn"});
  assert.equal(s.cards.find(c=>c.name==="Loyal Poro").exhausted,false);
  const uid=s.cards.find(c=>c.name==="Loyal Poro").uid;
+ s=applyCommand(s,{type:"phase",phase:"Main"});
  s=applyCommand(s,{type:"move",uid,zone:"battlefield",battlefield:0});
  assert.equal(s.cards.find(c=>c.uid===uid).exhausted,true);
 });

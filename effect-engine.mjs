@@ -9,13 +9,14 @@ const TRIGGERS=[
  ["ending",/^(?:at the end of your turn|when your turn ends)\s*[,:\-]\s*(.*)$/i],
  ["hold",/^(?:when (?:i|this unit) hold|when you hold (?:here|this battlefield))\s*[,:\-]\s*(.*)$/i],
  ["conquer",/^(?:when (?:i|this unit) conquer|when you conquer (?:here|this battlefield))\s*[,:\-]\s*(.*)$/i],
- ["move",/^(?:when (?:i|this unit) move)\s*[,:\-]\s*(.*)$/i],
+ ["move",/^(?:when (?:i|this unit) move(?: to a battlefield)?)\s*[,:-]\s*(.*)$/i],
  ["die",/^(?:when (?:i|this unit) die)\s*[,:\-]\s*(.*)$/i],
  ["attack",/^(?:when (?:i|this unit) attack)\s*[,:\-]\s*(.*)$/i],
  ["defend",/^(?:when (?:i|this unit) defend)\s*[,:\-]\s*(.*)$/i],
  ["attack",/^(?:when you attack)\s*[,:\-]\s*(.*)$/i],
  ["showdown",/^(?:when (?:a|the) showdown begins)\s*[,:\-]\s*(.*)$/i],
  ["draw",/^(?:when you draw (?:a|one|1) card)\s*[,:\-]\s*(.*)$/i],
+ ["discard",/^(?:when you discard me|when i(?:'m| am) discarded)\s*[,:\-]\s*(.*)$/i],
  ["ally-play",/^(?:when you play (?:a|another) (?:unit|spell|card|gear))\s*[,:\-]\s*(.*)$/i]
 ];
 function splitClauses(raw){
@@ -32,11 +33,21 @@ const patterns=[
  ["heal-self",new RegExp("^(?:heal|remove)\\s+("+AMOUNT+")\\s+damage\\s+(?:from|on)\\s+(?:me|this unit|this card)$","i")],
  ["self-buff",new RegExp("^(?:i get|i gain|get|gain)\\s*\\+("+AMOUNT+")\\s+(?:might|\\{might\\})(?:\\s+this turn)?$","i")],
  ["damage-enemy",new RegExp("^deal\\s+("+AMOUNT+")\\s+damage\\s+to\\s+(?:(?:an?|one|target)\\s+)?enemy\\s+unit$","i")],
+ ["buff-friendly",new RegExp("^give\\s+(?:another\\s+)?friendly\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
+ ["buff-unit",new RegExp("^give\\s+(?:a|another)\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
+ ["stun-enemy",/^(?:stun)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["stun-unit",/^(?:stun)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["kill-enemy",/^(?:kill|destroy)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["kill-unit",/^(?:kill|destroy)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
  ["ready-self",/^(?:ready|redresse(?:r|z|s)?)\s+(?:me|this unit)$/i],
+ ["channel-exhausted",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?\s+exhausted$/i],
+ ["channel",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?$/i],
  ["exhaust-self",/^(?:exhaust|[ée]puise(?:r|z|s)?)\s+(?:me|this unit)$/i]
 ];
 function parseInstructions(raw){
- let expr=normalize(raw).replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
+ let expr=normalize(raw)
+  .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
+  .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
  if(/\b(?:if|unless|instead|as long as|until|otherwise|for each|for every|equal to|per |choose one|either|up to|look at|reveal|scry|search|shuffle|pay |spend |sacrifice|extra cost)\b/i.test(expr))
   return {steps:[],reason:"condition, choix ou coût non automatisé : "+raw.slice(0,130)};
@@ -44,6 +55,15 @@ function parseInstructions(raw){
  const steps=[];
  for(let item of parts){
   item=item.trim().replace(/[.,! ]+$/g,"").replace(/^(?:you may|may)\s+/i,"");
+  const token=/^play\s+(one|two|three|four|\d{1,2})\s+(\d{1,2})\s+\{might\}\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+(?:into|to)\s+your\s+base$|^play\s+(one|two|three|four|\d{1,2})\s+(\d{1,2})\s+\{might\}\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+here$/i.exec(item);
+  if(token){
+   const word=token[1]||token[4],n=word.toLowerCase()==="four"?4:toCount(word);
+   const might=Number(token[2]||token[5]),name=token[3]||token[6];
+   if(!Number.isInteger(n)||n<1||n>8||might<1||might>20)
+    return {steps:[],reason:"Création de jetons hors limites"};
+   steps.push({kind:"create-units",count:n,tokenMight:might,tokenName:name.trim(),
+    destination:token[1]?"base":"here"});continue;
+  }
   let parsed=false;
   for(const [kind,regex] of patterns){
    const m=regex.exec(item);
@@ -63,6 +83,43 @@ export function compileCardAbilities(card){
  if(!normalize(card?.text))return {abilities,unsupported};
  for(let line of splitClauses(card.text)){
   if(reminder.test(line))continue;
+  // Riftbound printed keyword syntax is semantic, not decorative:
+  // [Deathknell] — Draw 1 triggers on death; [Legion] — ... only applies
+  // after another card has been played this turn.
+  let dependent="",keyword="";
+  const prefix=/^\[([a-z][a-z -]*)(?:\s+\d+)?\]\s*(?:[—–-]\s*)?(.*)$/i.exec(line);
+  if(prefix){
+   keyword=prefix[1].toLowerCase().trim();
+   const trailing=prefix[2].trim();
+   if(keyword==="deathknell"){
+    const body=trailing.replace(/\s*\(when i die,?\s*get the effect\.?\)\.?$/i,"").trim();
+    const parsed=parseInstructions(body);
+    const ability={trigger:"die",text:line,optional:false,
+     steps:parsed.steps,supported:!parsed.reason,keyword};
+    abilities.push(ability);
+    if(parsed.reason)unsupported.push({trigger:"die",text:line,reason:parsed.reason});
+    continue;
+   }
+   if(keyword==="legion"){
+    dependent="legion";
+    line=trailing.replace(/\s*\(get the effect if you've played another card this turn\.?\)\.?$/i,"").trim();
+   }else if(keyword==="vision"){
+    // Vision = Predict on play. The controller looks at their next card
+    // and may recycle it; the AI uses only its own deck to decide.
+    const ability={trigger:"play",text:line,optional:false,steps:[{kind:"predict"}],
+     supported:true,keyword};
+    abilities.push(ability);continue;
+   }else if(keyword==="temporary"){
+    // Temporary's required kill happens before Hold scoring in next-turn.
+    continue;
+   }else if(["assault","shield","tank","backline","ganking","accelerate",
+       "action","reaction","unique","hidden"].includes(keyword)){
+    // These keywords affect timing/cost/combat; the keyed engine handles them
+    // independently. An additional instruction on the same line is not ignored.
+    if(!trailing||/^\([^)]*\)\.?$/.test(trailing))continue;
+    line=trailing;
+   }
+  }
   line=line.replace(/^\[(?:assault|shield|tank|backline|accelerate|ganking|reaction|action)\b[^\]]*\]\s*/i,"").trim();
   if(!line||/^\([^)]*\)$/.test(line))continue;
   let trigger="",body=line;
@@ -79,18 +136,28 @@ export function compileCardAbilities(card){
   }
   const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
   const {steps,reason}=parseInstructions(body);
-  const ability={trigger,text:line,optional,steps,supported:!reason};
+  // Match event card type rather than firing "play a unit" when a spell
+  // or gear is played. "Another" already excludes the played card itself.
+  const playedType=trigger==="ally-play"?(
+   /\b(?:a|another)\s+(unit|spell|gear)\b/i.exec(line)?.[1]?.toLowerCase()||"card"
+  ):undefined;
+  const limit=/\b(?:once|first time)(?:\s+each|\s+this|\s+a)?\s+turn\b/i.test(line)?1:
+   Number(/\b(?:twice|two times)\s+(?:each|this)\s+turn\b/i.test(line)?2:0);
+  const ability={trigger,text:line,optional,steps,supported:!reason,
+   ...(dependent?{condition:dependent}:{}),...(keyword?{keyword}:{}),
+   ...(playedType?{playedType}:{}),...(limit?{perTurnLimit:limit}:{})};
   abilities.push(ability);
   if(reason)unsupported.push({trigger,text:line,reason});
  }
  return {abilities,unsupported};
 }
-export function onPlayInstructions(card){
+export function onPlayInstructions(card,{playedBefore=0}={}){
  const all=compileCardAbilities(card);
- return {steps:all.abilities.filter(a=>a.trigger==="play"&&a.supported).flatMap(a=>a.steps),
+ return {steps:all.abilities.filter(a=>a.trigger==="play"&&a.supported&&
+   (a.condition!=="legion"||playedBefore>0)).flatMap(a=>a.steps),
   unsupported:all.unsupported.filter(a=>a.trigger==="play"),all};
 }
-export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","ally-play"];
+export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","discard","ally-play"];
 export function inspectCards(cards){
  const result={cards:0,withText:0,fullySupported:0,partial:0,unhandled:0,byTrigger:{},examples:[]};
  for(const card of cards||[]){

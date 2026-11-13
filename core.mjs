@@ -3,6 +3,7 @@ import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "
 import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent} from "./effect-runtime.mjs";
+import {drawMainCards} from "./draw-rules.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
@@ -17,7 +18,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},pendingCombat:null,pendingEffects:[],effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -60,9 +61,14 @@ export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=cp(old||createState()), c=command, type=string(c.type,40);
   s.pendingEffects??=[];s.effectMarks??=[];
+  s.effectWork=0; // New action has its own bounded resolution budget.
+  s.turnActions??={channeled:0,drawn:0};
+  s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
   const p=c.player||"ai";
+  if(s.finished&&["next-turn","play-paid","combat-attack","draw","channel"].includes(type))
+   throw Error("Partie terminée : le vainqueur est "+s.winner+".");
   let summary="";
   if(s.pendingCombat&&["next-turn","phase","play-paid","combat-attack"].includes(type)&&
     type!=="combat-attack")throw Error("Combat en cours : résous les réactions et les dégâts avant de poursuivre.");
@@ -102,7 +108,7 @@ export function applyCommand(old, command) {
       throw Error("Effets de cartes à vérifier : confirme leur résolution avant le calcul.");
     const preview=previewCombat(s,fight.battlefield,fight.attacker,fight.orders);
     if(!preview.ready)throw Error(preview.error);
-    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean);
+    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean).map(c=>({...c}));
     const outcome=applyCombatResult(s,preview,{previousController:fight.previousController});
     const triggered=[];
     for(const unit of dying)
@@ -121,6 +127,20 @@ export function applyCommand(old, command) {
       (scoring?" · "+scoring:"")+
       (triggered.length?" · "+triggered.join(" · "):"")+
       (s.pendingEffects?.length?" · Effet(s) en attente":"");
+  }
+  function finishBeginningScoring(){
+    if(!s.beginningScoringDue||s.pendingEffects.length)return [];
+    const scored=[];
+    s.beginningScoringDue=false;
+    for(let i=0;i<s.battlefields.length;i++){
+     if(battlefieldController(s,i)!==s.active)continue;
+     const score=scoreControlledBattlefield(s,s.active,i,"hold");
+     if(!score)continue;
+     scored.push(score);
+     scored.push(...processCardEvent(s,{trigger:"hold",
+      actor:s.active,field:i},{place,deckCard}));
+    }
+    return scored;
   }
   if(type==="reset") {
     const fresh=createState();fresh.revision=(old?.revision||0)+1;
@@ -168,7 +188,7 @@ export function applyCommand(old, command) {
     }
     summary=(who==="ai"?"IA":"Joueur")+" : "+s.players[who].legend.name+" / "+s.players[who].champion.name;
   } else if(type==="start") {
-    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
+    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
     // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
@@ -178,27 +198,31 @@ export function applyCommand(old, command) {
     }
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
-    s.turnActions={channeled:0,drawn:0};
+    s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};
     s.scoredFields??={human:[],ai:[]};
     s.scoredFields[s.active]=[];
     // Awaken precedes Beginning. Ready the active player's cards, then
     // automatically mark obvious uncontested Hold scores; card effects stay manual.
     for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
     s.phase="Beginning";s.started=true;
-    const holds=[];
-    for(let i=0;i<s.battlefields.length;i++){
-      if(battlefieldController(s,i)===s.active){
-        const scored=scoreControlledBattlefield(s,s.active,i,"hold");
-        if(scored)holds.push(scored);
-      }
+    // Temporary units die before beginning-of-turn Hold scoring.
+    const temporaryDeaths=[];
+    for(const card of s.cards.filter(x=>x.owner===s.active&&
+      ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
+     const lastKnown={...card};
+     card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
+     temporaryDeaths.push(card.name);
+     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},{place,deckCard});
     }
-    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
-     (holds.length?". "+holds.join(" · "):". Beginning résolu, phases restantes à jouer.");
+    s.beginningScoringDue=true;
+    // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
     const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
-    for(let i=0;i<s.battlefields.length;i++)if(battlefieldController(s,i)===s.active)
-     triggered.push(...processCardEvent(s,{trigger:"hold",actor:s.active,field:i},{place,deckCard}));
-    if(triggered.length)summary+=" · "+triggered.join(" · ");
-    if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
+    const holds=finishBeginningScoring();
+    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
+     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", "):"")+
+     (triggered.length?" · "+triggered.join(" · "):"")+
+     (holds.length?" · "+holds.join(" · "):"");
+    if(s.beginningScoringDue)summary+=" · effet(s) à résoudre avant le maintien";
   } else if(type==="phase") {
     const phase=string(c.phase,30);
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
@@ -219,6 +243,7 @@ export function applyCommand(old, command) {
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
     if(c.fromHand&&["base","battlefield"].includes(v.zone)){
      const triggered=processCardEvent(s,{trigger:"play",actor:p,source:v},{place,deckCard});
+     s.turnActions.played[p]=(s.turnActions.played[p]||0)+1;
      if(!s.pendingEffects.length)
       triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:v},{place,deckCard}));
      if(triggered.length)summary+=" · "+triggered.join(" · ");
@@ -235,7 +260,7 @@ export function applyCommand(old, command) {
     const restrictedText=String(v.text||"").replace(/^\[Accelerate\][^\n]*$/gim,"");
     if(/\b(?:play only|can't play|cannot play|you may only play|as an additional cost|must pay)\b/i.test(restrictedText))
      throw Error(v.name+" : condition ou coût supplémentaire non vérifiable. La carte reste en main.");
-    const onPlay=mandatoryPlayEffects(v);
+    const onPlay=mandatoryPlayEffects(v,{playedBefore:s.turnActions.played.ai});
     const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
     // Preflight card text before paying the runes. For unfamiliar abilities
     // the card is playable, but its trigger becomes an unresolved chain item.
@@ -274,6 +299,7 @@ export function applyCommand(old, command) {
     if(!accelerate&&!isGear&&!isSpell&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
+    s.turnActions.played.ai++;
     if(!s.pendingEffects.length)
      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},{place,deckCard}));
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
@@ -290,6 +316,8 @@ export function applyCommand(old, command) {
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
     s.pendingEffects.shift();
     summary="Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
+    const holds=finishBeginningScoring();
+    if(holds.length)summary+=" · "+holds.join(" · ");
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
     checkOwner(p);
@@ -360,22 +388,36 @@ export function applyCommand(old, command) {
     const v=getCard(s,string(c.uid,80)),zone=string(c.zone,40);
     if(!ZONES.has(zone))throw Error("Zone inconnue");
     const origin=v.zone;
-    if(s.pendingCombat&&origin==="base"&&zone==="battlefield"&&!c.effect)
-      throw Error("Déplacement normal impossible pendant une confrontation.");
-    if(origin==="base"&&zone==="battlefield"&&v.exhausted&&/unit/i.test(v.type||""))
-      throw Error("Cette unité est épuisée : elle ne peut pas se déplacer normalement.");
+    const standard=!!s.started&&!c.effect&&/^unit$/i.test(v.type||"")&&
+      ["base","battlefield"].includes(origin)&&["base","battlefield"].includes(zone)&&
+      (origin!==zone||(zone==="battlefield"&&Number(c.battlefield)!==v.battlefield));
+    if(standard){
+     if(s.pendingCombat||s.pendingEffects.length)
+      throw Error("Déplacement normal impossible pendant une confrontation ou un effet en attente.");
+     if(v.exhausted)throw Error("Cette unité est épuisée : elle ne peut pas se déplacer.");
+     if(v.owner!==s.active||s.phase!=="Main")
+      throw Error("Déplacement standard réservé à la Main Phase du contrôleur.");
+     if(origin==="battlefield"&&zone==="battlefield"){
+      const fieldText=s.battlefields[v.battlefield]?.card?.text||"";
+      const grant=/units (?:at|on|here|there)[^.!]*\[Ganking\]/i.test(fieldText);
+      if(!/\[Ganking\]/i.test(v.text||"")&&!grant)
+       throw Error("Ganking est nécessaire pour aller directement d'un champ à un autre.");
+     }
+    }
+    if(!c.effect&&origin==="base"&&zone==="battlefield"&&v.exhausted&&/^unit$/i.test(v.type||""))
+     throw Error("Cette unité est épuisée : elle ne peut pas se déplacer normalement.");
     if(v.zone==="hand")s.players[v.owner].handCount=Math.max(0,s.players[v.owner].handCount-1);
     if(zone==="hand")s.players[v.owner].handCount++;
     v.zone=zone;v.battlefield=zone==="battlefield"?Math.max(0,Math.min(1,Number(c.battlefield)||0)):null;
     if(/unit/i.test(v.type||"")&&["base","battlefield"].includes(zone)){
       if(["hand","champion"].includes(origin))
-        v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
-      else if(origin==="base"&&zone==="battlefield")v.exhausted=true;
+        v.exhausted=!entersNaturallyReady(v)||/\[Accelerate\]/i.test(v.text||"");
+      else if(standard)v.exhausted=true;
     }
     if(typeof c.faceDown==="boolean")v.faceDown=c.faceDown;
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
-    if(origin==="base"&&zone==="battlefield"&&v.owner===s.active)
-      beginCombat(v.battlefield,v.owner,[v.uid]);
+    if(["base","battlefield"].includes(origin)&&zone==="battlefield"&&
+       v.owner===s.active&&standard)beginCombat(v.battlefield,v.owner,[v.uid]);
     if(zone!==origin){
       const triggered=processCardEvent(s,{trigger:"move",actor:v.owner,source:v},{place,deckCard});
       if(triggered.length)summary+=" · "+triggered.join(" · ");
@@ -407,9 +449,10 @@ export function applyCommand(old, command) {
           (v.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
         const might=effectiveMight(v,role);
         if(might!==null&&v.damage>=might){
+          const lastKnown={...v};
           v.zone="trash";v.battlefield=null;v.exhausted=false;v.damage=0;
           summary=v.name+" vaincue par les dégâts.";
-          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:v},{place,deckCard});
+          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:lastKnown},{place,deckCard});
           if(triggered.length)summary+=" · "+triggered.join(" · ");
         }
       }
@@ -431,32 +474,32 @@ export function applyCommand(old, command) {
       if(type==="channel")s.turnActions={...s.turnActions,channeled:(s.turnActions?.channeled||0)+n};
       else s.turnActions={...s.turnActions,drawn:(s.turnActions?.drawn||0)+n};
     }
-    const stock=type==="draw"?"main":"runes",dst=type==="draw"?"hand":"runes";
-    if(p==="ai"){
-      for(let i=0;i<n;i++){
-        const card=s.decks.ai[stock].shift();if(!card)break;
-        // The preview planner and committed reducer MUST agree on generated
-        // UIDs. Stable IDs prevent a later paid play referencing an unknown
-        // card drawn/channelled earlier in the same atomic batch.
-        const stableUid="c_auto_"+p+"_"+type+"_"+s.revision+"_"+i;
-        place(s,p,card,dst,undefined,false,stableUid);
-        if(dst==="hand")s.players.ai.handCount++;
-      }
-      s.players.ai.deckCount=s.decks.ai.main.length;
-      s.players.ai.runeCount=s.decks.ai.runes.length;
-    } else if(type==="draw"){
-      s.players.human.handCount+=n;
-      if(Number.isInteger(s.players.human.deckCount))s.players.human.deckCount=Math.max(0,s.players.human.deckCount-n);
-    }else {
-      const actual=Math.min(n,s.players.human.runeCount);
-      for(let i=0;i<actual;i++)place(s,"human",{code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
-      s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
-    }
-    summary=p+" : "+(type==="draw"?"pioche ":"canalise ")+n+" (sans arbitrage automatique)";
+    let drawn=0,burnOuts=0;
     if(type==="draw"){
+     const result=drawMainCards(s,p,n,{place,deckCard});
+     drawn=result.actual;burnOuts=result.burnOuts;
+    }else if(p==="ai"){
+     for(let i=0;i<n;i++){
+      const card=s.decks.ai.runes.shift();if(!card)break;
+      place(s,p,card,"runes",undefined,false,"c_auto_"+p+"_channel_"+s.revision+"_"+i);
+     }
+     s.players.ai.runeCount=s.decks.ai.runes.length;
+    }else{
+     const actual=Math.min(n,s.players.human.runeCount);
+     for(let i=0;i<actual;i++)place(s,"human",
+      {code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
+     s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
+    }
+    summary=p+" : "+(type==="draw"?"pioche "+drawn:"canalise "+n)+
+     (burnOuts?" · Burn Out ×"+burnOuts:"");
+    if(type==="draw"&&drawn){
+     for(let i=0;i<drawn;i++){
       const triggered=processCardEvent(s,{trigger:"draw",actor:p},{place,deckCard});
       if(triggered.length)summary+=" · "+triggered.join(" · ");
+      if(s.pendingEffects.length)break;
+     }
     }
+    if(s.winner)summary+=" · Victoire "+(s.winner==="ai"?"IA":"joueur");
   } else if(type==="mulligan") {
     checkOwner(p);
     if(p!=="ai")throw Error("Mulligan physique à effectuer avec les vraies cartes");
@@ -485,6 +528,22 @@ export function applyCommand(old, command) {
       if(triggered.length)summary+=" · "+triggered.join(" · ");
      }
     }
+   }
+  }
+  // Tokens exist only on the board, never in trash or a recycled Main Deck.
+  s.cards=s.cards.filter(card=>
+   !(card.tags||[]).some(tag=>String(tag).toLowerCase()==="token")&&
+   !/^TOKEN-/i.test(card.code||"")||
+   ["base","battlefield"].includes(card.zone));
+  if(!s.winner){
+   // Victory is decided during cleanup only when the leader has at least
+   // the target AND strictly more points than their opponent. An 8–8 tie
+   // does not declare either player the winner.
+   const a=s.players.ai.score,h=s.players.human.score;
+   const owner=a>=8&&a>h?"ai":h>=8&&h>a?"human":null;
+   if(owner){
+    s.winner=owner;s.finished=true;
+    summary+=" · Victoire "+(owner==="ai"?"IA":"joueur");
    }
   }
   maybeRecord(s,summary);

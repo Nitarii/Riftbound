@@ -260,7 +260,7 @@ function renderPendingEffects(){
  const panel=$("pending-effect-panel");
  if(!panel)return;
  panel.hidden=!pending;
- $("next-turn").disabled=Boolean(pending);
+ $("next-turn").disabled=Boolean(pending)||Boolean(state.finished);
  if(!pending)return;
  $("pending-effect-card").textContent=pending.cardName+
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
@@ -278,6 +278,13 @@ $("pending-effect-confirm").onclick=()=>{
 };
 let previousCardLocations=new Map();
 function render(){
+ const victory=$("game-victory");
+ if(victory){
+  victory.hidden=!state.finished;
+  if(state.finished)
+   $("game-victory-message").textContent=state.winner==="human"?
+    "Tu as gagné !":"L'adversaire IA a gagné.";
+ }
   $("turn").textContent=state.started?(uiLanguage==="en"?"TURN ":"TOUR ")+state.turn+" · "+(state.active==="human"?(uiLanguage==="en"?"PLAYER":"JOUEUR"):"AI")+" · "+state.phase.toUpperCase():(uiLanguage==="en"?"GAME NOT STARTED":"PARTIE NON COMMENCÉE");
   $("phases").innerHTML=PHASES.map(p=>'<button class="phase '+(state.phase===p?"current":"")+'" data-phase="'+p+'">'+p+'</button>').join("");
   for(const p of ["human","ai"]){
@@ -659,6 +666,7 @@ async function passTurn(){
  await enqueuePlayerAnnouncement(uiLanguage==="en"?"I end my turn. Your move.":"Je termine mon tour. À toi de jouer.");
 }
 $("next-turn").onclick=passTurn;
+$("game-victory-new").onclick=()=>$("reset").click();
 $("chat-pass-turn").onclick=passTurn;
 $("score-plus").onclick=()=>dispatch({type:"score",player:$("who").value,value:1});
 $("score-minus").onclick=()=>dispatch({type:"score",player:$("who").value,value:-1});

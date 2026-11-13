@@ -3,7 +3,14 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.31](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.31.exe)
+**Windows :** [Télécharger Riftbound Companion v0.32](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.32.exe)
+
+## v0.32 — Moteur de règles en développement
+La v0.32 regroupe les corrections apportées depuis la v0.31 : mots-clés et déclencheurs supplémentaires (Deathknell, Legion, Temporary, Vision), mise à jour des effets sur les runes, jetons, cibles, dégâts et bonus, gestion du Burn Out et de la victoire, déplacements standards et Ganking, vérification des coûts et réduction des actions inventées par le modèle conversationnel.
+
+**Limite essentielle :** l'adversaire ne garantit pas encore une partie entièrement autonome selon toutes les règles. Les effets permanents complexes, les réactions en chaîne, les choix à plusieurs étapes et plusieurs autres capacités nécessitent toujours un arbitrage ou une confirmation. Un résultat de tests automatisés réussi n'est pas une validation officielle de toutes les cartes.
+
+**Publication non officielle :** ce projet de fans ne bénéficie d'aucune affiliation ni approbation de Riot Games. La politique publique de Riot indique que les applications autonomes appliquant automatiquement les règles de Riftbound ne font pas partie des usages approuvés. Voir https://developer.riotgames.com/policies/riftbound.
 
 ## v0.31 — Moteur générique des capacités de cartes
 

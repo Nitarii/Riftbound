@@ -3,7 +3,7 @@
 import {applyCommand} from "./core.mjs";
 
 export function advanceMandatoryTurn(state){
- if(!state?.started||!["human","ai"].includes(state.active))return state;
+ if(!state?.started||state.finished||!["human","ai"].includes(state.active))return state;
  if(state.pendingCombat||state.pendingEffects?.length)return state;
  let next=state,who=state.active;
  const first=state.firstPlayer||"human";
