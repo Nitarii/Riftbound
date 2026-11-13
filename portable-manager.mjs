@@ -177,6 +177,17 @@ export function createPortableManager({
     TMP:path.join(root,"temp"),TMPDIR:path.join(root,"temp")}});
   if(!Number.isSafeInteger(launched?.pid)||launched.pid<1)
    throw Error("Le programme de désinstallation n'a pas démarré. Le gestionnaire reste ouvert.");
+  const janitorReady=launched.janitorReady;
+  if(typeof janitorReady!=="string"||!path.isAbsolute(janitorReady)||
+     inside(path.resolve(root),path.resolve(janitorReady)))
+   throw Error("Nettoyeur temporaire invalide. Le gestionnaire reste ouvert.");
+  let janitorConfirmed=false;
+  for(let i=0;i<100;i++){
+   try{if(fs.readFileSync(janitorReady,"utf8")==="READY"){janitorConfirmed=true;break;}}catch{}
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  if(!janitorConfirmed)
+   throw Error("Nettoyeur temporaire non prêt. Application conservée pour éviter des fichiers résiduels.");
   let acknowledged=false;
   for(let i=0;i<80;i++){
    let info=null;
