@@ -6,6 +6,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import {initializePortableInstall,launchMaintenance,readMarker,updateScript} from "../portable.mjs";
 import {createPortableManager} from "../portable-manager.mjs";
+import {launchUpdateHelper} from "../update-helper.mjs";
 import {buildUpdateScript,writeUpdateStatus,readUpdateStatus,updateStatusPath,updateLogPath} from "../update-transaction.mjs";
 const root=()=>fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-update-fix-"));
 function installedFixture(base){
@@ -65,9 +66,10 @@ test("Detached PowerShell updater is written only in the portable folder and fai
    spawnImpl:(file,args,opts)=>{spawned={file,args,opts};return {pid:2500,once(){},unref(){}};}});
   assert.equal(started.pid,2500);
   assert.equal(spawned.file,"powershell.exe");
-  assert.ok(spawned.args.includes("-File"));
-  const file=spawned.args.at(-1);
-  assert.equal(file,path.join(target,"updates","companion-update.ps1"));
+  assert.ok(spawned.args.includes("-EncodedCommand"));
+  const encoded=spawned.args.at(-1);
+  assert.equal(Buffer.from(encoded,"base64").toString("utf16le"),script);
+  const file=path.join(target,"updates","companion-update.ps1");
   assert.equal(fs.readFileSync(file,"utf8").replace(/^\uFEFF/,""),script);
   assert.equal(spawned.opts.cwd,target);
   assert.equal(spawned.opts.env.RIFTBOUND_TOKEN,"mock-secret");
@@ -91,7 +93,7 @@ test("Manager keeps current server until the independent updater is launched, pr
    fetchImpl,download:async(_url,staged,actualHash,onProgress)=>{
     assert.equal(actualHash,hash);fs.writeFileSync(staged,bytes);
     onProgress(bytes.length,bytes.length);
-   },launch:(script,opts)=>{launchArgs={script,opts};writeUpdateStatus(target,"waiting","0.26.0","Updater active");return {pid:1700};},
+   },launchUpdate:(request,opts)=>{launchArgs={request,opts};writeUpdateStatus(target,"waiting","0.26.0","Updater active");return {pid:1700};},
    shutdown:()=>{shut++;}});
   assert.equal((await manager.startupCheck()).mustUpdate,true);
   const handoff=await manager.applyUpdate();
@@ -101,8 +103,9 @@ test("Manager keeps current server until the independent updater is launched, pr
   assert.equal(shut,0,"Old server may not be terminated until updater has launched");
   assert.equal(launchArgs.opts.root,target);
   assert.equal(launchArgs.opts.env.RIFTBOUND_TOKEN,"existing-local-browser-token");
-  assert.match(launchArgs.script,/\$oldPid=\d+/);
-  assert.match(launchArgs.script,/\$port=8879/);
+  assert.equal(launchArgs.request.pid,process.pid);
+  assert.equal(launchArgs.request.port,8879);
+  assert.equal(launchArgs.request.expectedSha256,hash);
   assert.equal(readUpdateStatus(target).phase,"waiting");
   await new Promise(resolve=>setTimeout(resolve,1100));
   assert.equal(shut,1);
@@ -121,15 +124,43 @@ test("Manager launch failure retains running original and writes actionable diag
   const manager=createPortableManager({root:target,exePath:exe,portable:true,
    current:"0.25.0",fetchImpl:async()=>({ok:true,json:async()=>({assets:[asset]})}),
    download:async(_url,staged)=>fs.writeFileSync(staged,bytes),
-   launch:()=>{throw Error("PowerShell missing");},shutdown:()=>{shutdown=true;}});
+   launchUpdate:()=>{throw Error("Update executable cannot start");},shutdown:()=>{shutdown=true;}});
   await manager.startupCheck();
-  await assert.rejects(manager.applyUpdate(),/PowerShell missing/);
+  await assert.rejects(manager.applyUpdate(),/Update executable cannot start/);
   assert.equal(shutdown,false);
   assert.equal(fs.readFileSync(exe,"utf8"),"OLD COMPANION EXE");
   assert.equal(manager.status().shuttingDown,false);
   assert.equal(readUpdateStatus(target).phase,"failed");
-  assert.match(readUpdateStatus(target).message,/PowerShell missing/);
+  assert.match(readUpdateStatus(target).message,/Update executable cannot start/);
  }finally{fs.rmSync(base,{force:true,recursive:true});}
+});
+test("Downloaded Windows EXE launches only as the verified helper from the chosen folder",()=>{
+ const base=root();
+ try{
+  const {target,exe}=installedFixture(base);
+  const staged=path.join(target,"updates","next.exe");
+  fs.mkdirSync(path.dirname(staged),{recursive:true});
+  fs.writeFileSync(staged,"NEXT SEA BINARY");
+  const request={root:target,exePath:exe,staged,
+   expectedSha256:"a".repeat(64),version:"0.26.0",port:8879,pid:process.pid};
+  let launched;
+  const output=launchUpdateHelper(request,{env:{RIFTBOUND_TOKEN:"token",PORT:"8879"},
+   spawnImpl:(file,args,options)=>{launched={file,args,options};
+    return {pid:9876,unref(){},once(){}};}});
+  assert.equal(output.pid,9876);
+  assert.equal(launched.file,staged);
+  assert.deepEqual(launched.args,["--riftbound-update-helper"]);
+  assert.equal(launched.options.env.RIFTBOUND_DATA_DIR,target);
+  assert.equal(launched.options.env.RIFTBOUND_TOKEN,"token");
+  assert.equal(launched.options.env.TEMP,path.join(target,"temp"));
+  const passed=JSON.parse(Buffer.from(launched.options.env.RIFTBOUND_UPDATE_REQUEST,"base64").toString("utf8"));
+  assert.equal(passed.staged,staged);
+  assert.equal(passed.pid,process.pid);
+  assert.throws(()=>launchUpdateHelper({...request,staged:path.join(base,"outside.exe")}),
+   /dossier sélectionné/);
+  assert.throws(()=>launchUpdateHelper({...request,expectedSha256:"BAD"}),
+   /SHA256/);
+ }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
 test("Failed updates and success details stay readable, bounded, in chosen install folder",()=>{
  const base=root();

@@ -24,6 +24,13 @@ import {createPortableManager,CURRENT_VERSION} from "./portable-manager.mjs";
 import {createProcessDashboard} from "./process-dashboard.mjs";
 import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
+import {runUpdateHelper} from "./update-helper.mjs";
+if(process.argv.includes("--riftbound-update-helper")){
+ // Run the downloaded EXE as a dedicated updater WITHOUT opening the board,
+ // creating a second HTTP server, or prompting for another installation path.
+ runUpdateHelper().then(result=>{process.exitCode=result.ok?0:1;},
+  error=>{console.error("Riftbound update helper:",error.message);process.exitCode=1;});
+}else{
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
 const installation=initializePortableInstall({packaged,exePath:process.execPath,sourceRoot:root});
@@ -588,5 +595,7 @@ server.listen(port,host,()=>{
     }
   }
 });
+
+}
 
 }

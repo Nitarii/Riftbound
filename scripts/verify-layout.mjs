@@ -194,10 +194,10 @@ try{
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
  let upToDate=false;
  const managerPayload=()=>({
-  version:upToDate?"0.26.0":"0.25.0",portable:true,
+  version:upToDate?"0.27.0":"0.26.0",portable:true,
   path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
   canLaunch:upToDate,mustUpdate:!upToDate,
-  availableVersion:upToDate?null:"0.26.0",progress:0,
+  availableVersion:upToDate?null:"0.27.0",progress:0,
   error:"",updating:false,shuttingDown:false
  });
  await managerPage.route("**/api/**",async route=>{
@@ -245,15 +245,15 @@ try{
 
  // The hosted game's UI must refuse to open an outdated local companion.
  const gamePage=await browser.newPage({viewport:{width:1440,height:900}});
- let installedVersion="0.25.0";
+ let installedVersion="0.26.0";
  const localState=createState();
  await gamePage.route("http://127.0.0.1:8787/api/**",async route=>{
   const pathname=new URL(route.request().url()).pathname;
   const body=pathname==="/api/state"?{state:localState}:
    pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
-   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.26.0",
-    updateState:installedVersion==="0.26.0"?"current":"outdated",
-    mustUpdate:installedVersion!=="0.26.0",availableVersion:"0.26.0"}:
+   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.27.0",
+    updateState:installedVersion==="0.27.0"?"current":"outdated",
+    mustUpdate:installedVersion!=="0.27.0",availableVersion:"0.26.0"}:
    pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
    pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
   await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
@@ -272,7 +272,7 @@ try{
   "Outdated companion still permits skipping the install wizard");
  ensure(await gamePage.locator("#manager-open").count()===1,
   "Manager button missing from the main header");
- installedVersion="0.26.0";
+ installedVersion="0.27.0";
  await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));

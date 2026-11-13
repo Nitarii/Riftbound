@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.26.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.27.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.26.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.27.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -87,17 +87,30 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
 
+## v0.27 — Mise à jour Windows fiable et récupérable
+
+La v0.27 remplace le lancement d'un script PowerShell externe pour **les mises à jour** par un processus dédié exécuté depuis **le nouvel exécutable Riftbound vérifié par SHA256**. Le téléchargement est toujours effectué exclusivement dans le dossier choisi.
+
+1. L'ancienne application vérifie le SHA256 et lance le nouvel exécutable en **mode assistant de mise à jour**. Le gestionnaire reste ouvert jusqu'à la confirmation de démarrage du processus indépendant.
+2. Le processus indépendant attend la fermeture du programme existant, vérifie à nouveau le SHA256, sauvegarde l'ancien EXE et installe le nouveau. Les IA sont arrêtées proprement avec l'ancien serveur.
+3. Il redémarre Riftbound avec le même dossier, le même port et le jeton local déjà autorisé, puis vérifie sur HTTP le **numéro de version et le PID du nouveau gestionnaire**.
+4. Si le nouveau programme ne démarre pas ou échoue au contrôle, l'ancien exécutable est restauré et redémarré. Le diagnostic reste consultable dans `updates/update-status.json` et `updates/update.log`. Aucun poids de modèle ni sauvegarde n'est effacé.
+
+**Réparer une installation v0.25 bloquée :** ferme l'ancien compagnon et son moteur Qwen si nécessaire. Télécharge le **nouvel exécutable v0.27** depuis la release officielle, lance-le depuis le dossier Téléchargements, et indique **exactement le dossier Riftbound déjà choisi** (le dossier contenant `.riftbound-install.json`). Cette réparation remplace l'exécutable sans supprimer Qwen, Whisper, les fichiers personnels ni la progression. Ne copie pas à la main un EXE pendant qu'il tourne.
+
+**Vérification :** le workflow Windows effectue deux mises à jour réelles sur un exécutable SEA compilé : une réussite avec redémarrage confirmé et un scénario avec SHA invalide qui doit préserver/rétablir l'ancienne application. Aucune release ne doit être publiée si ces tests échouent.
+
 ## v0.26 — Réparation des mises à jour Windows
 
 La v0.25 pouvait télécharger le nouvel exécutable puis **fermer le programme sans le remplacer ni réouvrir le gestionnaire**, car l'ancien mécanisme exécutait PowerShell en mode caché sans attendre son démarrage, vérifier le nouveau serveur, sauvegarder l'ancien EXE ou conserver les erreurs.
 
-La v0.26 introduit un système transactionnel vérifié sous Windows :
+La v0.26 avait introduit une tentative de transaction PowerShell, remplacée en v0.27 :
 
 - Le téléchargement est vérifié par **SHA256**. Un script PowerShell de maintenance est conservé dans le dossier `updates` de ton installation ; le gestionnaire attend son **accusé de démarrage** avant de fermer l'ancienne version.
 - Le script attend la fermeture complète de l'ancien programme, recontrôle l'empreinte, effectue un remplacement atomique avec copie de secours et tente de redémarrer le nouveau compagnon dans **le même dossier**. Il confirme que `/api/health` annonce bien la version attendue avant de déclarer la mise à jour réussie.
 - Si le remplacement ou le redémarrage échoue, il **restaure et relance l'ancienne version** quand cela est possible. Un journal `updates/update.log` et un diagnostic `updates/update-status.json` précisent l'erreur. Le gestionnaire affiche ces informations et permet d'ouvrir le journal.
 - Le jeton local du navigateur est conservé **uniquement pendant le redémarrage de mise à jour**, afin que le gestionnaire déjà ouvert puisse se reconnecter sans perdre l'autorisation. Les modèles, réglages et sauvegardes ne sont pas supprimés.
-- **Réparer une v0.25 dont la mise à jour est cassée :** ferme d'abord l'ancien Riftbound (ainsi que Qwen/Whisper via le bouton de fermeture), télécharge et lance le nouvel exécutable v0.26, puis **choisis exactement le dossier dédié où Riftbound est déjà installé**. La v0.26 reconnaît le manifeste existant et remplace l'ancien EXE de façon prudente sans effacer le modèle, le dossier `speech`, les sauvegardes ou les réglages. Si Windows bloque l'ancien EXE en cours d'utilisation, l'opération affiche une erreur explicite et ne l'efface pas.
+- **Réparer une v0.25 dont la mise à jour est cassée :** ferme d'abord l'ancien Riftbound (ainsi que Qwen/Whisper via le bouton de fermeture), télécharge et lance le nouvel exécutable v0.27, puis **choisis exactement le dossier dédié où Riftbound est déjà installé**. La v0.27 reconnaît le manifeste existant et remplace l'ancien EXE de façon prudente sans effacer le modèle, le dossier `speech`, les sauvegardes ou les réglages. Si Windows bloque l'ancien EXE en cours d'utilisation, l'opération affiche une erreur explicite et ne l'efface pas.
 - La validation GitHub inclut un **test réel sur Windows** : fermeture de l'ancienne instance, remplacement, lancement de la nouvelle instance, vérification de la version et du jeton, puis tentative d'installation d'un téléchargement corrompu pour vérifier le redémarrage de secours.
 
 ## v0.25 — Gestionnaire des processus : Qwen, Whisper et tunnel

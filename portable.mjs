@@ -206,7 +206,13 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
    if(result.status!==0)throw Error("Le script de mise à jour est invalide : "+
      String(result.stderr||result.error?.message||"PowerShell inaccessible").trim().slice(0,350));
   }
-  args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",file];
+  // Passing a Unicode folder via -File can fail silently on some Windows
+  // PowerShell 5.1 configurations. Execute the already parsed, bounded script
+  // as UTF-16LE EncodedCommand instead; still keep .ps1 for diagnostics.
+  const encoded=powershellEncoded(script);
+  if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
+  args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
+   "-EncodedCommand",encoded];
   output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
   options.stdio=["ignore",output,output];
  }else{
@@ -219,7 +225,15 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   try{child?.kill?.();}catch{}
   throw Error("Impossible de démarrer l'outil de mise à jour PowerShell.");
  }
- child.once?.("error",error=>{console.error("Outil de maintenance :",error.message);});
+ child.once?.("error",error=>{
+  console.error("Outil de maintenance :",error.message);
+  try{fs.appendFileSync(path.join(root||process.cwd(),"updates","maintenance-output.log"),
+   "\\nÉchec de démarrage PowerShell : "+error.message+"\\n");}catch{}
+ });
+ child.once?.("exit",(code,signal)=>{
+  if(root)try{fs.appendFileSync(path.join(root,"updates","maintenance-output.log"),
+    "\\nHelper terminé : code="+code+" signal="+signal+"\\n");}catch{}
+ });
  child.unref?.();
  return {pid:child.pid};
 }
