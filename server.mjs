@@ -84,8 +84,24 @@ async function loadServerCatalog(force=false) {
   return catalogPending;
 }
 let state=createState();
-try{state=JSON.parse(fs.readFileSync(stateFile,"utf8"));}catch{}
-function save(){fs.writeFileSync(stateFile,JSON.stringify(state,null,2));}
+const backupStateFile=stateFile+".bak";
+const validSavedState=s=>Boolean(s&&typeof s==="object"&&!Array.isArray(s)&&
+ Number.isInteger(s.revision)&&Array.isArray(s.cards)&&Array.isArray(s.history)&&
+ Array.isArray(s.battlefields)&&s.players?.human&&s.players?.ai&&s.decks?.ai);
+for(const filename of [stateFile,backupStateFile]){
+ try{
+  const candidate=JSON.parse(fs.readFileSync(filename,"utf8"));
+  if(validSavedState(candidate)){state=candidate;break;}
+ }catch{}
+}
+function save(){
+ const temp=stateFile+"."+crypto.randomBytes(6).toString("hex")+".tmp";
+ try{
+  fs.writeFileSync(temp,JSON.stringify(state),{flag:"wx",mode:0o600});
+  if(fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
+  fs.renameSync(temp,stateFile);
+ }finally{try{fs.rmSync(temp,{force:true});}catch{}}
+}
 function json(res,status,obj,req){
   headers(res,req);res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});
   res.end(JSON.stringify(obj));
