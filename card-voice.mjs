@@ -71,8 +71,26 @@ export function matchSpokenCard(catalog,phrase){
  const best=ranked[0],second=ranked[1];
  const margin=best.score-(second?.score||0);
  // Short or ambiguous names always require explicit confirmation.
+ const distinctive=tokens(phrase).some(q=>
+  q.length>=6&&tokens(best.card.name).includes(q));
  const safe=best.score>=.86&&margin>=.08||
-  best.score>=.77&&margin>=.16&&tokens(phrase).length>=2;
+  best.score>=.77&&margin>=.16&&tokens(phrase).length>=2||
+  best.score>=.70&&margin>=.20&&distinctive&&compact(phrase).length>=12;
  return {card:safe?best.card:null,score:best.score,
   candidates:ranked.map(r=>r.card.name)};
+}
+
+export function correctSpokenCardPhrase(catalog,text,{expectCardName=false}={}){
+ const raw=String(text||"").trim();
+ const match=raw.match(/\b(?:je\s+(?:joue|pose|place|mets)|j'\s*(?:joue|pose)|i\s+(?:play|place)|play)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+)?(.+?)(?=\s+(?:pour|for|avec|with|contre|cout|payer|pay)\s+\d+\s+runes?\b|[.!?]*$)/i);
+ const title=match?.[1]?.replace(/[.!?]+$/g,"").trim()||
+  (expectCardName?raw.replace(/[.!?]+$/g,"").trim():"");
+ if(!title)return {text:raw,corrected:false};
+ const result=matchSpokenCard(catalog,title);
+ if(!result.card)return {text:raw,corrected:false,candidates:result.candidates};
+ const canonical=result.card.name;
+ if(folded(canonical)===folded(title))return {text:raw,corrected:false,card:canonical};
+ const start=match?match.index+match[0].lastIndexOf(match[1]):0;
+ const corrected=raw.slice(0,start)+canonical+raw.slice(start+title.length);
+ return {text:corrected,rawText:raw,corrected:true,card:canonical,score:result.score};
 }
