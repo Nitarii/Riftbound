@@ -34,6 +34,8 @@ on:
       - 'process-lifecycle.mjs'
       - 'process-dashboard.mjs'
       - 'local-voice.mjs'
+      - 'local-ai-profiles.mjs'
+      - 'local-action-gate.mjs'
       - 'manager.html'
       - 'voice-session.mjs'
       - 'player-actions.mjs'
