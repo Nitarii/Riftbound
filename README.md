@@ -5,13 +5,13 @@ Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à 
 **Site :** https://nitarii.github.io/Riftbound/  
 **Windows :** [Télécharger Riftbound Companion v0.37](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.37.exe)
 
-## v0.37 — Désinstallation Windows réellement vérifiée
+## v0.37 — Désinstallation Windows (version à tester)
 
-- Le gestionnaire n'affiche une désinstallation confirmée **qu'après l'acquittement du processus indépendant**. Si PowerShell ne démarre pas, le compagnon reste utilisable et affiche une erreur, sans fermer l'application.
-- L'outil de nettoyage attend la **fin réelle du processus Windows** avant de supprimer l'exécutable, les modèles locaux, les fichiers de voix, les sauvegardes et les fichiers temporaires gérés. Il retente les suppressions si Windows garde brièvement un fichier verrouillé.
-- Pour éviter les fichiers bloqués, le désinstalleur s'exécute **hors du dossier installé** et ne garde aucun journal ouvert dans ce dossier. Le manifeste de l'installation est vérifié, les liens/jonctions dangereux sont refusés, et les fichiers étrangers sont conservés.
-- Un **test de bout en bout sur l'exécutable Windows réel** vérifie la désinstallation d'un dossier vide puis d'un dossier contenant un fichier personnel à conserver. Le build Windows ne doit pas être publié si ce test échoue.
-- La version téléchargée initialement à l'extérieur du dossier choisi (par ex. dans Téléchargements) et les données du navigateur sont hors du périmètre : le gestionnaire ne les efface pas.
+- Le gestionnaire ne confirme le lancement de la désinstallation **qu'après l'acquittement d'un assistant indépendant**. Si cet assistant ne démarre pas, l'application reste ouverte et affiche une erreur au lieu de se fermer.
+- L'assistant attend la fin du compagnon et supprime les fichiers gérés (exécutable installé, modèles locaux, données, sauvegardes et fichiers temporaires). **La désinstallation efface les sauvegardes** : les exporter avant le test.
+- Le manifeste de l'installation et les chemins sont validés, les jonctions/liens dangereux refusés et les fichiers étrangers conservés.
+- Le test Windows bout en bout contrôle **la suppression du dossier d'installation** et la préservation d'un fichier personnel. Le nettoyage du **petit exécutable temporaire créé hors de ce dossier**, dans `%LOCALAPPDATA%\\Temp\\Riftbound-Uninstall-*`, est encore **non garanti** selon le contexte Windows et émet un avertissement CI. Ce résidu n'empêche plus le retrait du programme principal. Ne pas supprimer d'autres dossiers Temp arbitrairement.
+- L'exécutable initial conservé dans Téléchargements et les données du navigateur ne font pas partie du dossier d'installation et ne sont pas supprimés.
 
 ## v0.36 — Profils IA gratuits, Vulkan et commandes vocales rapides
 
