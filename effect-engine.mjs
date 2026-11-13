@@ -9,7 +9,7 @@ const TRIGGERS=[
  ["ending",/^(?:at the end of your turn|when your turn ends)\s*[,:\-]\s*(.*)$/i],
  ["hold",/^(?:when (?:i|this unit) hold|when you hold (?:here|this battlefield))\s*[,:\-]\s*(.*)$/i],
  ["conquer",/^(?:when (?:i|this unit) conquer|when you conquer (?:here|this battlefield))\s*[,:\-]\s*(.*)$/i],
- ["move",/^(?:when (?:i|this unit) move)\s*[,:\-]\s*(.*)$/i],
+ ["move",/^(?:when (?:i|this unit) move(?: to a battlefield)?)\s*[,:-]\s*(.*)$/i],
  ["die",/^(?:when (?:i|this unit) die)\s*[,:\-]\s*(.*)$/i],
  ["attack",/^(?:when (?:i|this unit) attack)\s*[,:\-]\s*(.*)$/i],
  ["defend",/^(?:when (?:i|this unit) defend)\s*[,:\-]\s*(.*)$/i],
@@ -33,13 +33,21 @@ const patterns=[
  ["heal-self",new RegExp("^(?:heal|remove)\\s+("+AMOUNT+")\\s+damage\\s+(?:from|on)\\s+(?:me|this unit|this card)$","i")],
  ["self-buff",new RegExp("^(?:i get|i gain|get|gain)\\s*\\+("+AMOUNT+")\\s+(?:might|\\{might\\})(?:\\s+this turn)?$","i")],
  ["damage-enemy",new RegExp("^deal\\s+("+AMOUNT+")\\s+damage\\s+to\\s+(?:(?:an?|one|target)\\s+)?enemy\\s+unit$","i")],
+ ["buff-friendly",new RegExp("^give\\s+(?:another\\s+)?friendly\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
+ ["buff-unit",new RegExp("^give\\s+(?:a|another)\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
+ ["stun-enemy",/^(?:stun)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["stun-unit",/^(?:stun)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["kill-enemy",/^(?:kill|destroy)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["kill-unit",/^(?:kill|destroy)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
  ["ready-self",/^(?:ready|redresse(?:r|z|s)?)\s+(?:me|this unit)$/i],
  ["channel-exhausted",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?\s+exhausted$/i],
  ["channel",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?$/i],
  ["exhaust-self",/^(?:exhaust|[ée]puise(?:r|z|s)?)\s+(?:me|this unit)$/i]
 ];
 function parseInstructions(raw){
- let expr=normalize(raw).replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
+ let expr=normalize(raw)
+  .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
+  .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
  if(/\b(?:if|unless|instead|as long as|until|otherwise|for each|for every|equal to|per |choose one|either|up to|look at|reveal|scry|search|shuffle|pay |spend |sacrifice|extra cost)\b/i.test(expr))
   return {steps:[],reason:"condition, choix ou coût non automatisé : "+raw.slice(0,130)};
@@ -47,6 +55,15 @@ function parseInstructions(raw){
  const steps=[];
  for(let item of parts){
   item=item.trim().replace(/[.,! ]+$/g,"").replace(/^(?:you may|may)\s+/i,"");
+  const token=/^play\s+(one|two|three|four|\d{1,2})\s+(\d{1,2})\s+\{might\}\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+(?:into|to)\s+your\s+base$|^play\s+(one|two|three|four|\d{1,2})\s+(\d{1,2})\s+\{might\}\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+here$/i.exec(item);
+  if(token){
+   const word=token[1]||token[4],n=word.toLowerCase()==="four"?4:toCount(word);
+   const might=Number(token[2]||token[5]),name=token[3]||token[6];
+   if(!Number.isInteger(n)||n<1||n>8||might<1||might>20)
+    return {steps:[],reason:"Création de jetons hors limites"};
+   steps.push({kind:"create-units",count:n,tokenMight:might,tokenName:name.trim(),
+    destination:token[1]?"base":"here"});continue;
+  }
   let parsed=false;
   for(const [kind,regex] of patterns){
    const m=regex.exec(item);
