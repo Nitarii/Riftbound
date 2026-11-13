@@ -25,7 +25,7 @@ export function advanceMandatoryTurn(state){
   const runes=(next.turnActions?.channeled||0)-(state.turnActions?.channeled||0);
   const drawn=(next.turnActions?.drawn||0)-(state.turnActions?.drawn||0);
   const description="Début du tour : "+(runes?"+ "+runes+" runes":"pas de rune disponible")+
-   ", "+(drawn?"+ "+drawn+" carte":"pioche vide")+". À toi de jouer.";
+   ", "+(drawn?"+ "+drawn+" carte":"pioche vide")+". "+(who==="ai"?"Tour de l’IA.":"À toi de jouer.");
   next.history=[{revision:next.revision,at:new Date().toISOString(),text:description},
    ...(state.history||[])].slice(0,120);
   next.message=description;
