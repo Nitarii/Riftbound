@@ -34,32 +34,43 @@ export function createLocalVoiceConversation({
  let stream=null,ctx=null,processor=null,source=null,output=null,locale="fr-FR";
  let speechStart=0,lastVoice=0,buffer=[],preRoll=[],busy=false,utterances=[],currentSpeech=null;
  let queue=[],captureId=0,voicedMs=0,consecutiveVoice=0,noiseFloor=.003;
+ let drainPromise=null;
  const state=()=>({enabled,phase,detail,speaking,listening:Boolean(enabled&&!hidden&&!speaking),
   speechEnabled,available:!!mediaDevices?.getUserMedia,noSpeech:0});
  const emit=(p=phase,d=detail)=>{phase=p;detail=d;onState(state());};
  const clearBuffers=()=>{buffer=[];preRoll=[];speechStart=0;lastVoice=0;voicedMs=0;consecutiveVoice=0;};
- async function drainQueue(){
-  if(busy||!queue.length||!enabled)return;
-  busy=true;const session=captureId;
-  while(queue.length&&enabled&&session===captureId){
-   const frames=queue.shift();
-   emit("captured","Transcription Whisper locale…");
+ function drainQueue(){
+  if(drainPromise)return drainPromise;
+  if(!queue.length||!enabled)return Promise.resolve();
+  const session=captureId;
+  drainPromise=(async()=>{
+   busy=true;
    try{
-    const blob=audioToWav(frames,ctx?.sampleRate||48000);
-    const response=await sendAudio(blob);
-    if(!enabled||session!==captureId)break;
-    const text=String(response?.text||"").trim();
-    if(text){
-     onPreview(text);
-     emit("captured","Entendu : "+text.slice(0,100));
-     await onTranscript(text);
-    }else emit("listening","Aucune phrase reconnue.");
-   }catch(e){
-    if(enabled&&session===captureId)emit("error","Whisper : "+String(e?.message||e).slice(0,140));
+    while(queue.length&&enabled&&session===captureId){
+     const frames=queue.shift();
+     emit("captured","Transcription Whisper locale…");
+     try{
+      const blob=audioToWav(frames,ctx?.sampleRate||48000);
+      const response=await sendAudio(blob);
+      if(!enabled||session!==captureId)break;
+      const text=String(response?.text||"").trim();
+      // Whisper can turn a short non-speech sound into "(whoosh)" or "[Music]".
+      const soundEffect=/^(?:\\([^)]{1,50}\\)|\\[[^\\]]{1,50}\\])$/i.test(text);
+      if(text&&!soundEffect){
+       onPreview(text);
+       emit("captured","Entendu : "+text.slice(0,100));
+       await onTranscript(text);
+      }else emit("listening","Aucune phrase reconnue.");
+     }catch(e){
+      if(enabled&&session===captureId)emit("error","Whisper : "+String(e?.message||e).slice(0,140));
+     }
+    }
+   }finally{
+    busy=false;
+    if(enabled&&!hidden&&!speaking)emit("listening","Micro actif · parle naturellement.");
    }
-  }
-  busy=false;
-  if(enabled&&!hidden&&!speaking)emit("listening","Micro actif · parle naturellement.");
+  })().finally(()=>{drainPromise=null;});
+  return drainPromise;
  }
  async function finalize(){
   if(!speechStart||!buffer.length){clearBuffers();return;}
@@ -135,7 +146,7 @@ export function createLocalVoiceConversation({
   if(synthesis)try{synthesis.cancel();}catch{}
   speaking=false;emit("off","Micro local désactivé.");
  }
- async function flush(){if(speechStart&&buffer.length)await finalize();}
+ async function flush(){if(speechStart&&buffer.length)await finalize();if(drainPromise)await drainPromise;}
  function playNext(){
   if(!enabled||speaking||!utterances.length||!speechEnabled||!synthesis||!Utterance)return;
   const text=utterances.shift();
