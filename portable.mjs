@@ -160,7 +160,7 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "$ErrorActionPreference='Stop'",
   "$r="+quoted(r),"$pidToWait="+pid,
   "$m=Join-Path $r "+quoted(INSTALL_MARKER),
-  "$statusFile=Join-Path $r 'updates\uninstall-status.json'",
+  "$statusFile=Join-Path $r 'updates/uninstall-status.json'",
   "function Save-Status([string]$phase,[string]$message){",
   "  $dir=Split-Path -Parent $statusFile",
   "  if(!(Test-Path -LiteralPath $dir)){New-Item -ItemType Directory -Path $dir -Force | Out-Null}",
