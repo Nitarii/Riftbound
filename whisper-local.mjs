@@ -191,8 +191,8 @@ export function createLocalWhisper({
   if(!response.ok)throw Error("Whisper local HTTP "+response.status);
   const result=await response.json();
   extendServerIdle();
-  return {text:String(result.text||"").replace(/\\[[^\\]]{1,50}\\]/g," ")
-   .replace(/\\s+/g," ").trim().slice(0,1200),language,model:selected};
+  return {text:String(result.text||"").replace(/\[[^\]]{1,50}\]/g," ")
+   .replace(/\s+/g," ").trim().slice(0,1200),language,model:selected};
  }
  async function prepare(id){
   if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
