@@ -44,6 +44,7 @@ async function run({name,path:root,port,otherFile}){
    RIFTBOUND_DATA_DIR:root,TEMP:path.join(root,"temp"),
    TMP:path.join(root,"temp"),TMPDIR:path.join(root,"temp")}});
  fs.closeSync(fd);
+ let helperFolder=null;
  const base="http://127.0.0.1:"+port;
  async function request(route,body){
   const res=await fetch(base+route,{
@@ -73,7 +74,7 @@ async function run({name,path:root,port,otherFile}){
   if(started.status!==200||!started.body.ok||!started.body.uninstalling)
    throw Error("Uninstaller failed handshake: "+JSON.stringify(started));
   const helperRequest=JSON.parse(fs.readFileSync(path.join(root,"updates","uninstall-request.json"),"utf8"));
-  const helperFolder=path.dirname(helperRequest.helperExe);
+  helperFolder=path.dirname(helperRequest.helperExe);
   if(helperFolder===root||!fs.existsSync(helperRequest.helperExe))
    throw Error("Independent helper executable was not created outside the installation.");
   await poll(async()=>child.exitCode!==null||child.signalCode!==null,
@@ -94,6 +95,8 @@ async function run({name,path:root,port,otherFile}){
   console.log("PASS Windows uninstall "+name+": stopped process, deleted owned files, preserved unrelated data.");
  }catch(error){
   console.error("Uninstall smoke "+name+" failed: ",error.stack||error);
+  if(helperFolder)console.error("Temporary helper directory:",helperFolder,
+   fs.existsSync(helperFolder)?fs.readdirSync(helperFolder):"(already removed)");
   try{
    const file=path.join(root,"updates","uninstall-request.json");
    if(fs.existsSync(file)){
