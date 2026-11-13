@@ -106,6 +106,46 @@ main>footer{order:7}
 .ai-profile-grid select{display:block;margin:6px 0 0}
 #ai-runtime{font-size:12px;color:#c1d8d6;min-height:16px}
 @media(max-width:600px){.ai-profile-grid{grid-template-columns:1fr}}
+
+/* Single-screen responsive manager; no dropdowns or accordions. */
+main{max-width:1080px}
+main>#activity-monitor{order:3}
+main>#startup-screen{order:4}
+main>#manager-dashboard{order:5}
+main>#process-dashboard{order:6}
+main>#update-diagnostics{order:7}
+main>footer{order:8}
+.manager-primary{padding:16px}
+.manager-primary h2{font-size:20px}
+.manager-models{padding:16px}
+.manager-advanced{padding:16px}
+.manager-advanced-body{margin-top:10px}
+.manager-advanced-body section{border-color:#35515b;background:#0d2330}
+.ai-profile-grid{max-width:none;grid-template-columns:1.1fr 1fr;gap:16px}
+.profile-options{min-width:0}
+.group-label{font-size:13px;font-weight:750;color:#f0d69e;margin:0 0 8px}
+#model-recommendation{font-size:11px;color:#a7d7c2;font-weight:550;margin-left:5px}
+.profile-choice-row{display:flex;gap:8px;flex-wrap:wrap}
+.profile-choice-row button{flex:1;min-width:108px;padding:9px 11px;font-size:12px;
+ background:#162e3d;border:1px solid #496573;text-align:center}
+.profile-choice-row button small{display:block;font-size:10px;margin-top:4px;color:#bbcfce}
+.profile-choice-row button[aria-pressed=true]{border-color:#e9c882;background:#344641;
+ color:#ffe5a6;box-shadow:0 0 0 1px #c1a76a50}
+.activity-monitor{display:flex;align-items:center;gap:13px;padding:12px 16px;
+ border:1px solid #796b4d;border-radius:11px;background:#1a3033;margin:0 0 13px;
+ font-size:13px;min-width:0}
+.activity-monitor>div{min-width:0;flex:1}
+.activity-monitor strong{color:#f3daa0}
+#activity-details{font-size:12px;color:#c0d4d8;overflow-wrap:anywhere;margin-top:3px}
+.activity-icon{width:43px;height:43px;flex:none;animation:riftActivitySpin 2.3s linear infinite;
+ filter:drop-shadow(0 0 6px #f0cc8160)}
+.activity-clock{font-size:11px;color:#a8dabe;white-space:nowrap}
+@keyframes riftActivitySpin{0%{transform:rotate(0) scale(1)}
+ 50%{transform:rotate(180deg) scale(1.08)}
+ 100%{transform:rotate(360deg) scale(1)}}
+@media(prefers-reduced-motion:reduce){.activity-icon{animation:riftActivitySpin 8s linear infinite}}
+@media(max-width:700px){.ai-profile-grid{grid-template-columns:1fr}
+ .activity-monitor{flex-wrap:wrap}.activity-clock{margin-left:55px}}
 </style>
 </head>
 <body>
@@ -226,6 +266,7 @@ if(!token)try{token=sessionStorage.getItem(key)||""}catch{}
 history.replaceState(null,"",location.pathname);
 let root="",availableVersion="",busy=false,managerStatus=null,stopping=false,refreshing=false;
 let latestProcesses=null,awaitingUpdateRestart=false,aiProfileTouched=false;
+let activitySignature="",activityAdvance=0;
 const api=async(url,method="GET",data)=>{
  const response=await fetch(url,{method,cache:"no-store",headers:{
   "Authorization":"Bearer "+token,...(data?{"Content-Type":"application/json"}:{})},
@@ -237,6 +278,27 @@ const api=async(url,method="GET",data)=>{
 };
 const report=(message,bad=false)=>{$("message").textContent=message;$("message").style.color=bad?"#f2aaa8":"#bcdfc9"};
 function progress(id,data){const el=$(id);el.hidden=!data?.running&&!data?.updating;el.value=data?.progress||0}
+function renderProfileChoices(){
+ for(const b of document.querySelectorAll("[data-ai-model]"))
+  b.setAttribute("aria-pressed",String(b.dataset.aiModel===$("ai-profile").value));
+ for(const b of document.querySelectorAll("[data-ai-backend]"))
+  b.setAttribute("aria-pressed",String(b.dataset.aiBackend===$("ai-backend").value));
+}
+function showActivity({kind,phase="",percent=0,bytes=0,detail="",terminal=false}={}){
+ const panel=$("activity-monitor");
+ if(!kind){panel.hidden=true;activitySignature="";return;}
+ panel.hidden=false;
+ const signature=[kind,phase,percent,bytes].join("|");
+ if(signature!==activitySignature){activityAdvance=Date.now();activitySignature=signature;}
+ const since=Math.max(0,Math.floor((Date.now()-activityAdvance)/1000));
+ const label=kind==="ai"?"Installation de l'IA":kind==="speech"?"Installation du microphone":
+  kind==="update"?"Mise à jour du compagnon":"Désinstallation";
+ $("activity-title").textContent=label+" · "+phase;
+ $("activity-details").textContent=detail+
+  (!terminal&&Number.isFinite(percent)?" · "+Math.round(percent)+" %":"");
+ $("activity-live").textContent=terminal?"Serveur local en fermeture":
+  since>25?"Aucun nouvel avancement depuis "+since+" s":"● activité suivie · "+since+" s";
+}
 function showStatus(id,text){$(id).textContent=text||""}
 function renderProcesses(data){
  latestProcesses=data;
