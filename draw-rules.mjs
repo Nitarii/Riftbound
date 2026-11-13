@@ -1,6 +1,10 @@
 // Standard Main Deck draw, including Burn Out (Core Rules §431).
 // Runes never belong in the Main Deck. The local AI sees only its own cards.
-const usable=c=>c.owner&&c.zone==="trash"&&!/^(rune|battlefield|legend)$/i.test(c.type||"");
+// Tokens cease to exist outside play and cannot be shuffled into Main Deck.
+const isToken=c=>Boolean(c?.tags?.some(x=>String(x).toLowerCase()==="token"))||
+ /^TOKEN-/i.test(c?.code||"");
+const usable=c=>c.owner&&c.zone==="trash"&&!isToken(c)&&
+ !/^(rune|battlefield|legend)$/i.test(c.type||"");
 function shuffle(deck,rng){
  for(let i=deck.length-1;i>0;i--){
   const j=Math.floor(rng()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];
