@@ -13,6 +13,10 @@ jobs:
       - name: Verify JavaScript syntax
         run: |
           node --check core.mjs
+          node --check draw-rules.mjs
+          node --check priority-chain.mjs
+          node --check effect-engine.mjs
+          node --check effect-runtime.mjs
           node --check battlefield-rules.mjs
           node --check chat-scrolling.mjs
           node --check player-sequence.mjs
