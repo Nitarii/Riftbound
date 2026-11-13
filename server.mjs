@@ -436,9 +436,12 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==="GET"&&url.pathname==="/api/manager/update/log"){
     try{
-      const logFile=path.join(userData,"updates","update.log");
-      const content=fs.existsSync(logFile)?fs.readFileSync(logFile,"utf8").slice(-12000):"Aucun journal de mise à jour.";
-      json(res,200,{log:content},req);
+      const updates=path.join(userData,"updates");
+      const report=["update.log","maintenance-output.log"].map(name=>{
+       const file=path.join(updates,name);
+       return fs.existsSync(file)?name+"\n"+fs.readFileSync(file,"utf8").slice(-10000):"";
+      }).filter(Boolean);
+      json(res,200,{log:report.length?report.join("\n\n"):"Aucun journal de mise à jour."},req);
     }catch(e){msg(res,500,String(e.message||e),req);}
     return;
   }

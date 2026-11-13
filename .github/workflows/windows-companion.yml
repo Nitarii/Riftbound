@@ -233,7 +233,7 @@ jobs:
           node scripts/windows-update-smoke.mjs
           if ($LASTEXITCODE -ne 0) {
             Write-Host "=== Updater diagnostic log ==="
-            Get-ChildItem -Path "dist" -Filter "update.log" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ChildItem -Path "dist" -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -in @("update.log","maintenance-output.log","update-status.json")} | ForEach-Object {
               Get-Content -LiteralPath $_.FullName -Tail 80
             }
             throw "Self-updater failed to restart or recover"

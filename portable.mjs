@@ -180,20 +180,41 @@ export function uninstallScript({root,exePath,pid=process.pid}){
  return lines.join("\n");
 }
 export const updateScript=buildUpdateScript;
-export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,root=null}={}){
- let args;
+export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
+ spawnSyncImpl=spawnSync,root=null}={}){
+ let args,output=null;
  const options={detached:true,windowsHide:true,stdio:"ignore",env};
  if(root){
   const base=resolved(root),file=path.join(base,"updates","companion-update.ps1");
   if(!inside(base,file))throw Error("Script de mise à jour hors dossier interdit.");
   fs.mkdirSync(path.dirname(file),{recursive:true});
+  // Windows PowerShell 5.1 needs a UTF-8 BOM to reliably read French paths.
   fs.writeFileSync(file,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
   options.cwd=base;
+  // Parse the script before touching the old EXE: a syntax error must never
+  // close the user's currently working manager.
+  if(process.platform==="win32"){
+   const check=[
+    "$tokens=$null;$errors=$null",
+    "[System.Management.Automation.Language.Parser]::ParseFile("+quoted(file)+",[ref]$tokens,[ref]$errors)|Out-Null",
+    "if($errors.Count){$errors|ForEach-Object{[Console]::Error.WriteLine($_.Message)};exit 41}"
+   ].join("\n");
+   const result=spawnSyncImpl("powershell.exe",["-NoProfile","-NonInteractive",
+    "-EncodedCommand",powershellEncoded(check)],{
+    encoding:"utf8",windowsHide:true,timeout:15000,env,maxBuffer:32768
+   });
+   if(result.status!==0)throw Error("Le script de mise à jour est invalide : "+
+     String(result.stderr||result.error?.message||"PowerShell inaccessible").trim().slice(0,350));
+  }
   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",file];
+  output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
+  options.stdio=["ignore",output,output];
  }else{
   args=["-NoProfile","-NonInteractive","-EncodedCommand",powershellEncoded(script)];
  }
- const child=spawnImpl("powershell.exe",args,options);
+ let child;
+ try{child=spawnImpl("powershell.exe",args,options);}
+ finally{if(output!==null)fs.closeSync(output);}
  if(!child||!Number.isSafeInteger(child.pid)||child.pid<1){
   try{child?.kill?.();}catch{}
   throw Error("Impossible de démarrer l'outil de mise à jour PowerShell.");

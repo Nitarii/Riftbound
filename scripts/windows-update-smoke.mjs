@@ -20,7 +20,10 @@ const env={...process.env,PORT:String(port),RIFTBOUND_TOKEN:token,
  RIFTBOUND_DATA_DIR:root,
  TEMP:path.join(root,"temp"),TMP:path.join(root,"temp"),TMPDIR:path.join(root,"temp")};
 const logpath=path.join(root,"updates","update.log");
-const summary=()=>fs.existsSync(logpath)?fs.readFileSync(logpath,"utf8").slice(-5000):"(aucun journal)";
+const summary=()=>["update.log","maintenance-output.log","update-status.json"].map(name=>{
+ const file=path.join(root,"updates",name);
+ return fs.existsSync(file)?name+":\n"+fs.readFileSync(file,"utf8").slice(-5000):"";
+}).filter(Boolean).join("\n")||"(aucun journal)";
 let ownedPids=new Set();
 async function request(pathname,{method="GET",body,timeout=1500}={}){
  const response=await fetch(base+pathname,{method,headers:{
