@@ -89,7 +89,7 @@ test("Accelerate is never free: extra Energy and domain Power must be paid",()=>
   text:"[Accelerate] (You may pay {energy:1}{power:chaos} as an additional cost to have me enter ready.)"});
  s=add(s,unit);
  s=play(s,"Fast Unit");
- assert.equal(s.cards.find(c=>c.name==="Fast Unit").exhausted,true);
+ assert.equal(s.cards.find(c=>c.name==="Fast Unit").exhausted,true,JSON.stringify(s.cards.find(c=>c.name==="Fast Unit")));
  let b=setup();b=add(b,unit);
  b=play(b,"Fast Unit",{accelerate:true});
  assert.equal(b.cards.find(c=>c.name==="Fast Unit").exhausted,false);
