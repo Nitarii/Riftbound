@@ -47,3 +47,15 @@ jobs:
           node --check remote.mjs
       - name: Run reducer tests
         run: node --test tests/*.test.mjs
+      - name: Audit current card corpus (non-blocking; never claim complete fidelity)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: node scripts/audit-card-effects.mjs --output artifacts/card-effect-coverage.json
+      - name: Upload card syntax coverage audit
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: printed-card-effect-coverage
+          path: artifacts/card-effect-coverage.json
+          if-no-files-found: ignore
+
