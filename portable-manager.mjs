@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {downloadVerified} from "./free-ai.mjs";
 import {inside,readMarker,uninstallScript,updateScript,launchMaintenance} from "./portable.mjs";
+import {readUpdateStatus,writeUpdateStatus,updateLogPath} from "./update-transaction.mjs";
 import {CURRENT_VERSION,OFFICIAL_RELEASE,compareVersions} from "./release-policy.mjs";
 export {CURRENT_VERSION,OFFICIAL_RELEASE,compareVersions} from "./release-policy.mjs";
 
@@ -23,7 +24,7 @@ export function selectOfficialUpdate(release,current=CURRENT_VERSION){
 export function createPortableManager({
  root,exePath=process.execPath,portable=false,fetchImpl=fetch,
  download=downloadVerified,launch=launchMaintenance,shutdown=()=>{},
- current=CURRENT_VERSION,skipStartupCheck=false,onOutdated=()=>{}
+ current=CURRENT_VERSION,skipStartupCheck=false,onOutdated=()=>{},sessionToken="",port=8787
 }={}){
  let phase="idle",progress=0,error="",available=null,updating=false,shuttingDown=false;
  let updateState=portable&&!skipStartupCheck?"checking":"current";
@@ -34,7 +35,8 @@ export function createPortableManager({
  const status=()=>({
   version:current,portable,path:root,executable:exePath,phase,progress,error,
   availableVersion:available?.version||null,updateState,checkedAt,updating,shuttingDown,
-  mustUpdate:mustUpdate(),canLaunch:canLaunch(),offlineApproved
+  mustUpdate:mustUpdate(),canLaunch:canLaunch(),offlineApproved,
+  lastUpdate:readUpdateStatus(root)
  });
  async function fetchRelease(){
   const response=await fetchImpl(OFFICIAL_RELEASE,{headers:{
@@ -106,20 +108,45 @@ export function createPortableManager({
    if(!hash)throw Error("Empreinte SHA256 invalide.");
   }
   updating=true;phase="downloading";progress=0;error="";
+  let handedOff=false;
   try{
    await download(asset.browser_download_url,staged,hash,(n,total)=>{
     progress=Math.min(100,Math.round(n/Math.max(1,total||asset.size||1)*100));
    },fetchImpl);
    phase="restarting";
-   launch(updateScript({root,exePath,staged}),{
-    env:{...process.env,TEMP:path.join(root,"temp"),TMP:path.join(root,"temp")}
-   });
-   setTimeout(shutdown,350);
-   return {...status(),message:"Mise à jour vérifiée. Redémarrage dans le même dossier."};
+   const script=updateScript({root,exePath,staged,
+    expectedSha256:hash,version:candidate.version,port});
+   writeUpdateStatus(root,"launching",candidate.version,
+    "Téléchargement vérifié, démarrage du processus de maintenance.");
+   const env={...process.env,TEMP:path.join(root,"temp"),TMP:path.join(root,"temp"),
+    TMPDIR:path.join(root,"temp"),
+    ...(sessionToken?{RIFTBOUND_TOKEN:sessionToken}:{})};
+   const launched=launch(script,{root,env});
+   if(launched===false)throw Error("Le processus de mise à jour n'a pas démarré.");
+   // Handshake: NEVER kill the old companion if PowerShell could not start.
+   // The updater itself must write 'waiting' before the old server exits.
+   let acknowledged=false;
+   for(let i=0;i<70;i++){
+    const report=readUpdateStatus(root);
+    if(report?.version===candidate.version&&["waiting","verifying","replacing","restarting","success"].includes(report.phase)){
+     acknowledged=true;break;
+    }
+    if(report?.version===candidate.version&&["failed","rolled-back"].includes(report.phase))
+     throw Error("Le programme de mise à jour a échoué au démarrage : "+report.message);
+    await new Promise(resolve=>setTimeout(resolve,100));
+   }
+   if(!acknowledged)throw Error("Le programme de mise à jour Windows ne démarre pas. L'ancien compagnon reste ouvert ; consulte le journal.");
+   handedOff=true;
+   shuttingDown=true;
+   // The separate updater waits for this exact PID to exit. Do not close the
+   // current server before confirming the updater was successfully spawned.
+   setTimeout(shutdown,900);
+   return {...status(),message:"Téléchargement SHA256 vérifié. Remplacement et redémarrage en cours ; le gestionnaire se reconnectera automatiquement."};
   }catch(e){
    phase="error";error=String(e.message||e);
+   try{writeUpdateStatus(root,"failed",candidate.version,"Échec avant le redémarrage : "+error);}catch{}
    throw e;
-  }finally{updating=false;}
+  }finally{if(!handedOff)updating=false;}
  }
  function requestStop({confirm}={}){
   if(confirm!=="STOP_RIFTBOUND")throw Error("Confirmation d'arrêt manquante.");

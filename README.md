@@ -6,9 +6,9 @@ Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce sit
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.25.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.26.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.25.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.26.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
 3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
 4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
@@ -86,6 +86,19 @@ La zone **Discussion avec l'IA**, en bas à droite, est le point d'échange prin
 **Terrains :** le nom et la miniature des champs de bataille sont cliquables au clavier et à la souris. Leur détail affiche la carte et l'effet du catalogue lorsque disponible.
 
 **Connexion inter-agents :** l'accès HTTPS temporaire propose à la fois la console navigateur `/agent/`, une description standard `/openapi.json` et l'API JSON authentifiée. Cela permet aux agents disposant d'un navigateur ou d'appels HTTP de piloter la partie à l'aide du prompt. Un modèle sans navigateur, sans outil réseau et sans connecteur ne peut pas être connecté automatiquement par un simple prompt ; le mode assisté par copier-coller reste la solution de secours.
+
+## v0.26 — Réparation des mises à jour Windows
+
+La v0.25 pouvait télécharger le nouvel exécutable puis **fermer le programme sans le remplacer ni réouvrir le gestionnaire**, car l'ancien mécanisme exécutait PowerShell en mode caché sans attendre son démarrage, vérifier le nouveau serveur, sauvegarder l'ancien EXE ou conserver les erreurs.
+
+La v0.26 introduit un système transactionnel vérifié sous Windows :
+
+- Le téléchargement est vérifié par **SHA256**. Un script PowerShell de maintenance est conservé dans le dossier `updates` de ton installation ; le gestionnaire attend son **accusé de démarrage** avant de fermer l'ancienne version.
+- Le script attend la fermeture complète de l'ancien programme, recontrôle l'empreinte, effectue un remplacement atomique avec copie de secours et tente de redémarrer le nouveau compagnon dans **le même dossier**. Il confirme que `/api/health` annonce bien la version attendue avant de déclarer la mise à jour réussie.
+- Si le remplacement ou le redémarrage échoue, il **restaure et relance l'ancienne version** quand cela est possible. Un journal `updates/update.log` et un diagnostic `updates/update-status.json` précisent l'erreur. Le gestionnaire affiche ces informations et permet d'ouvrir le journal.
+- Le jeton local du navigateur est conservé **uniquement pendant le redémarrage de mise à jour**, afin que le gestionnaire déjà ouvert puisse se reconnecter sans perdre l'autorisation. Les modèles, réglages et sauvegardes ne sont pas supprimés.
+- **Réparer une v0.25 dont la mise à jour est cassée :** ferme d'abord l'ancien Riftbound (ainsi que Qwen/Whisper via le bouton de fermeture), télécharge et lance le nouvel exécutable v0.26, puis **choisis exactement le dossier dédié où Riftbound est déjà installé**. La v0.26 reconnaît le manifeste existant et remplace l'ancien EXE de façon prudente sans effacer le modèle, le dossier `speech`, les sauvegardes ou les réglages. Si Windows bloque l'ancien EXE en cours d'utilisation, l'opération affiche une erreur explicite et ne l'efface pas.
+- La validation GitHub inclut un **test réel sur Windows** : fermeture de l'ancienne instance, remplacement, lancement de la nouvelle instance, vérification de la version et du jeton, puis tentative d'installation d'un téléchargement corrompu pour vérifier le redémarrage de secours.
 
 ## v0.25 — Gestionnaire des processus : Qwen, Whisper et tunnel
 

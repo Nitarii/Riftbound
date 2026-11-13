@@ -81,9 +81,10 @@ test("uninstaller uses a manifest checked against the exact installation and an 
   assert.match(script,/RiftboundCompanion/);
   assert.doesNotMatch(script,/Remove-Item.+-LiteralPath \$r -Recurse/);
   assert.match(updateScript({root:install.root,exePath:exe,
-   staged:path.join(install.root,"updates","new.exe")}),/Start-Process -FilePath \$exe/);
+   staged:path.join(install.root,"updates","new.exe"),
+   expectedSha256:"a".repeat(64),version:"0.26.0"}),/Start-Process -FilePath \$exe/);
   assert.throws(()=>updateScript({root:install.root,exePath:exe,
-   staged:path.join(base,"outside.exe")}),/hors du dossier/);
+   staged:path.join(base,"outside.exe")}),/dossier choisi/);
   let launched="",shutdown=false;
   const manager=createPortableManager({root:install.root,exePath:exe,portable:true,
    launch:code=>{launched=code;},shutdown:()=>{shutdown=true;}});

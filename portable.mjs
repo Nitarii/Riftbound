@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import {spawn,spawnSync} from "node:child_process";
+import {buildUpdateScript,writeUpdateStatus} from "./update-transaction.mjs";
 export const INSTALL_MARKER=".riftbound-install.json";
 export const INSTALL_ID="org.nitarii.riftbound.portable";
 export const OWNED_DIRS=["free-opponent","speech","temp","downloads","updates"];
@@ -87,9 +88,39 @@ export function initializePortableInstall({
  const target=assertSafeInstallFolder(chosen,{exePath,fsImpl});
  fsImpl.mkdirSync(target,{recursive:true});
  if(target!==exeDir){
-  const destination=path.join(target,"RiftboundCompanion.exe");
-  fsImpl.copyFileSync(exePath,destination,fs.constants.COPYFILE_EXCL);
-  createMarker(target,destination);
+  let destination=path.join(target,"RiftboundCompanion.exe");
+  // An already-installed v0.25 companion can have a broken updater. Allow
+  // selecting the SAME dedicated folder to repair it from a newly downloaded
+  // executable, without deleting models, hands, settings, or existing saves.
+  if(fsImpl.existsSync(markerPath(target))){
+   const marker=readMarker(target,fsImpl);
+   if(!exePattern.test(marker.executable))
+    throw Error("Nom d'exécutable enregistré invalide.");
+   destination=path.join(target,marker.executable);
+   const updateFolder=path.join(target,"updates");
+   fsImpl.mkdirSync(updateFolder,{recursive:true});
+   const staged=path.join(updateFolder,"manual-repair-new.exe");
+   const backup=path.join(updateFolder,"manual-repair-previous.exe");
+   fsImpl.copyFileSync(exePath,staged);
+   let moved=false;
+   try{
+    if(fsImpl.existsSync(destination)){
+     if(fsImpl.existsSync(backup))fsImpl.rmSync(backup,{force:true});
+     fsImpl.renameSync(destination,backup);
+     moved=true;
+    }
+    fsImpl.renameSync(staged,destination);
+    writeUpdateStatus(target,"launching","manual",
+     "Réparation depuis un nouvel exécutable : fichiers personnels et modèles conservés.",{fsImpl});
+   }catch(e){
+    if(moved&&fsImpl.existsSync(backup)&&!fsImpl.existsSync(destination))
+     try{fsImpl.renameSync(backup,destination);}catch{}
+    throw Error("Remplacement manuel impossible. Ferme l'ancien compagnon puis réessaie dans le même dossier. "+e.message);
+   }
+  }else{
+   fsImpl.copyFileSync(exePath,destination,fs.constants.COPYFILE_EXCL);
+   createMarker(target,destination);
+  }
   const child=spawnImpl(destination,[],{cwd:target,env:portableEnvironment(target,env),
    detached:true,windowsHide:false,stdio:"ignore"});
   child.unref?.();
@@ -148,25 +179,26 @@ export function uninstallScript({root,exePath,pid=process.pid}){
  }
  return lines.join("\n");
 }
-export function updateScript({root,exePath,staged,pid=process.pid}){
- const info=readMarker(root);
- if(!inside(resolved(root),resolved(staged))||resolved(staged)===resolved(exePath))
-  throw Error("Mise à jour hors du dossier choisi refusée.");
- return [
-  "$ErrorActionPreference='Stop'",
-  "$r="+quoted(root),"$exe="+quoted(exePath),"$staged="+quoted(staged),
-  "try{Wait-Process -Id "+Number(pid)+" -Timeout 50 -ErrorAction SilentlyContinue}catch{}",
-  "$m=Join-Path $r "+quoted(INSTALL_MARKER),
-  "if(!(Test-Path -LiteralPath $m)){exit 4}",
-  "$data=Get-Content -LiteralPath $m -Raw | ConvertFrom-Json",
-  "if($data.id -ne "+quoted(INSTALL_ID)+" -or $data.instance -ne "+quoted(info.instance)+" -or $data.path -ne $r){exit 5}",
-  "if(!(Test-Path -LiteralPath $staged)){exit 6}",
-  "Move-Item -LiteralPath $staged -Destination $exe -Force",
-  "Start-Process -FilePath $exe -WorkingDirectory $r"
- ].join("\n");
-}
-export function launchMaintenance(script,{env=process.env,spawnImpl=spawn}={}){
- const child=spawnImpl("powershell.exe",["-NoProfile","-NonInteractive","-EncodedCommand",
-  powershellEncoded(script)],{detached:true,windowsHide:true,stdio:"ignore",env});
- child.unref?.();return true;
+export const updateScript=buildUpdateScript;
+export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,root=null}={}){
+ let args;
+ const options={detached:true,windowsHide:true,stdio:"ignore",env};
+ if(root){
+  const base=resolved(root),file=path.join(base,"updates","companion-update.ps1");
+  if(!inside(base,file))throw Error("Script de mise à jour hors dossier interdit.");
+  fs.mkdirSync(path.dirname(file),{recursive:true});
+  fs.writeFileSync(file,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
+  options.cwd=base;
+  args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",file];
+ }else{
+  args=["-NoProfile","-NonInteractive","-EncodedCommand",powershellEncoded(script)];
+ }
+ const child=spawnImpl("powershell.exe",args,options);
+ if(!child||!Number.isSafeInteger(child.pid)||child.pid<1){
+  try{child?.kill?.();}catch{}
+  throw Error("Impossible de démarrer l'outil de mise à jour PowerShell.");
+ }
+ child.once?.("error",error=>{console.error("Outil de maintenance :",error.message);});
+ child.unref?.();
+ return {pid:child.pid};
 }
