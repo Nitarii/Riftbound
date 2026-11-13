@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {EventEmitter} from "node:events";
-import {audioToWav,audioRms} from "../local-voice.mjs";
+import {audioToWav,audioRms,isNonSpeechTranscript} from "../local-voice.mjs";
 import {
  WHISPER_RELEASE,WHISPER_OPTIONS,WHISPER_MODEL,WHISPER_ENGINE_SHA,
  whisperPrompt,whisperArguments,whisperServerArguments,validateWAV,createLocalWhisper
@@ -114,4 +114,11 @@ test("hands-free speech uses shorter pauses and retains microphone capture while
  assert.match(app,/await voiceController\.flush\(\)/);
  assert.match(app,/\/api\/speech\/warm/);
  assert.match(relay,/url\.pathname==="\/api\/speech\/warm"/);
+});
+
+test("microphone ignores sound effects like (whoosh) but not actual spoken commands",()=>{
+ assert.equal(isNonSpeechTranscript("(whoosh)"),true);
+ assert.equal(isNonSpeechTranscript("[Music]"),true);
+ assert.equal(isNonSpeechTranscript("Je joue Loyal Poro pour trois runes."),false);
+ assert.equal(isNonSpeechTranscript("Shen"),false);
 });
