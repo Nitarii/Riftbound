@@ -8,11 +8,12 @@ import {Readable} from "node:stream";
 import {createFreeLocalAI,freeModelID,FREE_MODELS,FREE_ENGINE_DOWNLOAD,
  FREE_MODEL_DOWNLOAD,downloadVerified,verifiedDownloadHash} from "../free-ai.mjs";
 
-test("CPU model has a single simple free option and cryptographically pinned downloads",()=>{
- assert.deepEqual(FREE_MODELS.map(x=>x.id),["qwen3:4b-instruct-2507"]);
+test("local 4B and 9B models have pinned downloads and safe selectors",()=>{
+ assert.deepEqual(FREE_MODELS.map(x=>x.id),["qwen3:4b-instruct-2507","qwen3.5:9b-q4km"]);
  assert.equal(freeModelID(), "qwen3:4b-instruct-2507");
  assert.equal(freeModelID("qwen3:4b-instruct-2507"),"qwen3:4b-instruct-2507");
- assert.throws(()=>freeModelID("qwen3:0.6b"),/Un seul modèle/);
+ assert.equal(freeModelID("qwen3.5:9b-q4km"),"qwen3.5:9b-q4km");
+ assert.throws(()=>freeModelID("qwen3:0.6b"),/non pris en charge/);
  assert.match(FREE_ENGINE_DOWNLOAD.url,/win-cpu-x64\.zip/);
  assert.match(FREE_MODEL_DOWNLOAD.url,/huggingface\.co\/Open4bits\/Qwen3-4B-Instruct-2507-GGUF/);
  assert.match(FREE_ENGINE_DOWNLOAD.sha256,/^[a-f0-9]{64}$/);
@@ -40,7 +41,7 @@ test("verified model downloads stream to disk and reject corrupted downloads",as
   assert.ok(!fs.existsSync(destination+".part"));
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
-test("free local CPU agent reports not installed and never downloads before a click",async()=>{
+test("free local agent reports not installed and never downloads before a click",async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-free-status-"));
  let requests=0;
  try{
