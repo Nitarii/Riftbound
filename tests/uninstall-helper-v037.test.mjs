@@ -65,3 +65,28 @@ test("independent helper refuses root-level, unrelated executables and bad PID",
   }),/Installation|ENOENT/);
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
+
+test("noncritical Temp janitor failure cannot prevent a verified uninstall helper",()=>{
+ const base=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-uninstall-janitor-"));
+ const root=path.join(base,"Riftbound Dedicated");
+ const exe=path.join(root,"RiftboundCompanion.exe");
+ try{
+  fs.mkdirSync(root,{recursive:true});
+  fs.writeFileSync(exe,"SEA test fixture");
+  initializePortableInstall({packaged:true,exePath:exe,platform:"win32",chooser:()=>root});
+  let helperLaunched=false;
+  const launched=launchUninstallHelper({root,exePath:exe,pid:12345},{
+   env:{...process.env,LOCALAPPDATA:base},
+   spawnImpl:(file)=>{
+    if(file==="powershell.exe")throw Error("Janitor temporarily unavailable");
+    helperLaunched=true;
+    return {pid:54321,unref(){}};
+   }
+  });
+  assert.equal(helperLaunched,true);
+  assert.equal(launched.pid,54321);
+  assert.equal(launched.janitorReady,null);
+  assert.match(launched.janitorWarning,/Nettoyage différé/);
+  assert.ok(fs.existsSync(path.join(root,"updates","uninstall-request.json")));
+ }finally{fs.rmSync(base,{recursive:true,force:true});}
+});
