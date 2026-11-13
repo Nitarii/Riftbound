@@ -101,6 +101,11 @@ main>footer{order:7}
 #process-dashboard .process-subtitle{margin-bottom:10px}
 #process-dashboard .process-description{min-height:0}
 @media(max-width:660px){.manager-advanced-body{grid-template-columns:1fr}.manager-play-button{width:100%}}
+.ai-profile-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.8fr);gap:10px;text-align:left;margin:12px auto 8px;max-width:670px}
+.ai-profile-grid label{color:#ccd8dd;font-size:12px;line-height:1.5}
+.ai-profile-grid select{display:block;margin:6px 0 0}
+#ai-runtime{font-size:12px;color:#c1d8d6;min-height:16px}
+@media(max-width:600px){.ai-profile-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -134,8 +139,24 @@ main>footer{order:7}
  </section>
  <section class="manager-models wide">
   <h2>Adversaire IA et microphone</h2>
-  <p>Qwen3 4B + Whisper Small · gratuits et locaux · un seul bouton.</p>
-  <div class="actions"><button class="primary" id="ai-install">Installer IA et micro</button><button id="ai-stop">Arrêter l'IA</button></div>
+  <p>IA gratuite sur ton PC : profil équilibré ou avancé, GPU Vulkan automatique avec repli CPU. Micro Whisper Small.</p>
+  <div class="ai-profile-grid">
+   <label for="ai-profile">Modèle de l'adversaire
+    <select id="ai-profile">
+     <option value="qwen3:4b-instruct-2507">Équilibré · Qwen3 4B (~2,5 Go)</option>
+     <option value="qwen3.5:9b-q4km">Avancé · Qwen3.5 9B (~5,7 Go)</option>
+    </select>
+   </label>
+   <label for="ai-backend">Accélération locale
+    <select id="ai-backend">
+     <option value="auto">Auto : Vulkan GPU → CPU</option>
+     <option value="vulkan">Préférer Vulkan GPU</option>
+     <option value="cpu">CPU uniquement</option>
+    </select>
+   </label>
+  </div>
+  <p id="ai-runtime" role="status" aria-live="polite">Les modèles restent stockés dans le dossier du compagnon.</p>
+  <div class="actions"><button class="primary" id="ai-install">Installer / activer IA et micro</button><button id="ai-stop">Arrêter l'IA</button></div>
   <div id="ai-info" class="notice" role="status"></div><progress hidden id="ai-progress" max="100"></progress>
   <div id="speech-info" class="notice" role="status"></div><progress hidden id="speech-progress" max="100"></progress>
  </section>
@@ -196,7 +217,7 @@ if(token)try{sessionStorage.setItem(key,token)}catch{}
 if(!token)try{token=sessionStorage.getItem(key)||""}catch{}
 history.replaceState(null,"",location.pathname);
 let root="",availableVersion="",busy=false,managerStatus=null,stopping=false,refreshing=false;
-let latestProcesses=null,awaitingUpdateRestart=false;
+let latestProcesses=null,awaitingUpdateRestart=false,aiProfileTouched=false;
 const api=async(url,method="GET",data)=>{
  const response=await fetch(url,{method,cache:"no-store",headers:{
   "Authorization":"Bearer "+token,...(data?{"Content-Type":"application/json"}:{})},
@@ -343,13 +364,25 @@ async function refresh(){
   const speechReady=Boolean(speech.installed&&speech.enabled);
  const aiReady=Boolean(ai.ready&&processes.qwen?.active);
  const modelsBusy=Boolean(ai.running||speech.running||busy);
+ if(!aiProfileTouched){
+  $("ai-profile").value=ai.selectedModel||ai.model||"qwen3:4b-instruct-2507";
+  $("ai-backend").value=ai.preferredBackend||"auto";
+ }
+ const requestedModel=$("ai-profile").value,requestedBackend=$("ai-backend").value;
+ const profileReady=aiReady&&ai.selectedModel===requestedModel&&ai.preferredBackend===requestedBackend;
+ showStatus("ai-runtime","Profil : "+(ai.models?.find(m=>m.id===requestedModel)?.label||requestedModel)+
+  " · moteur : "+(ai.backend==="none"?"à l'arrêt":ai.backend.toUpperCase())+
+  (ai.gpuAvailable===true?" · GPU détecté":ai.gpuAvailable===false?" · CPU disponible":"")+
+  (ai.notice?" · "+ai.notice:""));
  showStatus("ai-info","IA · "+(ai.message||"En attente")+(ai.error?" · "+ai.error:""));
  progress("ai-progress",ai);
  showStatus("speech-info","Micro · "+(speech.message||"En attente")+(speech.error?" · "+speech.error:""));
  progress("speech-progress",speech);
- $("ai-install").disabled=!manager.canLaunch||modelsBusy||(aiReady&&speechReady);
- $("ai-install").textContent=modelsBusy?"Installation en cours…":aiReady&&speechReady?"✓ IA et micro prêts":
-   aiReady?"Installer le micro":ai.installed?"Activer IA et micro":"Installer IA et micro";
+ $("ai-install").disabled=!manager.canLaunch||modelsBusy||(profileReady&&speechReady);
+ $("ai-install").textContent=modelsBusy?"Installation / chargement…":profileReady&&speechReady?"✓ IA et micro prêts":
+  aiReady&&requestedModel!==ai.selectedModel?"Changer de modèle IA":
+  aiReady?"Activer le micro ou changer d'accélérateur":
+  ai.models?.find(m=>m.id===requestedModel)?.installed?"Activer ce modèle":"Installer / activer IA et micro";
  $("ai-stop").disabled=busy||!(processes.qwen?.active||processes.qwen?.enabled);
  $("update-apply").disabled=!availableVersion||!!manager.updating;
   $("open-site").disabled=!manager.canLaunch;
@@ -414,9 +447,15 @@ $("manager-stop").onclick=()=>execute(async()=>{
  $("connection").textContent="● Arrêt demandé";
  report("Arrêt du compagnon demandé, données conservées.");
 });
+$("ai-profile").onchange=()=>{aiProfileTouched=true;refresh();};
+$("ai-backend").onchange=()=>{aiProfileTouched=true;refresh();};
 $("ai-install").onclick=()=>execute(async()=>{
- if(!confirm("Installer ou activer Qwen3 4B et Whisper Small dans ce dossier ?\n"+root))return;
- const r=await api("/api/ai/free/install","POST",{model:"qwen3:4b-instruct-2507",confirmFolder:root});
+ const model=$("ai-profile").value,backend=$("ai-backend").value;
+ const name=$("ai-profile").selectedOptions[0]?.textContent||model;
+ if(!confirm("Installer ou activer "+name+" avec "+backend+
+  " et Whisper Small ?\nFichiers exclusivement dans :\n"+root))return;
+ const r=await api("/api/ai/free/install","POST",{model,backend,confirmFolder:root});
+ aiProfileTouched=false;
  report(r.message||"Installation IA et micro lancée.");
 });
 async function stopProcess(target){
