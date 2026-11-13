@@ -10,7 +10,7 @@ import os from "node:os";
 import * as sea from "node:sea";
 import {execFile} from "node:child_process";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
-import {inspectCards} from "./effect-engine.mjs";
+import {inspectCards,migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
@@ -93,7 +93,7 @@ const validSavedState=s=>Boolean(s&&typeof s==="object"&&!Array.isArray(s)&&
 for(const filename of [stateFile,backupStateFile]){
  try{
   const candidate=JSON.parse(fs.readFileSync(filename,"utf8"));
-  if(validSavedState(candidate)){state=candidate;primaryStateHealthy=filename===stateFile;break;}
+  if(validSavedState(candidate)){state=migrateLegacyPassivePendingEffects(candidate);primaryStateHealthy=filename===stateFile;break;}
  }catch{}
 }
 function save(){
