@@ -10,7 +10,7 @@ import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import {once} from "node:events";
 import {DEFAULT_LOCAL_MODEL,ADVANCED_LOCAL_MODEL,LOCAL_MODELS,LOCAL_ENGINES,
  checkLocalModel,checkBackend,hasDiscreteWindowsGPU,backendCandidates,
- llamaServerArgs} from "./local-ai-profiles.mjs";
+ llamaServerArgs,detectRecommendedLocalProfile} from "./local-ai-profiles.mjs";
 
 const ENGINE_RELEASE="b12277";
 export const LOCAL_AI_MODEL=DEFAULT_LOCAL_MODEL;
@@ -156,7 +156,11 @@ export function createFreeLocalAI({
  const modelPath=id=>path.join(modelsDir,LOCAL_MODELS[id].file);
  let preferredModel=MODEL_NAME,preferredBackend="auto",actualBackend="none";
  let active=null,activeModel="",job=null,extractProcess=null,stopping=false,downloadAbort=null;
- let discreteGPU=null,notice="";
+ let discreteGPU=null,notice="",hardware=null;
+ const hardwareStatus=()=>{
+  if(hardware===null)hardware=detectRecommendedLocalProfile({platform});
+  return hardware;
+ };
  try{
   const saved=JSON.parse(fs.readFileSync(settingsPath,"utf8"));
   if(Object.hasOwn(LOCAL_MODELS,saved.model))preferredModel=saved.model;
@@ -195,8 +199,11 @@ export function createFreeLocalAI({
   return fs.existsSync(filename)&&fs.statSync(filename).size>meta.minBytes;
  }
  function status(){
+  const recommendation=hardwareStatus();
+  if(discreteGPU===null)discreteGPU=recommendation.gpuAvailable;
   const processActive=Boolean(active&&active.exitCode==null&&active.signalCode==null&&!active.killed);
   return {...info,model:preferredModel,selectedModel:preferredModel,
+   recommendation,
    preferredBackend,backend:processActive?actualBackend:"none",
    gpuAvailable:discreteGPU,gpuEngineInstalled:engineInstalled("vulkan"),
    models:FREE_MODELS.map(m=>({...m,installed:modelPresent(m.id)})),
