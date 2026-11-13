@@ -16,7 +16,7 @@ const TRIGGERS=[
 ];
 function splitClauses(raw){
  return normalize(raw).split(/\n+/).flatMap(line=>
-  line.split(/(?<=\.)\s+(?=(?:When |At the |The first |Whenever |Draw |Discard |Ready ))/i)
+  line.split(/(?<=\.)\s+(?=(?:When |At the |The first |Whenever ))/i)
  ).map(s=>s.trim()).filter(Boolean);
 }
 const AMOUNT="(?:\\d{1,2}|one|two|three|a|an|un|une|deux|trois)";
