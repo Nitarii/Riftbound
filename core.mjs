@@ -514,10 +514,14 @@ export function applyCommand(old, command) {
    }
   }
   if(!s.winner){
-   for(const owner of ["ai","human"])if(s.players[owner].score>=8){
+   // Victory is decided during cleanup only when the leader has at least
+   // the target AND strictly more points than their opponent. An 8–8 tie
+   // does not declare either player the winner.
+   const a=s.players.ai.score,h=s.players.human.score;
+   const owner=a>=8&&a>h?"ai":h>=8&&h>a?"human":null;
+   if(owner){
     s.winner=owner;s.finished=true;
     summary+=" · Victoire "+(owner==="ai"?"IA":"joueur");
-    break;
    }
   }
   maybeRecord(s,summary);
