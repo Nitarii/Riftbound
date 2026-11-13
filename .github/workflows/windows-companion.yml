@@ -147,7 +147,7 @@ jobs:
           $bmp.Dispose()
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.37.exe" -Force
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.38.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -267,7 +267,7 @@ jobs:
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.37.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.37.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.38.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.38.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -279,5 +279,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.37.exe" "dist/RiftboundCompanion-v0.37.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.38.exe" "dist/RiftboundCompanion-v0.38.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}
