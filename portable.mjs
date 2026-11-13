@@ -284,6 +284,7 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
  if(root&&mode==="uninstall"){
   const logFile=path.join(root,"updates","uninstall-launch.log");
   const append=text=>{try{fs.appendFileSync(logFile,String(text).slice(0,4096));}catch{}};
+  append("Helper spawned PID "+child.pid+"; bootstrapping "+mode+"\\n");
   child.stdout?.on("data",append);
   child.stderr?.on("data",append);
   child.once?.("exit",(code,signal)=>{
