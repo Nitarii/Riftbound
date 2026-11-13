@@ -267,7 +267,9 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   // Load into memory before executing, so even the helper's own .ps1 is no
   // longer opened when Windows removes the updates directory.
   const command=mode==="uninstall"?
-   "[ScriptBlock]::Create([IO.File]::ReadAllText("+quoted(file)+")).Invoke()":script;
+   "Write-Output 'Riftbound uninstall bootstrap started'; "+ 
+   "[ScriptBlock]::Create([IO.File]::ReadAllText("+quoted(file)+")).Invoke(); "+
+   "Write-Output 'Riftbound uninstall bootstrap finished'":script;
   const encoded=powershellEncoded(command);
   if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
@@ -297,7 +299,7 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   child.stdout?.on("data",append);
   child.stderr?.on("data",append);
   child.once?.("exit",(code,signal)=>{
-   if(code!==0)append("Helper terminated: code="+code+" signal="+signal+"\\n");
+   append("Helper terminated: code="+code+" signal="+signal+"\\n");
   });
  }
  child.once?.("error",error=>{
