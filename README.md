@@ -3,7 +3,15 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.36](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.36.exe)
+**Windows :** [Télécharger Riftbound Companion v0.37](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.37.exe)
+
+## v0.37 — Désinstallation Windows (version à tester)
+
+- Le gestionnaire ne confirme le lancement de la désinstallation **qu'après l'acquittement d'un assistant indépendant**. Si cet assistant ne démarre pas, l'application reste ouverte et affiche une erreur au lieu de se fermer.
+- L'assistant attend la fin du compagnon et supprime les fichiers gérés (exécutable installé, modèles locaux, données, sauvegardes et fichiers temporaires). **La désinstallation efface les sauvegardes** : les exporter avant le test.
+- Le manifeste de l'installation et les chemins sont validés, les jonctions/liens dangereux refusés et les fichiers étrangers conservés.
+- Le test Windows bout en bout contrôle **la suppression du dossier d'installation** et la préservation d'un fichier personnel. Le nettoyage du **petit exécutable temporaire créé hors de ce dossier**, dans `%LOCALAPPDATA%\\Temp\\Riftbound-Uninstall-*`, est encore **non garanti** selon le contexte Windows et émet un avertissement CI. Ce résidu n'empêche plus le retrait du programme principal. Ne pas supprimer d'autres dossiers Temp arbitrairement.
+- L'exécutable initial conservé dans Téléchargements et les données du navigateur ne font pas partie du dossier d'installation et ne sont pas supprimés.
 
 ## v0.36 — Profils IA gratuits, Vulkan et commandes vocales rapides
 

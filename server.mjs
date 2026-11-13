@@ -27,11 +27,17 @@ import {createProcessDashboard} from "./process-dashboard.mjs";
 import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 import {runUpdateHelper} from "./update-helper.mjs";
+import {runUninstallHelper} from "./uninstall-helper.mjs";
 if(process.argv.includes("--riftbound-update-helper")){
  // Run the downloaded EXE as a dedicated updater WITHOUT opening the board,
  // creating a second HTTP server, or prompting for another installation path.
  runUpdateHelper().then(result=>{process.exitCode=result.ok?0:1;},
   error=>{console.error("Riftbound update helper:",error.message);process.exitCode=1;});
+}else if(process.argv.includes("--riftbound-uninstall-helper")){
+ // A temporary copy of this SEA binary runs OUTSIDE the install directory,
+ // so Windows can unlock and remove the installed executable.
+ runUninstallHelper().then(result=>{process.exitCode=result.ok?0:1;},
+  error=>{console.error("Riftbound uninstall helper:",error.message);process.exitCode=1;});
 }else{
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
@@ -504,7 +510,7 @@ const server=http.createServer(async(req,res)=>{
     catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/manager/uninstall"){
-    try{json(res,200,manager.uninstall(await body(req)),req);}
+    try{json(res,200,await manager.uninstall(await body(req)),req);}
     catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="GET"&&url.pathname==="/api/speech/status"){

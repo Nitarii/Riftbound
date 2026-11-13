@@ -6,7 +6,7 @@ import path from "node:path";
 import {EventEmitter} from "node:events";
 import {
  INSTALL_ID,INSTALL_MARKER,assertSafeInstallFolder,readMarker,inside,ownedEntry,
- portableEnvironment,initializePortableInstall,moveLegacyFiles,uninstallScript,updateScript
+ portableEnvironment,initializePortableInstall,moveLegacyFiles,uninstallScript,updateScript,launchMaintenance
 } from "../portable.mjs";
 import {compareVersions,selectOfficialUpdate,createPortableManager} from "../portable-manager.mjs";
 const makeRoot=()=>fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-portable-unit-"));
@@ -67,7 +67,7 @@ test("migration moves only old companion files, never unrelated AppData files",(
   assert.equal(fs.readFileSync(path.join(installed,".riftbound-local-state.json"),"utf8"),"{}");
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
-test("uninstaller uses a manifest checked against the exact installation and an allowlist",()=>{
+test("uninstaller validates the installation, waits for helper acknowledgement and keeps unrelated files",async()=>{
  const base=makeRoot();
  try{
   const exe=fakeExe(path.join(base,"Riftbound Companion"));
@@ -75,7 +75,7 @@ test("uninstaller uses a manifest checked against the exact installation and an 
    platform:"win32",chooser:()=>path.dirname(exe)});
   assert.equal(install.launched,false);
   const script=uninstallScript({root:install.root,exePath:exe,pid:12345});
-  assert.match(script,/Wait-Process -Id \$pidToWait/);
+  assert.match(script,/while\(Get-Process -Id \$pidToWait/);
   assert.match(script,/Get-Content -LiteralPath \$m/);
   assert.match(script,/free-opponent/);
   assert.match(script,/RiftboundCompanion/);
@@ -85,13 +85,75 @@ test("uninstaller uses a manifest checked against the exact installation and an 
    expectedSha256:"a".repeat(64),version:"0.26.0"}),/Start-Process -FilePath \$exe/);
   assert.throws(()=>updateScript({root:install.root,exePath:exe,
    staged:path.join(base,"outside.exe")}),/dossier choisi/);
-  let launched="",shutdown=false;
+  assert.match(script,/Save-Status 'waiting'/);
+  assert.match(script,/uninstall-go[.]signal/);
+  assert.match(script,/Save-Status 'failed'/);
+  assert.match(script,/ReparsePoint/);
+  assert.match(script,/Remove-Managed \$m/);
+  let launched=null,launchOptions=null,shutdown=false;
   const manager=createPortableManager({root:install.root,exePath:exe,portable:true,
-   launch:code=>{launched=code;},shutdown:()=>{shutdown=true;}});
-  assert.throws(()=>manager.uninstall({confirm:"YES",folder:install.root}),/confirmation/);
-  assert.deepEqual(manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root}).ok,true);
-  assert.match(launched,/Wait-Process/);
+   launch:(request,options)=>{
+    launched=request;launchOptions=options;
+    fs.mkdirSync(path.join(install.root,"updates"),{recursive:true});
+    fs.writeFileSync(path.join(install.root,"updates","uninstall-status.json"),
+     JSON.stringify({phase:"waiting",message:"ready"}));
+    const janitorDir=path.join(base,"janitor");
+    fs.mkdirSync(janitorDir,{recursive:true});
+    const janitorReady=path.join(janitorDir,"janitor-ready.signal");
+    fs.writeFileSync(janitorReady,"READY");
+    return {pid:3333,janitorReady};
+   },shutdown:()=>{shutdown=true;}});
+  await assert.rejects(manager.uninstall({confirm:"YES",folder:install.root}),/confirmation/);
+  const done=await manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root});
+  assert.equal(done.ok,true);
+  assert.equal(done.uninstalling,true);
+  assert.equal(manager.status().shuttingDown,true);
+  assert.equal(launched.root,install.root);
+  assert.equal(launched.exePath,exe);
+  assert.ok(Number.isSafeInteger(launched.pid));
+  assert.equal(fs.readFileSync(path.join(install.root,"updates","uninstall-go.signal"),"utf8"),"GO");
+  assert.ok(launchOptions.env.TEMP.endsWith("temp"));
  }finally{fs.rmSync(base,{recursive:true,force:true});}
+});
+test("uninstaller does not shut down if independent cleanup cannot be launched",async()=>{
+ const base=makeRoot();
+ try{
+  const exe=fakeExe(path.join(base,"Riftbound Companion"));
+  const install=initializePortableInstall({packaged:true,exePath:exe,platform:"win32",
+   chooser:()=>path.dirname(exe)});
+  let closed=false;
+  const manager=createPortableManager({root:install.root,exePath:exe,portable:true,
+   launch:()=>{throw Error("PowerShell unavailable");},shutdown:()=>{closed=true;}});
+  await assert.rejects(manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root}),
+   /PowerShell unavailable/);
+  assert.equal(manager.status().shuttingDown,false);
+  assert.equal(closed,false);
+  assert.ok(fs.existsSync(exe));
+  assert.ok(fs.existsSync(path.join(install.root,INSTALL_MARKER)));
+ }finally{fs.rmSync(base,{recursive:true,force:true});}
+});
+test("Windows uninstall launches a validated Unicode script file without a giant encoded command",()=>{
+ const root=makeRoot();
+ try{
+  const script="Write-Output 'uninstall payload'\n".repeat(3000);
+  let argv=null,options=null;
+  const child=new EventEmitter();
+  child.pid=98765;child.unref=()=>{};
+  const launched=launchMaintenance(script,{
+   root,mode:"uninstall",spawnImpl:(file,args,opts)=>{
+    assert.equal(file,"powershell.exe");argv=args;options=opts;return child;
+   }
+  });
+  assert.equal(launched.pid,98765);
+  assert.equal(argv.at(-2),"-File");
+  assert.equal(argv.at(-1),path.join(root,"updates","companion-uninstall.ps1"));
+  assert.equal(options.cwd,path.parse(root).root);
+  assert.equal(options.detached,false,"Uninstall helper must execute reliably before its parent exits");
+  assert.deepEqual(options.stdio,["ignore","pipe","pipe"]);
+  const saved=fs.readFileSync(path.join(root,"updates","companion-uninstall.ps1"),"utf8");
+  assert.ok(saved.startsWith("\uFEFFWrite-Output"));
+  assert.ok(saved.length>script.length);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 test("version update accepts only a newer official release and verified digests",()=>{
  assert.equal(compareVersions("0.20.0","0.19.0"),1);

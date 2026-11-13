@@ -492,8 +492,23 @@ $("update-log-button").onclick=()=>execute(async()=>{
 $("uninstall").onclick=()=>execute(async()=>{
  if(!confirm("Supprimer définitivement tous les fichiers gérés par Riftbound dans :\n"+root+" ?"))return;
  if(!confirm("Cette opération supprimera aussi tes sauvegardes et les modèles téléchargés. Continuer ?"))return;
- await api("/api/manager/uninstall","POST",{confirm:"DELETE_RIFTBOUND_DATA",folder:root});
- report("Désinstallation lancée. Le compagnon va se fermer.");
+ const confirmed=await api("/api/manager/uninstall","POST",{
+  confirm:"DELETE_RIFTBOUND_DATA",folder:root
+ });
+ if(!confirmed?.ok||!confirmed?.uninstalling)
+  throw Error("Le désinstalleur n'a pas confirmé son démarrage.");
+ stopping=true;
+ $("uninstall").disabled=true;
+ $("manager-stop").disabled=true;
+ $("manager-dashboard").hidden=true;
+ $("startup-screen").hidden=false;
+ $("startup-title").textContent="Désinstallation en cours";
+ $("startup-details").textContent="Le désinstalleur a confirmé son démarrage. Fermeture de l'application et des moteurs IA, puis suppression des fichiers du dossier choisi.";
+ $("startup-retry").hidden=true;
+ $("startup-update").hidden=true;
+ $("startup-offline").hidden=true;
+ $("connection").textContent="◌ Désinstallation confirmée";
+ report("Désinstallation confirmée. Le gestionnaire va se fermer.");
 });
 refresh();setInterval(()=>{if(!document.hidden||awaitingUpdateRestart)refresh();},2500);
 </script>

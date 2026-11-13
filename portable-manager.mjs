@@ -3,7 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import {downloadVerified} from "./free-ai.mjs";
-import {inside,readMarker,uninstallScript,updateScript,launchMaintenance} from "./portable.mjs";
+import {inside,readMarker,updateScript,launchMaintenance} from "./portable.mjs";
+import {launchUninstallHelper} from "./uninstall-helper.mjs";
 import {readUpdateStatus,writeUpdateStatus,updateLogPath} from "./update-transaction.mjs";
 import {CURRENT_VERSION,OFFICIAL_RELEASE,compareVersions} from "./release-policy.mjs";
 import {launchUpdateHelper} from "./update-helper.mjs";
@@ -24,7 +25,7 @@ export function selectOfficialUpdate(release,current=CURRENT_VERSION){
 
 export function createPortableManager({
  root,exePath=process.execPath,portable=false,fetchImpl=fetch,
- download=downloadVerified,launch=launchMaintenance,launchUpdate=launchUpdateHelper,shutdown=()=>{},
+ download=downloadVerified,launch=launchUninstallHelper,launchUpdate=launchUpdateHelper,shutdown=()=>{},
  current=CURRENT_VERSION,skipStartupCheck=false,onOutdated=()=>{},sessionToken="",port=8787
 }={}){
  let phase="idle",progress=0,error="",available=null,updating=false,shuttingDown=false;
@@ -158,16 +159,47 @@ export function createPortableManager({
   return {ok:true,stopping:true,message:
    "Arrêt du compagnon, de Qwen, de Whisper et du tunnel éventuel. Les données sont conservées."};
  }
- function uninstall({confirm,folder}={}){
+ async function uninstall({confirm,folder}={}){
   if(!portable)throw Error("Désinstallation disponible seulement pour l'application Windows.");
   if(confirm!=="DELETE_RIFTBOUND_DATA"||folder!==root)
    throw Error("Désinstallation annulée : confirmation du dossier incorrecte.");
   if(shuttingDown||updating)throw Error("Une maintenance est déjà en cours.");
-  const script=uninstallScript({root,exePath});
+  readMarker(root);
+  // A successful spawn alone does not prove that PowerShell will run the
+  // cleanup. Wait for an actual acknowledgement while the server is alive.
+  const receipt=path.join(root,"updates","uninstall-status.json");
+  fs.mkdirSync(path.dirname(receipt),{recursive:true});
+  const go=path.join(root,"updates","uninstall-go.signal");
+  fs.rmSync(receipt,{force:true});
+  fs.rmSync(go,{force:true});
+  const launched=launch({root,exePath,pid:process.pid},{
+   env:{...process.env,TEMP:path.join(root,"temp"),
+    TMP:path.join(root,"temp"),TMPDIR:path.join(root,"temp")}});
+  if(!Number.isSafeInteger(launched?.pid)||launched.pid<1)
+   throw Error("Le programme de désinstallation n'a pas démarré. Le gestionnaire reste ouvert.");
+  // The janitor cleans only its temporary own executable and is best-effort.
+  // Do not keep a valid user's installation hostage to optional Temp cleanup.
+  let acknowledged=false;
+  for(let i=0;i<80;i++){
+   let info=null;
+   try{info=JSON.parse(fs.readFileSync(receipt,"utf8"));}catch{}
+   if(info?.phase==="waiting"){acknowledged=true;break;}
+   if(info?.phase==="failed")
+    throw Error("Échec du désinstalleur : "+String(info.message||"erreur inconnue").slice(0,200));
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  if(!acknowledged)
+   throw Error("Le désinstalleur ne répond pas. Application conservée : consulte le dossier updates.");
+  // The independent helper MUST NOT delete even one file until the HTTP
+  // server has observed its acknowledgement and explicitly sent GO.
+  fs.writeFileSync(go,"GO",{mode:0o600});
   shuttingDown=true;
-  launch(script,{env:{...process.env,TEMP:path.join(root,"temp"),TMP:path.join(root,"temp")}});
-  setTimeout(shutdown,350);
-  return {ok:true,message:"Le compagnon va s'arrêter et supprimer uniquement ses fichiers."};
+  // Stop the local AI, speech and tunnel; the helper waits for this PID to
+  // exit before deleting the executable and the chosen install directory.
+  setTimeout(shutdown,650);
+  return {ok:true,uninstalling:true,message:
+   "Désinstallation confirmée. Fermeture des moteurs, puis suppression des fichiers gérés.",
+   warning:launched.janitorWarning||null};
  }
  return {status,checkUpdate,startupCheck,continueOffline,applyUpdate,requestStop,uninstall};
 }

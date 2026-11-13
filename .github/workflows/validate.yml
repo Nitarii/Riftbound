@@ -34,6 +34,7 @@ jobs:
           node --check player-actions.mjs
           node --check clarification.mjs
           node --check portable.mjs
+          node --check uninstall-helper.mjs
           node --check update-transaction.mjs
           node --check update-helper.mjs
           node --check scripts/windows-update-smoke.mjs
