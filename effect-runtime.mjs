@@ -41,13 +41,28 @@ function makePending(state,source,ability,actor,reason){
 }
 function selectTarget(state,kind,source,actor){
  const pool=state.cards.filter(c=>unit(c)&&["base","battlefield"].includes(c.zone));
- if(kind==="damage-enemy"){
-  return pool.filter(c=>c.owner!==actor)
-   .sort((a,b)=>((Number(a.might)||0)-(Number(a.damage)||0))-
-     ((Number(b.might)||0)-(Number(b.damage)||0))||
-     String(a.uid).localeCompare(String(b.uid)))[0]||null;
+ const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(kind);
+ const friendly=kind==="buff-friendly";
+ let eligible=pool.filter(c=>enemy?c.owner!==actor:friendly?c.owner===actor:true);
+ // For flexible choices prefer helpful actions over harming our own units.
+ if(["damage-enemy","stun-unit","kill-unit"].includes(kind)){
+  const hostile=eligible.filter(c=>c.owner!==actor);
+  if(hostile.length)eligible=hostile;
  }
- return null;
+ if(["buff-unit","buff-friendly"].includes(kind)){
+  const allies=eligible.filter(c=>c.owner===actor);
+  if(allies.length)eligible=allies;
+ }
+ const value=c=>Number(c.might||0)+Number(c.counters?.tempMight||0)-
+  Number(c.damage||0);
+ return eligible.sort((a,b)=>{
+  if(["buff-unit","buff-friendly"].includes(kind))
+   return Number(b.zone==="battlefield")-Number(a.zone==="battlefield")||
+    value(b)-value(a)||String(a.uid).localeCompare(String(b.uid));
+  if(["stun-unit","stun-enemy","kill-unit","kill-enemy"].includes(kind))
+   return value(b)-value(a)||String(a.uid).localeCompare(String(b.uid));
+  return value(a)-value(b)||String(a.uid).localeCompare(String(b.uid));
+ })[0]||null;
 }
 function buildSteps(state,source,ability,actor,choices){
  const instructions=[],previous=choices?.discardUids||[];
@@ -74,11 +89,15 @@ function buildSteps(state,source,ability,actor,choices){
     return {reason:"Défausse invalide : carte absente de la main de l'IA."};
    detail.uids=uids;discarded+=step.count;
   }
-  if(step.kind==="damage-enemy"){
+  if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
+       "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
    const chosen=choices?.targetUid?state.cards.find(c=>c.uid===choices.targetUid):null;
    const target=chosen||(actor==="ai"?selectTarget(state,step.kind,source,actor):null);
-   if(!target||target.owner===actor||!unit(target)||!activeZone(target.zone))
-    return {reason:"Choisis une unité ennemie valide comme cible."};
+   const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(step.kind);
+   const friendly=step.kind==="buff-friendly";
+   if(!target||!unit(target)||!["base","battlefield"].includes(target.zone)||
+      (enemy&&target.owner===actor)||(friendly&&target.owner!==actor))
+    return {reason:"Choisis une unité valide pour cet effet."};
    if(/\bdeflect\b/i.test(target.text||""))
     return {reason:"La cible possède Deflect : coût de ciblage non vérifié."};
    detail.targetUid=target.uid;
@@ -159,6 +178,34 @@ function applySteps(state,source,steps,actor,place,deckCard){
    const c=state.cards.find(c=>c.uid===source.uid);
    c.exhausted=step.kind==="exhaust-self";
    logs.push(source.name+(c.exhausted?" s'épuise":" se redresse"));
+  }else if(step.kind==="buff-unit"||step.kind==="buff-friendly"){
+   const c=state.cards.find(c=>c.uid===step.targetUid);
+   c.counters??={};c.counters.tempMight=Number(c.counters.tempMight||0)+n;
+   logs.push(c.name+" gagne +"+n+" Might jusqu'à la fin du tour");
+  }else if(step.kind==="stun-unit"||step.kind==="stun-enemy"){
+   const c=state.cards.find(c=>c.uid===step.targetUid);
+   c.stunned=true;c.counters??={};c.counters.stunned=1;
+   logs.push(c.name+" est étourdie");
+  }else if(step.kind==="kill-unit"||step.kind==="kill-enemy"){
+   const c=state.cards.find(c=>c.uid===step.targetUid);
+   c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
+   logs.push(c.name+" est détruite");
+   const triggered=processCardEvent(state,{trigger:"die",actor:c.owner,source:c},
+    {place,deckCard});
+   if(triggered.length)logs.push(...triggered);
+  }else if(step.kind==="create-units"){
+   const destination=step.destination==="here"&&
+    source.zone==="battlefield"?"battlefield":"base";
+   for(let i=0;i<n;i++){
+    const card=place(state,actor,{
+     code:"TOKEN-"+step.tokenName.toUpperCase().replace(/[^A-Z0-9]+/g,"-"),
+     name:step.tokenName,type:"Unit",energy:0,power:0,might:step.tokenMight,
+     tags:["Token"]
+    },destination,destination==="battlefield"?source.battlefield:null,false,
+     "c_token_"+state.revision+"_"+state.cards.length+"_"+i);
+    card.exhausted=true;
+   }
+   logs.push("crée "+n+" jeton(s) "+step.tokenName+" ("+step.tokenMight+" Might)");
   }else if(step.kind==="damage-enemy"){
    const c=state.cards.find(c=>c.uid===step.targetUid);
    c.damage=(c.damage||0)+n;
