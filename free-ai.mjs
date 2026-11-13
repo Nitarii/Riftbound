@@ -286,11 +286,11 @@ export function createFreeLocalAI({
   throw Error("Démarrage du moteur "+kind+" trop long.");
  }
  async function runServer(id,choice,{allowDownloads=true}={}){
-  if(active&&activeModel===id&&await probe())return;
-  await stopPrevious();
-  if(await probe(500))throw Error("Port local 11435 déjà utilisé par une autre IA.");
   if(discreteGPU===null)discreteGPU=Boolean(detectGPU());
   const choices=backendCandidates(choice,{gpuAvailable:discreteGPU});
+  if(active&&activeModel===id&&choices[0]===actualBackend&&await probe())return;
+  await stopPrevious();
+  if(await probe(500))throw Error("Port local 11435 déjà utilisé par une autre IA.");
   const errors=[];
   for(const kind of choices){
    ensureRunning();
