@@ -516,6 +516,11 @@ export function applyCommand(old, command) {
     }
    }
   }
+  // Tokens exist only on the board, never in trash or a recycled Main Deck.
+  s.cards=s.cards.filter(card=>
+   !(card.tags||[]).some(tag=>String(tag).toLowerCase()==="token")&&
+   !/^TOKEN-/i.test(card.code||"")||
+   ["base","battlefield"].includes(card.zone));
   if(!s.winner){
    // Victory is decided during cleanup only when the leader has at least
    // the target AND strictly more points than their opponent. An 8–8 tie
