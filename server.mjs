@@ -252,7 +252,7 @@ const receiveHumanMessage=text=>{
     return;
    }
   }
-  integratedAI.onHumanMessage(announcement);
+  integratedAI.onHumanMessage(announcement,{actionApplied:Boolean(plan.recognized||plan.commands?.length)});
  }).catch(e=>receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180)));
  return entry;
 };
