@@ -94,6 +94,15 @@ async function run({name,path:root,port,otherFile}){
   console.log("PASS Windows uninstall "+name+": stopped process, deleted owned files, preserved unrelated data.");
  }catch(error){
   console.error("Uninstall smoke "+name+" failed: ",error.stack||error);
+  try{
+   const file=path.join(root,"updates","uninstall-request.json");
+   if(fs.existsSync(file)){
+    const helper=JSON.parse(fs.readFileSync(file,"utf8"));
+    const dir=path.dirname(helper.helperExe);
+    console.error("Temporary uninstall helper remaining files:",
+     fs.existsSync(dir)?fs.readdirSync(dir):"(already removed)");
+   }
+  }catch(e){console.error("Temporary helper diagnostic:",String(e.message||e));}
   const diag=path.join(root,"updates","uninstall-status.json");
   if(fs.existsSync(diag))console.error("Helper status:",fs.readFileSync(diag,"utf8"));
   const launchLog=path.join(root,"updates","uninstall-launch.log");
