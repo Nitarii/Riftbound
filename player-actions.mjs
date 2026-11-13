@@ -210,11 +210,11 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
     "This card also requires domain Power: confirm which runes to recycle before playing.");
    if(ready<energy)return fail(
      "Tu ne peux pas encore jouer "+card.name+" : cette carte coûte "+energy+
-     " énergies, mais tu n'as que "+ready+" rune(s) prête(s). Aucune carte n'a été posée.",
+     " énergies, mais tu n'as que "+ready+" runes prêtes. Aucune carte n'a été posée.",
      "You cannot play "+card.name+" yet: it costs "+energy+
      " energy, but you only have "+ready+" ready rune(s). No card was played.");
     if(!Number.isInteger(spent)||spent!==energy)
-     return fail("Pour jouer "+card.name+", il faut épuiser exactement "+energy+" rune(s), et non "+spent+".",
+     return fail("Pour jouer "+card.name+", il faut épuiser exactement "+energy+" runes, et non "+spent+".",
       "Playing "+card.name+" requires exactly "+energy+" runes, not "+spent+".");
     if(spent>0)add({type:"exhaust-runes",player:"human",count:spent});
    add({type:"phase",phase:"Main"});
