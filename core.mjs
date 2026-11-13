@@ -448,7 +448,7 @@ export function applyCommand(old, command) {
       if(/^unit$/i.test(v.type||"")&&v.damage>0){
         const role=s.pendingCombat&&v.battlefield===s.pendingCombat.battlefield?
           (v.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
-        const might=effectiveMight(v,role);
+        const might=effectiveMight(v,role,s);
         if(might!==null&&v.damage>=might){
           const lastKnown={...v};
           v.zone="trash";v.battlefield=null;v.exhausted=false;v.damage=0;

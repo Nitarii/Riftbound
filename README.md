@@ -3,7 +3,14 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.33](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.33.exe)
+**Windows :** [Télécharger Riftbound Companion v0.33](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.34.exe)
+
+## v0.34 — Dégâts létaux et capacités de mort
+
+- Les dégâts infligés par un effet de carte utilisent désormais le calcul commun de Might, avec les bonus de statistiques pris en compte.
+- Une unité vaincue par un effet déclenche immédiatement ses capacités de mort reconnues, dont Deathknell, au lieu de disparaître silencieusement.
+- Le calcul des dégâts manuels tient compte du contexte du plateau et des bonus conditionnels de défense lorsque le combat est ouvert.
+- Tests de régression ajoutés pour dégâts létaux, non létaux et Shield conditionnel. Cela ne signifie pas encore que toutes les capacités de Riftbound sont arbitrées automatiquement.
 
 ## v0.33 — Fiche d'effet affichée correctement et Shield conditionnel
 
