@@ -79,7 +79,8 @@ export function launchUninstallHelper({root,exePath,pid=process.pid},{
   });
   if(!validPid(child?.pid))throw Error("L'assistant autonome ne s'est pas lancé.");
   child.unref?.();
-  return {pid:child.pid,helperDir};
+  const janitor=startCleanupJanitor(helperDir,helperExe,child.pid,{env,spawnImpl});
+  return {pid:child.pid,helperDir,janitorReady:janitor.ready,janitorPid:janitor.pid};
  }catch(error){
   try{fs.rmSync(helperDir,{recursive:true,force:true});}catch{}
   throw error;
@@ -137,58 +138,49 @@ async function clean(root){
   if(remaining.length)throw Error("Des fichiers gérés restent dans le dossier.");
  }
 }
-function scheduleTemporaryHelperRemoval(helperExe){
- // A running Windows .exe cannot delete itself. Launch a small, separate
- // PowerShell command (NOT a .cmd stored in the directory being deleted).
- // Its cwd and TEMP are outside the helper's own directory and the installed
- // root, and it retries until Windows releases the executable image.
- try{
-  const parent=path.dirname(helperExe);
-  const externalTemp=path.join(process.env.LOCALAPPDATA||
-   path.join(os.homedir(),"AppData","Local"),"Temp");
-  const quoted=s=>"'"+String(s).replace(/'/g,"''")+"'";
-  const cleanupFile=path.join(parent,"cleanup.ps1");
-  const traceFile=path.join(parent,"cleanup-diagnostic.txt");
-  const trace=message=>{try{fs.appendFileSync(traceFile,message+"\\n");}catch{}};
-  trace("cleanup scheduled");
-  const script=[
-   "$ErrorActionPreference='SilentlyContinue'",
-   "$exe="+quoted(helperExe),
-   "$dir="+quoted(parent),
-   "$trace="+quoted(traceFile),
-   "$self="+quoted(cleanupFile),
-   "try{[IO.File]::AppendAllText($trace,'powershell started' + [Environment]::NewLine)}catch{}",
-   "for($i=0;$i -lt 120;$i++){",
-   "  if(Test-Path -LiteralPath $exe){Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue}",
-   "  if(!(Test-Path -LiteralPath $exe)){break}",
-   "  if($i -eq 0){try{[IO.File]::AppendAllText($trace,'exe still present' + [Environment]::NewLine)}catch{}}",
-   "  Start-Sleep -Milliseconds 250",
-   "}",
-   "if(!(Test-Path -LiteralPath $exe)){",
-   "  Remove-Item -LiteralPath $self -Force -ErrorAction SilentlyContinue",
-   "  for($i=0;$i -lt 30;$i++){",
-   "    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue",
-   "    if(!(Test-Path -LiteralPath $dir)){break}",
-   "    Start-Sleep -Milliseconds 200",
-   "  }",
-   "}"
-  ].join("\n");
-  // Executing a parsed .ps1 with -File is reliable in Windows PowerShell
-  // launched from SEA, unlike EncodedCommand which can exit without running.
-  fs.writeFileSync(cleanupFile,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
-  const child=spawn("powershell.exe",["-NoProfile","-NonInteractive",
-   "-ExecutionPolicy","Bypass","-File",cleanupFile],{
-   cwd:path.dirname(parent),windowsHide:true,detached:false,stdio:"ignore",
-   env:{...process.env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
-  });
-  trace("cleanup child spawned pid="+child.pid);
-  child.once?.("error",e=>trace("cleanup child error="+e.message));
-  child.once?.("exit",(code,signal)=>trace("cleanup child exit="+code+"/"+signal));
-  child.unref?.();
- }catch(error){
-  try{fs.appendFileSync(path.join(path.dirname(helperExe),"cleanup-diagnostic.txt"),
-   "cleanup scheduling failed="+String(error.message||error)+"\\n");}catch{}
- }
+function startCleanupJanitor(helperDir,helperExe,helperPid,{env=process.env,spawnImpl=spawn}={}){
+ // Launch the janitor FROM THE STILL-RUNNING MANAGER, not from the one-shot
+ // uninstaller which Windows can terminate before its own child executes.
+ const ready=path.join(helperDir,"janitor-ready.signal");
+ const scriptFile=path.join(helperDir,"janitor.ps1");
+ const q=value=>"'"+String(value).replace(/'/g,"''")+"'";
+ const script=[
+  "$ErrorActionPreference='Stop'",
+  "$targetPid="+helperPid,
+  "$exe="+q(helperExe),
+  "$dir="+q(helperDir),
+  "$self="+q(scriptFile),
+  "$ready="+q(ready),
+  "[IO.File]::WriteAllText($ready,'READY',[Text.Encoding]::ASCII)",
+  "$limit=[DateTime]::UtcNow.AddSeconds(120)",
+  "while(Get-Process -Id $targetPid -ErrorAction SilentlyContinue){",
+  "  if([DateTime]::UtcNow -ge $limit){exit 7}",
+  "  Start-Sleep -Milliseconds 250",
+  "}",
+  "for($i=0;$i -lt 120;$i++){",
+  "  try{Remove-Item -LiteralPath $exe -Force -ErrorAction Stop;break}",
+  "  catch{Start-Sleep -Milliseconds 250}",
+  "}",
+  "if(Test-Path -LiteralPath $exe){exit 8}",
+  "Remove-Item -LiteralPath $ready -Force -ErrorAction SilentlyContinue",
+  "Remove-Item -LiteralPath $self -Force -ErrorAction SilentlyContinue",
+  "for($i=0;$i -lt 40;$i++){",
+  "  Remove-Item -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue",
+  "  if(!(Test-Path -LiteralPath $dir)){break}",
+  "  Start-Sleep -Milliseconds 250",
+  "}"
+ ].join("\n");
+ fs.writeFileSync(scriptFile,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
+ const externalTemp=path.join(env.LOCALAPPDATA||
+  path.join(os.homedir(),"AppData","Local"),"Temp");
+ const janitor=spawnImpl("powershell.exe",["-NoProfile","-NonInteractive",
+  "-ExecutionPolicy","Bypass","-File",scriptFile],{
+  cwd:path.dirname(helperDir),windowsHide:true,detached:false,stdio:"ignore",
+  env:{...env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
+ });
+ if(!validPid(janitor?.pid))throw Error("Impossible de démarrer le nettoyeur temporaire.");
+ janitor.unref?.();
+ return {pid:janitor.pid,ready};
 }
 export async function runUninstallHelper({env=process.env}={}){
  if(process.platform!=="win32")throw Error("Désinstallateur autonome réservé à Windows.");
@@ -210,7 +202,5 @@ export async function runUninstallHelper({env=process.env}={}){
  }catch(error){
   status(r.root,"failed",String(error?.message||error).slice(0,300));
   return {ok:false,error:String(error?.message||error)};
- }finally{
-  scheduleTemporaryHelperRemoval(r.helperExe);
  }
 }
