@@ -6,7 +6,7 @@ import path from "node:path";
 import {EventEmitter} from "node:events";
 import {
  INSTALL_ID,INSTALL_MARKER,assertSafeInstallFolder,readMarker,inside,ownedEntry,
- portableEnvironment,initializePortableInstall,moveLegacyFiles,uninstallScript,updateScript
+ portableEnvironment,initializePortableInstall,moveLegacyFiles,uninstallScript,updateScript,launchMaintenance
 } from "../portable.mjs";
 import {compareVersions,selectOfficialUpdate,createPortableManager} from "../portable-manager.mjs";
 const makeRoot=()=>fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-portable-unit-"));
@@ -124,6 +124,29 @@ test("uninstaller does not shut down if independent cleanup cannot be launched",
   assert.ok(fs.existsSync(exe));
   assert.ok(fs.existsSync(path.join(install.root,INSTALL_MARKER)));
  }finally{fs.rmSync(base,{recursive:true,force:true});}
+});
+test("Windows uninstall launches a short Unicode-safe script bootstrap, never a giant encoded command",()=>{
+ const root=makeRoot();
+ try{
+  const script="Write-Output 'uninstall payload'\n".repeat(3000);
+  let argv=null,options=null;
+  const child=new EventEmitter();
+  child.pid=98765;child.unref=()=>{};
+  const launched=launchMaintenance(script,{
+   root,mode:"uninstall",spawnImpl:(file,args,opts)=>{
+    assert.equal(file,"powershell.exe");argv=args;options=opts;return child;
+   }
+  });
+  assert.equal(launched.pid,98765);
+  const cmd=Buffer.from(argv.at(-1),"base64").toString("utf16le");
+  assert.match(cmd,/^& '.*companion-uninstall\.ps1'$/);
+  assert.ok(argv.at(-1).length<1000,"PowerShell bootstrap must fit OS command line");
+  assert.equal(options.cwd,path.parse(root).root);
+  assert.deepEqual(options.stdio,["ignore","pipe","pipe"]);
+  const saved=fs.readFileSync(path.join(root,"updates","companion-uninstall.ps1"),"utf8");
+  assert.ok(saved.startsWith("\uFEFFWrite-Output"));
+  assert.ok(saved.length>script.length);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 test("version update accepts only a newer official release and verified digests",()=>{
  assert.equal(compareVersions("0.20.0","0.19.0"),1);
