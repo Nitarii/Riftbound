@@ -34,6 +34,12 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  if(state.pendingEffects?.length)return {commands:[],state,
    summary:"Effet à résoudre : "+state.pendingEffects[0].cardName,
    waitingForEffects:true};
+ // Resuming an Ending-phase effect must not reopen Main or allow extra plays.
+ if(state.phase==="Ending"){
+  const next=applyCommand(state,{type:"next-turn"});
+  return {commands:[{type:"next-turn"}],state:next,enacted:["terminé son tour"],
+   refused:[],summary:"fin du tour"};
+ }
  const commands=[];let view=state;
  const enacted=[],refused=[];
  const apply=command=>{view=applyCommand(view,command);commands.push(command);};
