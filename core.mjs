@@ -200,6 +200,8 @@ export function applyCommand(old, command) {
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
     if(c.fromHand&&["base","battlefield"].includes(v.zone)){
      const triggered=processCardEvent(s,{trigger:"play",actor:p,source:v},{place,deckCard});
+     if(!s.pendingEffects.length)
+      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:v},{place,deckCard}));
      if(triggered.length)summary+=" · "+triggered.join(" · ");
     }
   } else if(type==="play-paid") {
@@ -250,6 +252,8 @@ export function applyCommand(old, command) {
     if(!accelerate&&!isGear&&!isSpell&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
+    if(!s.pendingEffects.length)
+     triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},{place,deckCard}));
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
