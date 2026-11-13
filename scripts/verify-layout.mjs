@@ -231,7 +231,7 @@ try{
  // UI integration regression: the manager MUST show the updater screen
  // before allowing game launch when an old release is installed.
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
- let upToDate=false;
+ let upToDate=false,uninstallCalls=0,managerApiRequests=0;
  const managerPayload=()=>({
   version:upToDate?"0.37.0":"0.26.0",portable:true,
   path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
@@ -241,7 +241,10 @@ try{
  });
  await managerPage.route("**/api/**",async route=>{
   const pathname=new URL(route.request().url()).pathname;
-  const response=pathname==="/api/manager/status"?managerPayload():
+  managerApiRequests++;
+  const response=pathname==="/api/manager/uninstall"?
+   (uninstallCalls++,{ok:true,uninstalling:true,message:"Cleanup authorized"}):
+   pathname==="/api/manager/status"?managerPayload():
    pathname==="/api/ai/free/status"?{ready:false,running:false,message:"IA arrêtée"}:
    pathname==="/api/speech/status"?{installed:false,running:false,message:"Whisper absent"}:
    pathname==="/api/manager/processes"?{
@@ -280,6 +283,26 @@ try{
   "Updated companion should hide its update-only splash screen");
  ensure(!errors.length,"Manager script errors: "+errors.join("; "));
  console.log("PASS manager update-first screen and permanent process-stop button");
+ // Mock an accepted uninstall handoff and simulate that localhost disappears.
+ // The page must remain readable, hide stale process panels, and stop polling.
+ managerPage.on("dialog",dialog=>dialog.accept());
+ await managerPage.locator(".manager-advanced > summary").click();
+ await managerPage.locator("#uninstall").click();
+ await managerPage.waitForFunction(()=>
+  document.querySelector("#startup-title")?.textContent?.includes("tu peux fermer cet onglet"));
+ ensure(uninstallCalls===1,"The manager did not submit exactly one uninstall request");
+ ensure(await managerPage.locator("#process-dashboard").isHidden(),
+  "Process dashboard still visible after the Windows server closes");
+ ensure(await managerPage.locator("#startup-retry").isHidden(),
+  "The exit screen still offers a broken reconnection button");
+ ensure((await managerPage.locator("#startup-details").textContent()).includes("127.0.0.1"),
+  "Exit screen does not explain normal localhost connection refusal");
+ const callsAfterUninstall=managerApiRequests;
+ await managerPage.evaluate(()=>refresh());
+ ensure(managerApiRequests===callsAfterUninstall,
+  "Closed companion keeps polling a no-longer-existent server");
+ ensure(!errors.length,"Manager script errors: "+errors.join("; "));
+ console.log("PASS accepted uninstall shows a stable post-exit screen without localhost polling");
  await managerPage.close();
 
  // The hosted game's UI must refuse to open an outdated local companion.
