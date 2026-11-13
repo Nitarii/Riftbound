@@ -237,6 +237,7 @@ if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
 // The physical player can correct the previous card name without a separate model request.
 // Pending actions are never executed until a real catalog card and all costs are verified.
 let pendingHumanAction=null;
+let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=text=>{
  const entry=conversation.post("human",text);
@@ -245,6 +246,23 @@ const receiveHumanMessage=text=>{
   try{catalog=await loadServerCatalog();}catch{}
   let announcement=entry.text;
   const english=detectMessageLanguage(entry.text)==="en";
+  const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
+   .toLowerCase().replace(/[.!?]+$/g,"").trim();
+  const barePlay=/^(?:(?:et|and)\s+)?(?:(?:je|j'|i)\s+)?(?:joue|jouer|pose|play|playing|place|mets)\s*(?:une?\s+carte|a\s+card)?$/i.test(normalized);
+  if(barePlay){
+   pendingSpokenPlay={revision:state.revision,time:Date.now(),prefix:english?"I play ":"Je joue "};
+   receiveAgentMessage(english?"I heard 'I play'. Which card?":
+    "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
+   return;
+  }
+  if(pendingSpokenPlay){
+   const previous=pendingSpokenPlay;pendingSpokenPlay=null;
+   if(!pendingHumanAction&&previous.revision===state.revision&&Date.now()-previous.time<30000&&
+     !/\b(?:joue|pose|play|place|mets|pioche|draw|termine|finis|end|channel|canalise)\b/i.test(normalized)&&
+     normalized.length>=4&&normalized.length<=90&&!/[?]/.test(entry.text)){
+    announcement=previous.prefix+entry.text;
+   }
+  }
   if(pendingHumanAction){
    const answer=resolveCardClarification(pendingHumanAction,entry.text,catalog,state,{english});
    if(answer.status==="waiting"){
@@ -273,6 +291,15 @@ const receiveHumanMessage=text=>{
   }
   if(plan.error){
    receiveAgentMessage(english?plan.errorEN:plan.error);
+   return;
+  }
+  if(plan.recognized&&!plan.commands?.length){
+   receiveAgentMessage(english?"Already reflected on the board.":"Cette action est déjà prise en compte sur le plateau.");
+   return;
+  }
+  if(!plan.recognized&&/\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
+   receiveAgentMessage(english?"I heard a card play, but the name or target is incomplete. Repeat the card name. No change was made.":
+    "J'ai entendu une annonce de carte, mais je n'ai pas pu identifier une action complète. Répète le nom de la carte. Le plateau n'a pas changé.");
    return;
   }
   if(plan.commands?.length){
