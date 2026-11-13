@@ -98,6 +98,12 @@ async function run({name,path:root,port,otherFile}){
   if(helperFolder){
    console.error("Temporary helper directory:",helperFolder,
     fs.existsSync(helperFolder)?fs.readdirSync(helperFolder):"(already removed)");
+   try{
+    const active=execFileSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",
+     "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object { $_.CommandLine -like '*janitor.ps1*' } | Select-Object ProcessId,ParentProcessId,CommandLine | Format-List | Out-String"],{
+     encoding:"utf8",timeout:7000,windowsHide:true});
+    console.error("Janitor PowerShell process:",active.slice(0,1500));
+   }catch(e){console.error("Janitor process query failed:",String(e.message||e).slice(0,300));}
    const phase=path.join(helperFolder,"janitor-phase.txt");
    if(fs.existsSync(phase))console.error("Janitor phase:",fs.readFileSync(phase,"utf8"));
    const diagnostics=path.join(helperFolder,"cleanup-diagnostic.txt");
