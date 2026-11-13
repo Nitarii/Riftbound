@@ -2,6 +2,7 @@
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects} from "./play-effects.mjs";
+import {processCardEvent} from "./effect-runtime.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
@@ -16,7 +17,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},pendingCombat:null,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},pendingCombat:null,pendingEffects:[],effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -53,6 +54,9 @@ function deckCard(c) {return validateCard(c);}
 export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=cp(old||createState()), c=command, type=string(c.type,40);
+  s.pendingEffects??=[];s.effectMarks??=[];
+  if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
+   throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
   const p=c.player||"ai";
   let summary="";
   if(s.pendingCombat&&["next-turn","phase","play-paid","combat-attack"].includes(type)&&
@@ -166,10 +170,21 @@ export function applyCommand(old, command) {
     }
     summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
      (holds.length?". "+holds.join(" · "):". Beginning résolu, phases restantes à jouer.");
+    const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
+    for(let i=0;i<s.battlefields.length;i++)if(battlefieldController(s,i)===s.active)
+     triggered.push(...processCardEvent(s,{trigger:"hold",actor:s.active,field:i},{place,deckCard}));
+    if(triggered.length)summary+=" · "+triggered.join(" · ");
+    if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
   } else if(type==="phase") {
     const phase=string(c.phase,30);
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
+    const entering=phase!==s.phase;
     s.phase=phase;summary="Phase "+phase;
+    if(entering&&phase==="Ending"){
+     const triggered=processCardEvent(s,{trigger:"ending",actor:s.active},{place,deckCard});
+     if(triggered.length)summary+=" · "+triggered.join(" · ");
+     if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
+    }
   } else if(type==="add") {
     checkOwner(p);const v=place(s,p,c.card,c.zone||"base",c.battlefield,c.faceDown);
     // Standard units are played exhausted, unless their card text explicitly says otherwise.
@@ -178,6 +193,10 @@ export function applyCommand(old, command) {
     if(v.zone==="hand")s.players[p].handCount++;
     if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
+    if(c.fromHand&&["base","battlefield"].includes(v.zone)){
+     const triggered=processCardEvent(s,{trigger:"play",actor:p,source:v},{place,deckCard});
+     if(triggered.length)summary+=" · "+triggered.join(" · ");
+    }
   } else if(type==="play-paid") {
     // One atomic, auditable payment+play, used by the AI. The full energy AND
     // matching domain Power cost are checked before mutating any card.
