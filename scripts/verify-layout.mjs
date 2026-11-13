@@ -117,6 +117,45 @@ try{
    await page.locator("#drawer-collapse").click();
   }
   ensure(!pageErrors.length,"Browser runtime errors: "+pageErrors.join("; "));
+  // Regression: a shown rule notification must not become an implicit grid
+  // column, collapsing the entire table to a narrow vertical strip.
+  const notificationGeometry=await page.evaluate(()=>{
+   const board=document.querySelector("#game-app .board");
+   const rect=()=>board.getBoundingClientRect();
+   const before=rect();
+   const pending=document.querySelector("#pending-effect-panel");
+   document.querySelector("#pending-effect-card").textContent="Disciple of Shen";
+   document.querySelector("#pending-effect-description").textContent=
+    "I have [Shield 3] while I'm at a battlefield with exactly one other unit you control.";
+   pending.hidden=false;
+   const effect=pending.getBoundingClientRect();
+   const boardWithEffect=rect();
+   const effectPosition=getComputedStyle(pending).position;
+   pending.hidden=true;
+   const victory=document.querySelector("#game-victory");
+   victory.hidden=false;
+   const win=victory.getBoundingClientRect();
+   const boardWithVictory=rect();
+   const victoryPosition=getComputedStyle(victory).position;
+   victory.hidden=true;
+   return {effectWidth:effect.width,effectHeight:effect.height,
+    effectLeft:effect.left,effectRight:effect.right,effectPosition,
+    winWidth:win.width,winLeft:win.left,winRight:win.right,victoryPosition,
+    boardShift:Math.max(Math.abs(before.width-boardWithEffect.width),
+     Math.abs(before.left-boardWithEffect.left),
+     Math.abs(before.width-boardWithVictory.width),
+     Math.abs(before.left-boardWithVictory.left))};
+  });
+  ensure(notificationGeometry.effectPosition==="absolute"&&
+   notificationGeometry.victoryPosition==="absolute",
+   "Rule prompt or winner banner incorrectly participates in the three-column grid");
+  ensure(notificationGeometry.effectWidth>Math.min(300,viewport.width*.65)&&
+   notificationGeometry.effectHeight<viewport.height*.6&&
+   notificationGeometry.effectLeft>=0&&notificationGeometry.effectRight<=viewport.width+2,
+   "Pending ability panel is squeezed or cropped: "+JSON.stringify(notificationGeometry));
+  ensure(notificationGeometry.boardShift<2,
+   "Displaying an effect or victory changed board dimensions: "+JSON.stringify(notificationGeometry));
+
 
   if(viewport.width<=890){
    for(const view of ["history","chat","board"]){
