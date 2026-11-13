@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import {spawn} from "node:child_process";
+import {spawn,execFileSync} from "node:child_process";
 import {setTimeout as sleep} from "node:timers/promises";
 import {INSTALL_ID,INSTALL_MARKER} from "../portable.mjs";
 if(process.platform!=="win32")throw Error("Windows-only uninstall smoke test.");
@@ -91,7 +91,19 @@ async function run({name,path:root,port,otherFile}){
   const diag=path.join(root,"updates","uninstall-status.json");
   if(fs.existsSync(diag))console.error("Helper status:",fs.readFileSync(diag,"utf8"));
   const launchLog=path.join(root,"updates","uninstall-launch.log");
-  if(fs.existsSync(launchLog))console.error("Helper launch:",fs.readFileSync(launchLog,"utf8"));
+  if(fs.existsSync(launchLog)){
+   const text=fs.readFileSync(launchLog,"utf8");
+   console.error("Helper launch:",text);
+   const pid=/Helper spawned PID (\\d+)/.exec(text)?.[1];
+   if(pid){
+    try{
+     const command="Get-CimInstance Win32_Process -Filter 'ProcessId="+pid+"' | Select-Object ProcessId,Name,ParentProcessId,CreationDate,CommandLine | Format-List | Out-String";
+     const output=execFileSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",command],
+      {encoding:"utf8",timeout:7000,windowsHide:true});
+     console.error("Helper process:",output.slice(0,1500));
+    }catch(e){console.error("Helper process lookup failed:",String(e.message||e).slice(0,400));}
+   }
+  }
   const updates=path.join(root,"updates");
   if(fs.existsSync(updates)){
    console.error("Updates files:",fs.readdirSync(updates));
