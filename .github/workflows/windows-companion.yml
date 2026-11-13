@@ -46,6 +46,7 @@ on:
       - 'effect-engine.mjs'
       - 'effect-runtime.mjs'
       - 'draw-rules.mjs'
+      - 'priority-chain.mjs'
       - 'app.mjs'
       - 'index.html'
       - 'style.css'
