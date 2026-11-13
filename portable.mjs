@@ -161,6 +161,7 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "$r="+quoted(r),"$pidToWait="+pid,
   "$m=Join-Path $r "+quoted(INSTALL_MARKER),
   "$statusFile=Join-Path $r 'updates/uninstall-status.json'",
+  "$go=Join-Path $r 'updates/uninstall-go.signal'",
   "function Save-Status([string]$phase,[string]$message){",
   "  $dir=Split-Path -Parent $statusFile",
   "  if(!(Test-Path -LiteralPath $dir)){New-Item -ItemType Directory -Path $dir -Force | Out-Null}",
@@ -183,7 +184,12 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "  if($manifest.id -ne "+quoted(INSTALL_ID)+" -or $manifest.instance -ne "+quoted(info.instance)+" -or $manifest.path -ne $r){throw 'Manifeste du dossier incohérent.'}",
   "  if((Get-Item -LiteralPath $r -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Le dossier est un lien ou une jonction.'}",
   "  Save-Status 'waiting' 'Assistant de désinstallation prêt. Arrêt du compagnon en attente.'",
-  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){",
+  "  $handoffDeadline=[DateTime]::UtcNow.AddSeconds(35)",
+  "  while(!(Test-Path -LiteralPath $go)){",
+  "    if([DateTime]::UtcNow -gt $handoffDeadline){throw 'Le serveur n a pas autorisé la fin de la désinstallation.'}",
+  "    Start-Sleep -Milliseconds 100",
+  "  }",
+  "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){
   "    Wait-Process -Id $pidToWait -Timeout 60 -ErrorAction Stop",
   "  }",
   "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){throw 'L application Riftbound ne se ferme pas.'}",
@@ -258,7 +264,10 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
   // A full uninstall script can exceed PowerShell's Windows command-line
   // limits after UTF-16 + base64 expansion. Launch the already parsed .ps1 via
   // a tiny Unicode-safe bootstrap, rather than encoding the entire script.
-  const command=mode==="uninstall"?"& "+quoted(file):script;
+  // Load into memory before executing, so even the helper's own .ps1 is no
+  // longer opened when Windows removes the updates directory.
+  const command=mode==="uninstall"?
+   "[ScriptBlock]::Create([IO.File]::ReadAllText("+quoted(file)+")).Invoke()":script;
   const encoded=powershellEncoded(command);
   if(encoded.length>30000)throw Error("Le script de maintenance dépasse la longueur Windows.");
   args=["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
