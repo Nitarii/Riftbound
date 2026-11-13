@@ -92,16 +92,25 @@ export function applyCommand(old, command) {
       throw Error("Effets de cartes à vérifier : confirme leur résolution avant le calcul.");
     const preview=previewCombat(s,fight.battlefield,fight.attacker,fight.orders);
     if(!preview.ready)throw Error(preview.error);
+    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean);
     const outcome=applyCombatResult(s,preview,{previousController:fight.previousController});
+    const triggered=[];
+    for(const unit of dying)
+      triggered.push(...processCardEvent(s,{trigger:"die",actor:unit.owner,source:unit},{place,deckCard}));
     const resolved=outcome.controller;
     let scoring="";
-    if(resolved&&resolved!==outcome.previousController)
+    if(resolved&&resolved!==outcome.previousController){
       scoring=scoreControlledBattlefield(s,resolved,fight.battlefield,"conquer")||"";
+      if(scoring)triggered.push(...processCardEvent(s,{
+       trigger:"conquer",actor:resolved,field:fight.battlefield},{place,deckCard}));
+    }
     summary="Combat "+s.battlefields[fight.battlefield].card.name+": "+
       preview.attackingMight+" Might attaque / "+preview.defendingMight+
       " Might défense · "+outcome.dead.length+" unités vaincues"+
       (outcome.recalled?" · "+outcome.recalled+" attaquant(s) rappelés":"")+
-      (scoring?" · "+scoring:"");
+      (scoring?" · "+scoring:"")+
+      (triggered.length?" · "+triggered.join(" · "):"")+
+      (s.pendingEffects?.length?" · Effet(s) en attente":"");
   }
   if(type==="reset") {
     const fresh=createState();fresh.revision=(old?.revision||0)+1;
