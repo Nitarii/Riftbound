@@ -280,6 +280,10 @@ export function launchMaintenance(script,{env=process.env,spawnImpl=spawn,
    output=fs.openSync(path.join(base,"updates","maintenance-output.log"),"a");
    options.stdio=["ignore",output,output];
   }else{
+   // The Windows PowerShell process launched from the packaged SEA executable
+   // exits before executing the script with DETACHED_PROCESS. A normal child
+   // process survives its parent shutdown on Windows without this flag.
+   options.detached=false;
    // No file handle in the installation folder: write early errors through
    // short-lived append operations, then allow the directory to be deleted.
    options.stdio=["ignore","pipe","pipe"];
