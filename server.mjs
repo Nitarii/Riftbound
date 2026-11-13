@@ -326,7 +326,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -383,7 +383,7 @@ const server=http.createServer(async(req,res)=>{
   // Allow reading and maintenance during updates, but never start or mutate a
   // physical game from an unverified or confirmed outdated Windows executable.
   if(req.method==="POST"&&["/api/messages","/api/command",
-      "/api/ai/config","/api/speech/install","/api/speech/transcribe",
+      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe",
       "/api/remote/start"].includes(url.pathname)&&
      !manager.status().canLaunch){
    msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
@@ -501,6 +501,11 @@ const server=http.createServer(async(req,res)=>{
      if(input?.confirmFolder!==userData)throw Error("Confirme le dossier choisi avant l'installation de Whisper.");
      json(res,202,speech.begin(WHISPER_MODEL),req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/speech/warm"){
+   try{json(res,202,speech.warm(),req);}
+   catch(e){msg(res,400,String(e.message||e),req);}
+   return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/transcribe"){
     try{

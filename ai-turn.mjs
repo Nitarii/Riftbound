@@ -1,11 +1,12 @@
 // Deterministic, cost-checked basic Duel turn for the local AI.
-// The 0.6B language model handles conversation, NOT unchecked game mutations.
+// The local language model handles conversation, NOT unchecked game mutations.
 import {applyCommand} from "./core.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
+import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat} from "./combat-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
-const extraRestrictions=c=>/\b(?:play only|can't play|cannot play|additional cost|as an additional cost|when you play this, pay)\b/i.test(c?.text||"");
+const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
 const own=(view,zone)=>view.cards.filter(c=>c.owner==="ai"&&c.zone===zone);
 function emptyBattlefieldTargets(view){
  return (view.battlefields||[]).map((b,i)=>({
@@ -105,8 +106,10 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   for(let played=0;played<maxUnits;played++){
    const candidates=[...own(view,"hand"),...own(view,"champion")]
     .filter(c=>isUnit(c)&&!extraRestrictions(c))
-    .map(c=>({card:c,payment:planRunePayment(view,"ai",c)}))
-    .filter(x=>!x.payment.error);
+    .map(c=>({card:c,payment:planRunePayment(view,"ai",c),
+     effect:mandatoryPlayEffects(c)}))
+    .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
+    .filter(x=>!x.payment.error&&x.discardUids!==null);
    if(!candidates.length)break;
    // Prefer useful units with affordable Power cost, so the AI develops a
    // board while preserving the rune economy when two choices are comparable.
@@ -115,10 +118,12 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
     ((a.card.might??0)*2+(a.card.energy??0)-a.payment.power*2)||
     a.payment.power-b.payment.power||
     String(a.card.code).localeCompare(String(b.card.code)));
-   const {card,payment}=candidates[0];
-   apply({type:"play-paid",uid:card.uid,zone:"base"});
+   const {card,payment,discardUids}=candidates[0];
+   const discarded=discardUids.map(uid=>view.cards.find(c=>c.uid===uid)?.name||"carte");
+   apply({type:"play-paid",uid:card.uid,zone:"base",discardUids});
    enacted.push("joué "+card.name+" ("+payment.energy+" énergie, "+
-    payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s))");
+    payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s))"+
+    (discarded.length?", puis défaussé "+discarded.join(", ")+" pour son effet":""));
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
   }

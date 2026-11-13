@@ -3,7 +3,16 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.29](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.29.exe)
+**Windows :** [Télécharger Riftbound Companion v0.30](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.30.exe)
+
+## v0.30 — Effets de cartes, fiche lisible et voix plus réactive
+
+- L'IA paie l'énergie et les runes Power **et applique les défausses obligatoires reconnues**, par exemple « When you play me, discard 1 » sur Chemtech Enforcer. Elle choisit une carte de sa propre main et la place en défausse lors de la même action. Si l'effet d'entrée en jeu n'est pas encore pris en charge, le moteur refuse le jeu automatique plutôt que de l'ignorer.
+- La fenêtre des cartes garde une image droite même pour une unité épuisée, avec son effet lisible à droite et une croix de fermeture en haut. L'état « Épuisée » reste indiqué.
+- Le micro découpe la phrase après environ **650 ms** de silence au lieu de 1350 ms. Whisper Small peut rester chargé localement pendant la conversation (serveur CPU sur 127.0.0.1, accès interne aléatoire), avec repli sur la commande existante si nécessaire. Les bruits non verbaux sont filtrés avant le chat.
+- Le gestionnaire contrôle l'arrêt de Whisper et les modèles, et le plateau explique plus clairement quand les runes prêtes ne suffisent pas.
+
+Les effets plus complexes (ciblage, événements déclenchés, réactions et capacités spéciales) restent soumis à validation : aucun moteur déterministe générique ne peut appliquer tous les textes sans les règles correspondantes.
 
 ## Démarrer
 
