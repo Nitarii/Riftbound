@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {createPortableManager,selectOfficialUpdate} from "../portable-manager.mjs";
-import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,compareVersions,companionNeedsUpdate} from "../release-policy.mjs";
+import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,compareVersions,companionNeedsUpdate} from "../release-policy.mjs";
 import {stopOwnedProcess} from "../process-lifecycle.mjs";
 
 const release=(version=CURRENT_VERSION)=>({
@@ -20,6 +20,7 @@ const fetchRelease=source=>async url=>{
 test("the site and Windows app share a minimum version",()=>{
  assert.equal(CURRENT_VERSION,"0.29.0");
  assert.equal(MINIMUM_COMPANION_VERSION,CURRENT_VERSION);
+ assert.match(DOWNLOAD_URL,/\/RiftboundCompanion-v0\.29\.exe$/);
  assert.equal(compareVersions("0.21.0",CURRENT_VERSION),-1);
  assert.equal(companionNeedsUpdate("0.21"),true);
  assert.equal(companionNeedsUpdate(CURRENT_VERSION),false);
