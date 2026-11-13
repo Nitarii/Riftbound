@@ -32,14 +32,14 @@ const patterns=[
  ["exhaust-self",/^(?:exhaust|[ée]puise(?:r|z|s)?)\s+(?:me|this unit)$/i]
 ];
 function parseInstructions(raw){
- let expr=normalize(raw).replace(/[.! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
+ let expr=normalize(raw).replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
  if(/\b(?:if|unless|instead|as long as|until|otherwise|for each|for every|equal to|per |choose one|either|up to|look at|reveal|scry|search|shuffle|pay |spend |sacrifice|extra cost)\b/i.test(expr))
   return {steps:[],reason:"condition, choix ou coût non automatisé : "+raw.slice(0,130)};
  const parts=expr.split(/\s*(?:;\s*|\.\s+|\s+then\s+|\s+and\s+)\s*/i).filter(Boolean);
  const steps=[];
  for(let item of parts){
-  item=item.trim().replace(/[.! ]+$/g,"").replace(/^(?:you may|may)\s+/i,"");
+  item=item.trim().replace(/[.,! ]+$/g,"").replace(/^(?:you may|may)\s+/i,"");
   let parsed=false;
   for(const [kind,regex] of patterns){
    const m=regex.exec(item);
