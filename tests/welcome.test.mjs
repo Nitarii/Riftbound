@@ -25,8 +25,8 @@ test("all homepage controls have unique IDs and handlers",()=>{
 });
 test("direct Windows download is a single exe with no Node dependency for the player",()=>{
  assert.match(html,/https:\/\/github\.com\/Nitarii\/Riftbound\/releases\/download\/companion-latest\/RiftboundCompanion-v0\.\d+\.exe/);
- assert.match(html,/Aucune installation ni dépendance supplémentaire/);
- assert.match(html,/Logiciel non signé/);
+ assert.match(html,/Un fichier Windows, sans dépendance/);
+ assert.match(html,/programme n’est pas signé/);
  assert.doesNotMatch(html,/main\.zip/);
  assert.match(js,/function autoBootstrapCompanion\(/);
  assert.match(js,/sessionStorage\.setItem/);
@@ -41,19 +41,15 @@ test("the UI is honest about physical cards, AI access and fan status",()=>{
  assert.match(js,/type:"start"/);
 });
 
-test("wizard presents exactly one step at a time, with progress and back/next",()=>{
+test("setup has one conditional page instead of a four-screen wizard",()=>{
  const steps=[...html.matchAll(/<section class="welcome-step" data-wizard-step="(\d)"[^>]*>/g)];
- assert.equal(steps.length,4);
- assert.deepEqual(steps.map(x=>Number(x[1])),[1,2,3,4]);
- assert.ok(!steps[0][0].includes(" hidden"),"Step 1 should show by default.");
- assert.ok(steps.slice(1).every(x=>x[0].includes(" hidden")),"Later steps must be initially hidden.");
- assert.match(css,/\.welcome-step\[hidden\]\{display:none!important\}/);
- for(const id of ["home-back","home-next","wizard-current-label","wizard-next-hint","welcome-progress"]){
-   assert.ok(ids.includes(id),"Missing wizard navigation element: "+id);
- }
- assert.match(js,/function setWizardStep\(/);
- assert.match(js,/card\.hidden=wizardStep!==i\+1/);
- assert.match(js,/wizardStep===4\?"Terminer et ouvrir le plateau/);
+ assert.equal(steps.length,4,"Existing section IDs remain for compatibility");
+ assert.match(html,/class="wizard-progress"[^>]*hidden/);
+ assert.match(html,/class="wizard-navigation"[^>]*hidden/);
+ assert.match(css,/\.welcome-steps\{display:flex;flex-direction:column/);
+ assert.match(js,/const visible=!companionGate&&\(relay\?i>=2:onboarding\.preview\?i===2:i<=1\)/);
+ assert.match(js,/card\.hidden=!visible/);
+ assert.match(js,/showGame\(\);/);
 });
 test("wizard requires confirmation before advancing, with a preview route",()=>{
  assert.match(js,/if\(!status\[wizardStep-1\]\)\{/);
