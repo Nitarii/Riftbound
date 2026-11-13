@@ -3,7 +3,19 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.30](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.30.exe)
+**Windows :** [Télécharger Riftbound Companion v0.31](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.31.exe)
+
+## v0.31 — Moteur générique des capacités de cartes
+
+Le compagnon **lit désormais les textes des cartes du catalogue** pour identifier leur type d'effet et le moment où il se déclenche : pose d'une carte, Beginning, Ending, Hold, Conquer, déplacement, pioche, mort, attaque, défense et jeu d'une autre carte alliée. Il ne s'agit plus d'une liste de cartes spécifiquement programmées.
+
+Pour les capacités dont toutes les étapes sont reconnues, le moteur peut mettre à jour le plateau directement : pioche, défausse, épuisement ou redressement de runes, soins simples, dégâts simples, bonus temporaire de Might, redressement d'une unité. Les paiements en énergie et Power sont vérifiés, y compris le supplément optionnel **Accelerate**. Le planificateur IA considère aussi les unités, équipements et sorts.
+
+**Limite importante :** tous les effets ne sont pas encore résolus automatiquement. Les mots-clés passifs, conditions, choix complexes, équipements attachés et fenêtres de réactions demandent un traitement plus avancé. Ils sont **signalés dans le plateau avec leur texte**, et la partie ne continue pas sans confirmation explicite de résolution. Le logiciel ne prétend jamais appliquer une capacité qu'il ne sait pas vérifier. Cette confirmation n'exécute pas elle-même l'effet.
+
+L'endpoint local authentifié `GET /api/effects/audit` permet de consulter la couverture sur **l'ensemble du catalogue réellement chargé** (capacités reconnues, partielles ou non prises en charge). Les changements de règles et errata doivent être contrôlés depuis le hub officiel.
+
+---
 
 ## v0.30 — Effets de cartes, fiche lisible et voix plus réactive
 
