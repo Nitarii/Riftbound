@@ -203,22 +203,26 @@ export function applyCommand(old, command) {
     if(!s.started||s.active!=="ai"||s.phase!=="Main")
       throw Error("Jouer une carte payée nécessite la phase Main de l'IA.");
     const v=getCard(s,string(c.uid,80));
-    if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||!/^unit$/i.test(v.type||""))
-      throw Error("La carte ne peut pas être jouée depuis cette zone.");
+    if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||
+       !["unit","gear","spell"].includes(String(v.type||"").toLowerCase()))
+     throw Error("La carte ne peut pas être jouée depuis cette zone.");
     const onPlay=mandatoryPlayEffects(v);
-    if(!onPlay.supported)throw Error(v.name+" : "+onPlay.reason+". Effet à résoudre avant de jouer.");
     const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
+    // Preflight card text before paying the runes. For unfamiliar abilities
+    // the card is playable, but its trigger becomes an unresolved chain item.
     if(discardUids.length!==onPlay.discard||new Set(discardUids).size!==discardUids.length)
      throw Error(v.name+" : défausse obligatoire de "+onPlay.discard+" carte(s) non choisie.");
     const discardCards=discardUids.map(uid=>getCard(s,string(uid,80)));
     if(discardCards.some(x=>x.owner!=="ai"||x.zone!=="hand"||x.uid===v.uid))
      throw Error("La défausse obligatoire doit venir de la main de l'IA.");
-    const dest=c.zone||"base";
-    if(dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
+    const isSpell=String(v.type).toLowerCase()==="spell";
+    const isGear=String(v.type).toLowerCase()==="gear";
+    const dest=isSpell?"trash":c.zone||"base";
+    if(!isSpell&&dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
     const field=Number(c.battlefield);
-    if(dest==="battlefield"&&(!Number.isInteger(field)||field<0||field>=s.battlefields.length||
-      battlefieldController(s,field)!=="ai"))
-      throw Error("L'IA ne peut jouer directement qu'à un champ de bataille déjà contrôlé.");
+    if(dest==="battlefield"&&(isGear||!Number.isInteger(field)||field<0||
+      field>=s.battlefields.length||battlefieldController(s,field)!=="ai"))
+     throw Error("La carte ne peut entrer que dans une zone autorisée.");
     const paid=planRunePayment(s,"ai",v);
     if(paid.error)throw Error(paid.error);
     for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
@@ -230,17 +234,18 @@ export function applyCommand(old, command) {
     s.cards=s.cards.filter(card=>!removed.has(card.uid));
     s.players.ai.runeCount=s.decks.ai.runes.length;
     if(v.zone==="hand")s.players.ai.handCount--;
-    for(const card of discardCards){
-     card.zone="trash";card.battlefield=null;card.exhausted=false;
-     s.players.ai.handCount--;
-    }
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
-    v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
-    summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":"sur "+s.battlefields[field].card.name)+
+    v.exhausted=isSpell||isGear?false:
+      !/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
+    const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
+     choices:{discardUids}},{place,deckCard});
+    summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
      paid.domains.join("/")+")"+
-     (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"");
+     (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"")+
+     (triggered.length?" · "+triggered.join(" · "):"")+
+     (s.pendingEffects.length?" · Effet en attente : "+s.pendingEffects[0].cardName:"");
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
     checkOwner(p);
