@@ -75,7 +75,7 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
    platform:"win32",chooser:()=>path.dirname(exe)});
   assert.equal(install.launched,false);
   const script=uninstallScript({root:install.root,exePath:exe,pid:12345});
-  assert.match(script,/Wait-Process -Id \$pidToWait/);
+  assert.match(script,/while\(Get-Process -Id \$pidToWait/);
   assert.match(script,/Get-Content -LiteralPath \$m/);
   assert.match(script,/free-opponent/);
   assert.match(script,/RiftboundCompanion/);
@@ -107,7 +107,7 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
   assert.equal(launchOptions.root,install.root);
   assert.equal(launchOptions.mode,"uninstall");
   assert.equal(fs.readFileSync(path.join(install.root,"updates","uninstall-go.signal"),"utf8"),"GO");
-  assert.match(launched,/Wait-Process/);
+  assert.match(launched,/Get-Process -Id \$pidToWait/);
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
 test("uninstaller does not shut down if independent cleanup cannot be launched",async()=>{
