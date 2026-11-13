@@ -188,9 +188,10 @@ function applySteps(state,source,steps,actor,place,deckCard){
    logs.push(c.name+" est étourdie");
   }else if(step.kind==="kill-unit"||step.kind==="kill-enemy"){
    const c=state.cards.find(c=>c.uid===step.targetUid);
+   const lastKnown={...c};
    c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
    logs.push(c.name+" est détruite");
-   const triggered=processCardEvent(state,{trigger:"die",actor:c.owner,source:c},
+   const triggered=processCardEvent(state,{trigger:"die",actor:c.owner,source:lastKnown},
     {place,deckCard});
    if(triggered.length)logs.push(...triggered);
   }else if(step.kind==="create-units"){
@@ -221,6 +222,8 @@ function applySteps(state,source,steps,actor,place,deckCard){
 export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
  const {trigger,actor}=event;
  if(!["human","ai"].includes(actor)||!trigger)throw Error("Événement de capacité invalide.");
+ state.effectWork=(Number(state.effectWork)||0)+1;
+ if(state.effectWork>80)throw Error("Chaîne d’effets trop longue (80) : résolution manuelle nécessaire.");
  state.pendingEffects??=[];state.effectMarks??=[];
  state.effectSerial=(Number(state.effectSerial)||0)+1;
  const summaries=[];
