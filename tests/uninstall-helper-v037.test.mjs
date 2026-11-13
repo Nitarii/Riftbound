@@ -70,6 +70,7 @@ test("noncritical Temp janitor failure cannot prevent a verified uninstall helpe
  const base=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-uninstall-janitor-"));
  const root=path.join(base,"Riftbound Dedicated");
  const exe=path.join(root,"RiftboundCompanion.exe");
+ fs.mkdirSync(path.join(base,"Temp"),{recursive:true});
  try{
   fs.mkdirSync(root,{recursive:true});
   fs.writeFileSync(exe,"SEA test fixture");
