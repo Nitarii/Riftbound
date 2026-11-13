@@ -59,7 +59,10 @@ export function createLocalVoiceConversation({
       const soundEffect=isNonSpeechTranscript(text);
       if(text&&!soundEffect){
        onPreview(text);
-       emit("captured","Entendu : "+text.slice(0,100));
+       const heard=response?.corrected?
+        "Entendu : "+String(response.rawText||"").slice(0,60)+" → Carte reconnue : "+String(response.card||"").slice(0,55):
+        "Entendu : "+text.slice(0,100);
+       emit("captured",heard);
        await onTranscript(text);
       }else emit("listening","Aucune phrase reconnue.");
      }catch(e){
