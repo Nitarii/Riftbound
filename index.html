@@ -144,37 +144,30 @@
             <p>Il joue directement sur ton ordinateur, sans abonnement, compte, clé API, crédit ni paiement.</p>
           </div></div>
           <div class="free-agent-choice">
-            <p><strong>Modèle universel : Qwen3 0.6B</strong> · environ 639 Mo de téléchargement.
-              Fonctionne sur le processeur, sans carte graphique dédiée ni pilote spécialisé.
-              Le moteur de jeu IA ne pèse qu'environ 25 Mo à télécharger, une seule fois.</p>
-            <input id="free-ai-model" type="hidden" value="qwen3:0.6b">
+            <p><strong>Modèle unique : Qwen3 4B Instruct 2507 (Q4_K_M)</strong> · environ 2,5 Go.
+              Reconnaissance vocale unique : Whisper Small multilingue · environ 488 Mo.
+              Les deux moteurs gratuits fonctionnent en local et sont installés dans le même dossier, en une seule étape. Prévoir environ 6 Go de RAM libre.</p>
+            <input id="free-ai-model" type="hidden" value="qwen3:4b-instruct-2507">
           </div>
           <div class="welcome-actions free-agent-actions">
-            <button id="free-ai-install" type="button" class="primary">Installer et activer mon IA gratuite</button>
+            <button id="free-ai-install" type="button" class="primary">Installer mon IA et la voix</button>
             <button id="free-ai-stop" type="button" disabled>Arrêter l'IA</button>
             <button id="ai-open-board" type="button">Ouvrir le plateau</button>
           </div>
           <progress id="free-ai-progress" max="100" value="0" hidden aria-label="Progression de l'installation IA gratuite"></progress>
           <p id="free-ai-stage" class="integrated-status" role="status" aria-live="polite">Connecte ton programme Windows pour installer l'IA gratuite.</p>
           <section class="speech-setup" aria-labelledby="speech-setup-heading">
-            <h4 id="speech-setup-heading">Reconnaissance vocale locale · Whisper</h4>
-            <p>Sans service Chrome : transcription FR/EN sur ton processeur, avec un vocabulaire Riftbound. Tous les fichiers restent dans ton dossier choisi.</p>
-            <div class="line">
-              <select id="speech-model-choice" aria-label="Modèle Whisper">
-                <option value="base">Base · léger · 148 Mo</option>
-                <option value="small">Small · précis · 488 Mo</option>
-              </select>
-              <button type="button" id="speech-install" class="primary">Installer Whisper</button>
-            </div>
+            <h4 id="speech-setup-heading">Micro local · Whisper Small</h4>
+            <p>Un seul moteur vocal multilingue FR/EN : il est installé et activé avec ton adversaire, sans choix de modèle et sans service de transcription Chrome.</p>
             <progress id="speech-progress" max="100" value="0" hidden></progress>
-            <p id="speech-stage" class="integrated-status" role="status" aria-live="polite">Optionnel : Chrome reste utilisable sans Whisper.</p>
+            <p id="speech-stage" class="integrated-status" role="status" aria-live="polite">Whisper Small s’installe en même temps que l’IA.</p>
           </section>
           <div class="ai-knowledge-status">
             <strong>✓ Connaissances Riftbound préconfigurées</strong>
             <p id="ai-knowledge-cards" role="status" aria-live="polite">Règles de base et de tournoi · Commandes du plateau · Textes des cartes consultés automatiquement.</p>
             <a href="https://playriftbound.com/fr-fr/rules-hub/" target="_blank" rel="noopener noreferrer">Consulter le hub officiel des règles et errata</a>
           </div>
-          <p class="integrated-caution">Le petit modèle reçoit automatiquement les règles utiles, les commandes du site et les effets des cartes concernées. Le résumé n'est pas un arbitre officiel et les règles compétitives doivent être vérifiées. Ta main physique cachée reste privée.</p>
+          <p class="integrated-caution">Le modèle local reçoit automatiquement les règles utiles, les commandes du site et les effets des cartes concernées. Le résumé n'est pas un arbitre officiel et les règles compétitives doivent être vérifiées. Ta main physique cachée reste privée.</p>
           <div hidden aria-hidden="true" id="legacy-ai-config">
             <select id="ai-provider"><option value="openai">OpenAI</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="compatible">Compatible</option></select>
             <input id="ai-model" type="text">
@@ -330,13 +323,7 @@
     <button id="chat-pass-turn" type="button" title="Terminer ton tour et prévenir l'IA">Passer mon tour</button>
     <button id="send-note" type="button" class="primary">Envoyer <span aria-hidden="true">↵</span></button>
   </div>
-  <label class="voice-provider-choice">Reconnaissance vocale
-    <select id="speech-source" aria-label="Moteur de reconnaissance vocale">
-      <option value="auto">Automatique · Whisper local si installé</option>
-      <option value="local">Whisper local · hors ligne</option>
-      <option value="chrome">Chrome / Edge · service navigateur</option>
-    </select>
-  </label>
+  <p class="voice-provider-choice">Reconnaissance vocale : Whisper Small · local et hors ligne après installation.</p>
   <div class="voice-live" id="voice-live" data-voice-state="off" role="status" aria-live="polite">
     <span class="voice-dot" aria-hidden="true"></span>
     <span id="voice-live-text">Mode vocal éteint. Active-le pour parler librement à l'IA.</span>
