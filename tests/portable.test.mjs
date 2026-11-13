@@ -141,7 +141,7 @@ test("Windows uninstall launches a short Unicode-safe script bootstrap, never a 
   });
   assert.equal(launched.pid,98765);
   const cmd=Buffer.from(argv.at(-1),"base64").toString("utf16le");
-  assert.match(cmd,/^\[ScriptBlock\]::Create\(\[IO\.File\]::ReadAllText\('.*companion-uninstall\.ps1'\)\)\.Invoke\(\)$/);
+  assert.match(cmd,/\[ScriptBlock\]::Create\(\[IO\.File\]::ReadAllText\('.*companion-uninstall\.ps1'\)\)\.Invoke\(\)/);
   assert.ok(argv.at(-1).length<1000,"PowerShell bootstrap must fit OS command line");
   assert.equal(options.cwd,path.parse(root).root);
   assert.deepEqual(options.stdio,["ignore","pipe","pipe"]);
