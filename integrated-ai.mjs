@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {applyCommand} from "./core.mjs";
-import {LOCAL_AI_MODEL} from "./free-ai.mjs";
+import {LOCAL_AI_MODEL,freeModelID} from "./free-ai.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
 import {planSafeAITurn,planAutonomousAITurn,describeAITurn} from "./ai-turn.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
@@ -24,7 +24,7 @@ export function validateAIConfig(input,previous={}){
  if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Configuration IA invalide.");
  const provider=String(input.provider||"");
  if(!Object.hasOwn(PROVIDERS,provider)&&provider!=="compatible")throw Error("Fournisseur non pris en charge.");
- const model=provider==="free"?LOCAL_AI_MODEL:String(input.model||DEFAULT_MODELS[provider]||"").trim();
+ const model=provider==="free"?freeModelID(input.model||LOCAL_AI_MODEL):String(input.model||DEFAULT_MODELS[provider]||"").trim();
  if(!model||model.length>100||!/^[\w./:+-]+$/.test(model))throw Error("Identifiant de modèle invalide.");
  const endpoint=provider==="compatible"?providerURL(input.endpoint):PROVIDERS[provider];
  const supplied=typeof input.apiKey==="string"?input.apiKey.trim():"";
@@ -267,7 +267,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const transcript=getMessages(0).messages.slice(-8)
     .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?450:1200)}));
    const payload={
-    model:own.model,temperature:free?0.2:0.3,max_tokens:free?650:1100,
+    model:own.model,temperature:free?0.2:0.3,max_tokens:free?380:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
     messages:[
      {role:"system",content:free?FREE_SYSTEM_PROMPT:SYSTEM_PROMPT},
@@ -292,7 +292,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    if(own.apiKey)headers.Authorization="Bearer "+own.apiKey;
    const sendRequest=async body=>fetchImpl(own.endpoint+"/chat/completions",{
     method:"POST",headers,body:JSON.stringify(body),
-    signal:AbortSignal.timeout(free?180000:timeoutMs)
+    signal:AbortSignal.timeout(free?75000:timeoutMs)
    });
    let response=await sendRequest(payload);
    if(free&&[400,413,422].includes(response.status)&&!response.ok){
