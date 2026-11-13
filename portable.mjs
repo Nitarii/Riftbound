@@ -189,9 +189,11 @@ export function uninstallScript({root,exePath,pid=process.pid}){
   "    if([DateTime]::UtcNow -gt $handoffDeadline){throw 'Le serveur n a pas autorisé la fin de la désinstallation.'}",
   "    Start-Sleep -Milliseconds 100",
   "  }",
+  "  Save-Status 'authorized' 'Signal d autorisation reçu : attente de fermeture de Riftbound.'",
   "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){",
   "    Wait-Process -Id $pidToWait -Timeout 60 -ErrorAction Stop",
   "  }",
+  "  Save-Status 'exited' 'Le processus Riftbound est fermé, nettoyage en cours.'",
   "  if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){throw 'L application Riftbound ne se ferme pas.'}",
   "  Save-Status 'removing' 'Suppression des fichiers gérés par Riftbound.'",
  ];
