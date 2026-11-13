@@ -139,6 +139,7 @@ test("Downloaded Windows EXE launches only as the verified helper from the chose
  try{
   const {target,exe}=installedFixture(base);
   const staged=path.join(target,"updates","next.exe");
+  fs.mkdirSync(path.dirname(staged),{recursive:true});
   fs.writeFileSync(staged,"NEXT SEA BINARY");
   const request={root:target,exePath:exe,staged,
    expectedSha256:"a".repeat(64),version:"0.26.0",port:8879,pid:process.pid};
