@@ -75,7 +75,7 @@ export function matchSpokenCard(catalog,phrase){
  // Short or ambiguous names always require explicit confirmation.
  const distinctive=tokens(phrase).some(q=>
   q.length>=6&&tokens(best.card.name).includes(q));
- const safe=best.score>=.86&&margin>=.08||
+ const safe=best.score>=.86&&margin>=.16||
   best.score>=.77&&margin>=.16&&tokens(phrase).length>=2||
   best.score>=.67&&margin>=.20&&distinctive&&compact(phrase).length>=12;
  return {card:safe?best.card:null,score:best.score,
