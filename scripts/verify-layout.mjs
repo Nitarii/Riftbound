@@ -286,7 +286,19 @@ try{
  // Mock an accepted uninstall handoff and simulate that localhost disappears.
  // The page must remain readable, hide stale process panels, and stop polling.
  managerPage.on("dialog",dialog=>dialog.accept());
- await managerPage.locator(".manager-advanced > summary").click();
+ ensure(await managerPage.locator(".manager-advanced").isVisible(),
+  "Maintenance must be visible without a dropdown or accordion");
+ ensure(await managerPage.locator("#process-dashboard").isVisible(),
+  "Process dashboard must remain visible without a dropdown");
+ ensure(await managerPage.locator("#model-choices button").count()===2,
+  "Both local models must be visible as buttons");
+ ensure(await managerPage.locator("#manager-dashboard details").count()===0,
+  "Manager still contains collapsed menus");
+ await managerPage.locator('[data-ai-model="qwen3.5:9b-q4km"]').click();
+ ensure(await managerPage.locator("#ai-profile").inputValue()==="qwen3.5:9b-q4km",
+  "Model-choice button did not update the pending install");
+ ensure(await managerPage.locator('[data-ai-model="qwen3.5:9b-q4km"]').getAttribute("aria-pressed")==="true",
+  "Selection state not visible for the model button");
  await managerPage.locator("#uninstall").click();
  await managerPage.waitForFunction(()=>
   document.querySelector("#startup-title")?.textContent?.includes("tu peux fermer cet onglet"));
