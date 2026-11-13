@@ -127,7 +127,7 @@ test("uninstaller does not shut down if independent cleanup cannot be launched",
   assert.ok(fs.existsSync(path.join(install.root,INSTALL_MARKER)));
  }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
-test("Windows uninstall launches a short Unicode-safe script bootstrap, never a giant encoded command",()=>{
+test("Windows uninstall launches a validated Unicode script file without a giant encoded command",()=>{
  const root=makeRoot();
  try{
   const script="Write-Output 'uninstall payload'\n".repeat(3000);
@@ -140,9 +140,8 @@ test("Windows uninstall launches a short Unicode-safe script bootstrap, never a 
    }
   });
   assert.equal(launched.pid,98765);
-  const cmd=Buffer.from(argv.at(-1),"base64").toString("utf16le");
-  assert.match(cmd,/\[ScriptBlock\]::Create\(\[IO\.File\]::ReadAllText\('.*companion-uninstall\.ps1'\)\)\.Invoke\(\)/);
-  assert.ok(argv.at(-1).length<1000,"PowerShell bootstrap must fit OS command line");
+  assert.equal(argv.at(-2),"-File");
+  assert.equal(argv.at(-1),path.join(root,"updates","companion-uninstall.ps1"));
   assert.equal(options.cwd,path.parse(root).root);
   assert.deepEqual(options.stdio,["ignore","pipe","pipe"]);
   const saved=fs.readFileSync(path.join(root,"updates","companion-uninstall.ps1"),"utf8");
