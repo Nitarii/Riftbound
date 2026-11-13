@@ -77,12 +77,59 @@ footer{font-size:11px;line-height:1.65;color:#91a8b2;margin:20px 0 0}
 <body>
 <main>
 <header><div class="manager-heading"><img src="/assets/companion-icon.svg" alt=""><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · GESTIONNAIRE PORTABLE</small></div></div>
-<button id="manager-stop" class="danger" type="button" title="Fermer le serveur, le moteur IA, Whisper et le tunnel sans désinstaller">■ Quitter et arrêter les processus</button></header>
-<p class="lead">Tous les modèles, téléchargements et fichiers temporaires du compagnon sont gérés dans le dossier choisi. Aucun logiciel supplémentaire n'est nécessaire.</p>
+<button id="manager-stop" class="danger" type="button" title="Fermer Riftbound et tous ses processus">■ Tout quitter</button></header>
+<p class="lead">Tes modèles, sauvegardes et fichiers restent dans ton dossier choisi.</p>
 <div class="status"><b id="connection">Connexion locale…</b>
  <div class="mono" id="storage">Dossier : …</div><small id="version"></small></div>
-<section id="process-dashboard" class="process-dashboard" aria-labelledby="process-dashboard-title">
- <h2 id="process-dashboard-title">Processus actifs sur cet ordinateur</h2>
+<section id="startup-screen" class="startup-screen" aria-labelledby="startup-title">
+ <h2 id="startup-title">Vérification de la version…</h2>
+ <p id="startup-details" role="status" aria-live="polite">Le compagnon vérifie la dernière version officielle avant d'autoriser une partie.</p>
+ <progress id="startup-progress" hidden max="100" value="0"></progress>
+ <div class="actions">
+  <button id="startup-update" class="primary" type="button" hidden>Installer la dernière version</button>
+  <button id="startup-retry" type="button">Revérifier</button>
+  <button id="startup-offline" type="button" hidden>Continuer sans vérification réseau</button>
+ </div>
+</section>
+<section id="update-diagnostics" class="update-diagnostics" hidden aria-live="polite">
+ <h2 id="update-diagnostics-title">État de la mise à jour</h2>
+ <p id="update-diagnostics-text">Vérification en cours…</p>
+ <button id="update-log-button" type="button">Afficher le journal de mise à jour</button>
+ <pre id="update-log-preview" hidden></pre>
+</section>
+<div id="manager-dashboard" class="grid" hidden>
+ <section class="manager-primary wide">
+  <h2>Prêt à jouer ?</h2>
+  <p>Ouvre ton plateau et retrouve tes cartes physiques.</p>
+  <div class="actions"><button class="primary manager-play-button" id="open-site">▶ Jouer à Riftbound</button><button id="open-local">Plateau hors ligne</button></div>
+ </section>
+ <section class="manager-models wide">
+  <h2>Adversaire IA et microphone</h2>
+  <p>Qwen3 4B + Whisper Small · gratuits et locaux · un seul bouton.</p>
+  <div class="actions"><button class="primary" id="ai-install">Installer IA et micro</button><button id="ai-stop">Arrêter l'IA</button></div>
+  <div id="ai-info" class="notice" role="status"></div><progress hidden id="ai-progress" max="100"></progress>
+  <div id="speech-info" class="notice" role="status"></div><progress hidden id="speech-progress" max="100"></progress>
+ </section>
+ <details class="manager-advanced wide">
+  <summary>Options et maintenance</summary>
+  <div class="manager-advanced-body">
+   <section>
+    <h2>Mises à jour</h2>
+    <p>Vérification officielle et restauration automatique si nécessaire.</p>
+    <div class="actions"><button id="update-check">Rechercher une mise à jour</button><button id="update-apply" disabled>Installer la mise à jour</button></div>
+    <div id="update-info" class="notice"></div><progress hidden id="update-progress" max="100"></progress>
+   </section>
+   <section>
+    <h2>Désinstallation</h2>
+    <p>Supprime fichiers, modèles et sauvegardes du dossier dédié.</p>
+    <button class="danger" id="uninstall">Désinstaller et supprimer mes données</button>
+   </section>
+  </div>
+ </details>
+ <div id="message" class="notice wide" role="status" aria-live="polite"></div>
+</div>
+<details id="process-dashboard" class="process-dashboard" open>
+ <summary id="process-dashboard-title">Processus et arrêt avancé</summary>
  <p class="process-subtitle">État réel des moteurs lancés par Riftbound. Une IA installée ne fonctionne pas nécessairement en arrière-plan.</p>
  <div class="process-grid">
   <div class="process-card">
@@ -108,52 +155,7 @@ footer{font-size:11px;line-height:1.65;color:#91a8b2;margin:20px 0 0}
   <small id="process-summary" role="status" aria-live="polite">Lecture de l'état des processus…</small>
   <button id="process-stop-all" type="button" class="danger" disabled>■ Tout arrêter · garder le gestionnaire ouvert</button>
  </div>
-</section>
-<section id="startup-screen" class="startup-screen" aria-labelledby="startup-title">
- <h2 id="startup-title">Vérification de la version…</h2>
- <p id="startup-details" role="status" aria-live="polite">Le compagnon vérifie la dernière version officielle avant d'autoriser une partie.</p>
- <progress id="startup-progress" hidden max="100" value="0"></progress>
- <div class="actions">
-  <button id="startup-update" class="primary" type="button" hidden>Installer la dernière version</button>
-  <button id="startup-retry" type="button">Revérifier</button>
-  <button id="startup-offline" type="button" hidden>Continuer sans vérification réseau</button>
- </div>
-</section>
-<section id="update-diagnostics" class="update-diagnostics" hidden aria-live="polite">
- <h2 id="update-diagnostics-title">État de la mise à jour</h2>
- <p id="update-diagnostics-text">Vérification en cours…</p>
- <button id="update-log-button" type="button">Afficher le journal de mise à jour</button>
- <pre id="update-log-preview" hidden></pre>
-</section>
-<div id="manager-dashboard" class="grid" hidden>
- <section>
-  <h2>Plateau de jeu</h2><p>Ouvre Riftbound dans ton navigateur. Le serveur reste privé sur cet ordinateur.</p>
-  <div class="actions"><button class="primary" id="open-site">Ouvrir le site</button><button id="open-local">Plateau hors ligne</button></div>
- </section>
- <section>
-  <h2>Adversaire IA</h2><p>Qwen3 0.6B, gratuit et exécuté sur ton processeur. L'installation demande ton accord pour le dossier affiché.</p>
-  <div class="actions"><button class="primary" id="ai-install">Installer / activer</button><button id="ai-stop">Désactiver</button></div>
-  <div id="ai-info" class="notice"></div><progress hidden id="ai-progress" max="100"></progress>
- </section>
- <section>
-  <h2>Transcription vocale locale</h2><p>whisper.cpp, avec termes et cartes Riftbound. Le modèle Base convient aux PC modestes ; Small est facultatif.</p>
-  <label for="speech-model">Modèle de transcription</label>
-  <select id="speech-model"><option value="base">Whisper Base · 148 Mo</option><option value="small">Whisper Small · 488 Mo</option></select>
-  <button class="primary" id="speech-install">Installer la transcription locale</button>
-  <div id="speech-info" class="notice"></div><progress hidden id="speech-progress" max="100"></progress>
- </section>
- <section>
-  <h2>Mises à jour</h2><p>Vérification via le dépôt GitHub officiel et contrôle SHA-256 avant remplacement, sans installation ailleurs.</p>
-  <div class="actions"><button id="update-check">Rechercher une mise à jour</button><button id="update-apply" disabled>Installer la mise à jour</button></div>
-  <div id="update-info" class="notice"></div><progress hidden id="update-progress" max="100"></progress>
- </section>
- <section class="wide">
-  <h2>Désinstaller proprement</h2>
-  <p>Ferme les moteurs IA, supprime les modèles, téléchargements, fichiers temporaires, sauvegardes locales et l'exécutable dans le dossier dédié. Aucun document extérieur au dossier n'est supprimé.</p>
-  <button class="danger" id="uninstall">Désinstaller et supprimer les données du compagnon</button>
-  <div id="message" class="notice" role="status" aria-live="polite"></div>
- </section>
-</div>
+</details>
 <footer>Les données de navigation propres à Chrome/Edge (historique, cache ou stockage du site hébergé) et le fichier .exe téléchargé initialement en dehors du dossier choisi ne sont pas créés ni contrôlés par ce gestionnaire. La suppression Windows se limite aux fichiers appartenant au compagnon.</footer>
 </main>
 <script>
