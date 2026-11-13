@@ -72,6 +72,10 @@ async function run({name,path:root,port,otherFile}){
   });
   if(started.status!==200||!started.body.ok||!started.body.uninstalling)
    throw Error("Uninstaller failed handshake: "+JSON.stringify(started));
+  const helperRequest=JSON.parse(fs.readFileSync(path.join(root,"updates","uninstall-request.json"),"utf8"));
+  const helperFolder=path.dirname(helperRequest.helperExe);
+  if(helperFolder===root||!fs.existsSync(helperRequest.helperExe))
+   throw Error("Independent helper executable was not created outside the installation.");
   await poll(async()=>child.exitCode!==null||child.signalCode!==null,
    "Riftbound executable shutdown",20000);
   await poll(async()=>{
@@ -79,6 +83,8 @@ async function run({name,path:root,port,otherFile}){
    const files=fs.readdirSync(root);
    return files.every(name=>name==="my-personal-file.txt");
   },"all owned files to be deleted",35000);
+  await poll(async()=>!fs.existsSync(helperFolder),
+   "temporary uninstall helper to clean itself",15000);
   if(otherFile){
    if(fs.readFileSync(path.join(root,"my-personal-file.txt"),"utf8")!=="KEEP ME")
     throw Error("Uninstaller deleted unrelated user data.");
