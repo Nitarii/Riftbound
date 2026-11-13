@@ -189,7 +189,7 @@ export function applyCommand(old, command) {
     checkOwner(p);const v=place(s,p,c.card,c.zone||"base",c.battlefield,c.faceDown);
     // Standard units are played exhausted, unless their card text explicitly says otherwise.
     if(c.fromHand&&/unit/i.test(v.type||"")&&["base","battlefield"].includes(v.zone))
-      v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
+      v.exhausted=!/enters? (?:the board )?ready/i.test(v.text||"");
     if(v.zone==="hand")s.players[p].handCount++;
     if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
@@ -223,7 +223,12 @@ export function applyCommand(old, command) {
     if(dest==="battlefield"&&(isGear||!Number.isInteger(field)||field<0||
       field>=s.battlefields.length||battlefieldController(s,field)!=="ai"))
      throw Error("La carte ne peut entrer que dans une zone autorisée.");
-    const paid=planRunePayment(s,"ai",v);
+    const accelerate=Boolean(c.accelerate);
+    if(accelerate&&(!/^unit$/i.test(v.type||"")||!/\baccelerate\b/i.test(v.text||"")))
+     throw Error("Accelerate n'est pas disponible sur cette unité.");
+    const cost=accelerate?{...v,energy:Number(v.energy||0)+1,
+      power:Number(v.power||0)+1}:v;
+    const paid=planRunePayment(s,"ai",cost);
     if(paid.error)throw Error(paid.error);
     for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
     const removed=new Set(paid.recycleUids);
@@ -235,14 +240,14 @@ export function applyCommand(old, command) {
     s.players.ai.runeCount=s.decks.ai.runes.length;
     if(v.zone==="hand")s.players.ai.handCount--;
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
-    v.exhausted=isSpell||isGear?false:
-      !/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
+    v.exhausted=isSpell||isGear||accelerate?false:
+      !/enters? (?:the board )?ready/i.test(v.text||"");
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
-     paid.domains.join("/")+")"+
+     paid.domains.join("/")+")"+(accelerate?" · Accelerate payé":"")+
      (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"")+
      (triggered.length?" · "+triggered.join(" · "):"")+
      (s.pendingEffects.length?" · Effet en attente : "+s.pendingEffects[0].cardName:"");
