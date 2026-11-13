@@ -220,7 +220,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     );
     return;
    }
-   if(actionApplied&&game.started&&game.active==="human")return;
+   if(actionApplied&&game.started)return; // The engine handles turn passing and other commands.
    // The deterministic engine owns the AI's turn. A language model
    // must not select imaginary payments, score without a capture, or end its
    // turn before moving ready units onto a battlefield.
