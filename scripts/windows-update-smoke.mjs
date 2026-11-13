@@ -49,12 +49,16 @@ async function runningPid(){
  return info.companion?.pid;
 }
 async function stopCurrent(){
+ const closingPid=await runningPid();
  try{await request("/api/manager/stop",{method:"POST",body:{confirm:"STOP_RIFTBOUND"}});}
  catch(e){throw Error("Could not stop companion normally: "+e.message);}
+ // The updater may restart its replacement within milliseconds. Polling only
+ // for a short interval with no HTTP server is racy and misses a fast rollback.
+ // Wait for the precise OLD PID to exit, even if the replacement is online.
  await waitUntil(async()=>{
-  try{await request("/api/health",{timeout:650});return false;}
-  catch{return true;}
- },{timeout:15000,label:"old server to exit"});
+  try{process.kill(closingPid,0);return false;}
+  catch(e){return e?.code==="ESRCH"||e?.code==="EINVAL";}
+ },{timeout:15000,label:"old companion process "+closingPid+" to exit"});
 }
 async function checkRunning(previous){
  const instance=await waitUntil(async()=>{
