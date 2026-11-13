@@ -6,6 +6,7 @@ import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat} from "./combat-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
+const isPlayable=c=>/^(unit|gear|spell)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
 const own=(view,zone)=>view.cards.filter(c=>c.owner==="ai"&&c.zone===zone);
 function emptyBattlefieldTargets(view){
@@ -30,6 +31,9 @@ function targetForReinforcement(view){
 export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  if(!state?.started||state.active!=="ai")return {commands:[],state,summary:""};
  if(state.pendingCombat)return {commands:[],state,summary:"Combat : réactions en attente.",waitingForCombat:true};
+ if(state.pendingEffects?.length)return {commands:[],state,
+   summary:"Effet à résoudre : "+state.pendingEffects[0].cardName,
+   waitingForEffects:true};
  const commands=[];let view=state;
  const enacted=[],refused=[];
  const apply=command=>{view=applyCommand(view,command);commands.push(command);};
@@ -105,7 +109,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   // are eligible. Do not guess spells/gear/effects requiring custom timing.
   for(let played=0;played<maxUnits;played++){
    const candidates=[...own(view,"hand"),...own(view,"champion")]
-    .filter(c=>isUnit(c)&&!extraRestrictions(c))
+    .filter(c=>isPlayable(c))
     .map(c=>({card:c,payment:planRunePayment(view,"ai",c),
      effect:mandatoryPlayEffects(c)}))
     .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
@@ -114,29 +118,35 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
    // Prefer useful units with affordable Power cost, so the AI develops a
    // board while preserving the rune economy when two choices are comparable.
    candidates.sort((a,b)=>
-    ((b.card.might??0)*2+(b.card.energy??0)-b.payment.power*2)-
-    ((a.card.might??0)*2+(a.card.energy??0)-a.payment.power*2)||
+    ((b.effect.supported?12:0)+(isUnit(b.card)?7:0)+
+      (b.card.might??0)*2+(b.card.energy??0)-b.payment.power*2)-
+    ((a.effect.supported?12:0)+(isUnit(a.card)?7:0)+
+      (a.card.might??0)*2+(a.card.energy??0)-a.payment.power*2)||
     a.payment.power-b.payment.power||
     String(a.card.code).localeCompare(String(b.card.code)));
    const {card,payment,discardUids}=candidates[0];
    const discarded=discardUids.map(uid=>view.cards.find(c=>c.uid===uid)?.name||"carte");
    apply({type:"play-paid",uid:card.uid,zone:"base",discardUids});
+   if(view.pendingEffects?.length){
+    refused.push("Effet de "+card.name+" à résoudre : "+view.pendingEffects[0].text);
+    break;
+   }
    enacted.push("joué "+card.name+" ("+payment.energy+" énergie, "+
     payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s))"+
     (discarded.length?", puis défaussé "+discarded.join(", ")+" pour son effet":""));
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
   }
-  if(!view.pendingCombat)attackDefended();
+  if(!view.pendingCombat&&!view.pendingEffects?.length)attackDefended();
   const before=state.players.ai.score,after=view.players.ai.score;
   if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
   const contested=emptyBattlefieldTargets(view).every(f=>f.enemy>0);
   if(contested&&own(view,"base").some(c=>isUnit(c)&&!c.exhausted)){
    refused.push("Les champs sont défendus : un combat avec réactions doit être résolu avant de compter une conquête.");
   }
-  if(!view.pendingCombat){
+  if(!view.pendingCombat&&!view.pendingEffects?.length){
    apply({type:"phase",phase:"Ending"});
-   apply({type:"next-turn"});
+   if(!view.pendingEffects?.length)apply({type:"next-turn"});
   }
   return {commands,state:view,enacted,refused,summary:enacted.join(", ")};
  }catch(error){
@@ -151,6 +161,15 @@ export function describeAITurn(result,{english=false}={}){
   "Je ne peux pas terminer mon tour de manière sûre : vérifie les cartes et les règles.";
  const actions=result.enacted||[];
  const notes=result.refused||[];
+ if(result.state?.pendingEffects?.length){
+  const pending=result.state.pendingEffects[0];
+  return english?"I "+(actions.length?actions.join(", "):"started my turn")+
+   ". "+pending.cardName+" triggered: "+pending.text+
+   ". This effect needs resolution before play continues.":
+   "J'ai "+(actions.length?actions.join(", "):"commencé mon tour")+
+   ". Effet déclenché de "+pending.cardName+" : "+pending.text+
+   ". Il doit être résolu avant de poursuivre.";
+ }
  if(result.state?.pendingCombat)return english?
   "I "+(actions.length?actions.join(", "):"declared an attack")+
    ". Combat showdown is open. You may play a reaction or pass; no damage has been dealt yet.":
