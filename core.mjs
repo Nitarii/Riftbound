@@ -394,9 +394,9 @@ export function applyCommand(old, command) {
     if(standard){
      if(s.pendingCombat||s.pendingEffects.length)
       throw Error("Déplacement normal impossible pendant une confrontation ou un effet en attente.");
+     if(v.exhausted)throw Error("Cette unité est épuisée : elle ne peut pas se déplacer.");
      if(v.owner!==s.active||s.phase!=="Main")
       throw Error("Déplacement standard réservé à la Main Phase du contrôleur.");
-     if(v.exhausted)throw Error("Cette unité est épuisée : elle ne peut pas se déplacer.");
      if(origin==="battlefield"&&zone==="battlefield"){
       const fieldText=s.battlefields[v.battlefield]?.card?.text||"";
       const grant=/units (?:at|on|here|there)[^.!]*\[Ganking\]/i.test(fieldText);
