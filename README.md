@@ -3,7 +3,15 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.37](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.37.exe)
+**Windows :** [Télécharger Riftbound Companion v0.38](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.38.exe)
+
+## v0.38 — Désinstallation complète et écran final lisible
+
+- Le fichier de sauvegarde automatique **.riftbound-local-state.json.bak** appartient explicitement au compagnon et est maintenant supprimé avec les autres données du dossier dédié.
+- **Les fichiers étrangers, même avec l'extension .bak, restent conservés** : seule la sauvegarde portant le nom exact de Riftbound est supprimée.
+- Quand le désinstalleur a confirmé son démarrage, l'onglet du gestionnaire présente une page stable expliquant que l'accès local à 127.0.0.1 va s'arrêter et qu'il faut simplement fermer l'onglet. Il ne continue plus à demander des données au serveur supprimé.
+- Tests automatisés Windows couvrant la suppression de la sauvegarde .bak et la préservation d'un fichier .bak tiers, et tests de l'interface après une demande de désinstallation.
+- Comme sur la v0.37, le nettoyeur du petit exécutable temporaire dans le dossier Temp de Windows est facultatif et n'est pas garanti dans tous les environnements.
 
 ## v0.37 — Désinstallation Windows (version à tester)
 
