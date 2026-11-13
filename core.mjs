@@ -388,22 +388,36 @@ export function applyCommand(old, command) {
     const v=getCard(s,string(c.uid,80)),zone=string(c.zone,40);
     if(!ZONES.has(zone))throw Error("Zone inconnue");
     const origin=v.zone;
-    if(s.pendingCombat&&origin==="base"&&zone==="battlefield"&&!c.effect)
-      throw Error("Déplacement normal impossible pendant une confrontation.");
-    if(origin==="base"&&zone==="battlefield"&&v.exhausted&&/unit/i.test(v.type||""))
-      throw Error("Cette unité est épuisée : elle ne peut pas se déplacer normalement.");
+    const standard=!!s.started&&!c.effect&&/^unit$/i.test(v.type||"")&&
+      ["base","battlefield"].includes(origin)&&["base","battlefield"].includes(zone)&&
+      (origin!==zone||(zone==="battlefield"&&Number(c.battlefield)!==v.battlefield));
+    if(standard){
+     if(s.pendingCombat||s.pendingEffects.length)
+      throw Error("Déplacement normal impossible pendant une confrontation ou un effet en attente.");
+     if(v.owner!==s.active||s.phase!=="Main")
+      throw Error("Déplacement standard réservé à la Main Phase du contrôleur.");
+     if(v.exhausted)throw Error("Cette unité est épuisée : elle ne peut pas se déplacer.");
+     if(origin==="battlefield"&&zone==="battlefield"){
+      const fieldText=s.battlefields[v.battlefield]?.card?.text||"";
+      const grant=/units (?:at|on|here|there)[^.!]*\[Ganking\]/i.test(fieldText);
+      if(!/\[Ganking\]/i.test(v.text||"")&&!grant)
+       throw Error("Ganking est nécessaire pour aller directement d'un champ à un autre.");
+     }
+    }
+    if(!c.effect&&origin==="base"&&zone==="battlefield"&&v.exhausted&&/^unit$/i.test(v.type||""))
+     throw Error("Cette unité est épuisée : elle ne peut pas se déplacer normalement.");
     if(v.zone==="hand")s.players[v.owner].handCount=Math.max(0,s.players[v.owner].handCount-1);
     if(zone==="hand")s.players[v.owner].handCount++;
     v.zone=zone;v.battlefield=zone==="battlefield"?Math.max(0,Math.min(1,Number(c.battlefield)||0)):null;
     if(/unit/i.test(v.type||"")&&["base","battlefield"].includes(zone)){
       if(["hand","champion"].includes(origin))
         v.exhausted=!entersNaturallyReady(v)||/\[Accelerate\]/i.test(v.text||"");
-      else if(origin==="base"&&zone==="battlefield")v.exhausted=true;
+      else if(standard)v.exhausted=true;
     }
     if(typeof c.faceDown==="boolean")v.faceDown=c.faceDown;
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
-    if(origin==="base"&&zone==="battlefield"&&v.owner===s.active)
-      beginCombat(v.battlefield,v.owner,[v.uid]);
+    if(["base","battlefield"].includes(origin)&&zone==="battlefield"&&
+       v.owner===s.active&&standard)beginCombat(v.battlefield,v.owner,[v.uid]);
     if(zone!==origin){
       const triggered=processCardEvent(s,{trigger:"move",actor:v.owner,source:v},{place,deckCard});
       if(triggered.length)summary+=" · "+triggered.join(" · ");
