@@ -10,6 +10,7 @@ import os from "node:os";
 import * as sea from "node:sea";
 import {execFile} from "node:child_process";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
+import {inspectCards} from "./effect-engine.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
@@ -147,6 +148,7 @@ const guide={
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
  "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
  "GET /api/decks":"Printed preconstructed deck recipes, authenticated",
+  "GET /api/effects/audit":"Whole-catalog effect coverage and unresolved card abilities, authenticated",
  "GET /api/messages?after=0":"Read physical player announcements and agent replies; poll every 2 seconds",
  "POST /api/messages":"Human chat message; JSON {text}, authenticated",
  "GET /api/ai/status":"Integrated model status, no credentials returned, LOCAL only",
@@ -197,9 +199,14 @@ async function executeGameCommand(input){
     format:"preconstructed",deckName:deck.label};
  }
  state=applyCommand(state,command);
- if(["start","next-turn"].includes(command.type))state=advanceMandatoryTurn(state);
+ if(["start","next-turn"].includes(command.type)||
+    command.type==="effect-confirm"&&!state.pendingEffects?.length&&state.phase==="Beginning")
+  state=advanceMandatoryTurn(state);
  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
- save();broadcast();return state;
+ save();broadcast();
+ if(input.type==="effect-confirm"&&state.active==="ai"&&!state.pendingEffects?.length)
+  queueMicrotask(()=>integratedAI.onHumanMessage("Effet de carte confirmé.",{actionApplied:false}));
+ return state;
 }
 const readMessages=after=>conversation.list(after);
 const receiveAgentMessage=text=>conversation.post("ai",text);
@@ -326,7 +333,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","player-actions.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -404,6 +411,14 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
   if(req.method==="GET"&&url.pathname==="/api/decks"){
     json(res,200,{decks:deckDescriptions()},req);return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/effects/audit"){
+    try{
+     const cards=await loadServerCatalog();
+     json(res,200,{...inspectCards(cards),pending:state.pendingEffects||[],
+      warning:"Seuls les effets réellement interprétés et vérifiés sont exécutés automatiquement."},req);
+    }catch(e){msg(res,503,String(e.message||e),req);}
+    return;
   }
   // The local authenticated UI controls the only public-facing gateway.
   // This control endpoint is NOT exposed by the restricted gateway.

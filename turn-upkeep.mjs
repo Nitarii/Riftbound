@@ -4,7 +4,7 @@ import {applyCommand} from "./core.mjs";
 
 export function advanceMandatoryTurn(state){
  if(!state?.started||!["human","ai"].includes(state.active))return state;
- if(state.pendingCombat)return state;
+ if(state.pendingCombat||state.pendingEffects?.length)return state;
  let next=state,who=state.active;
  const first=state.firstPlayer||"human";
  const wanted=state.turn===1&&who!==first?3:2;
@@ -17,8 +17,9 @@ export function advanceMandatoryTurn(state){
   const remaining=who==="ai"?next.decks.ai.main.length:next.players.human.deckCount;
   next=applyCommand(next,{type:"phase",phase:"Draw"});
   if(remaining>0)next=applyCommand(next,{type:"draw",player:who,count:1});
+  if(next.pendingEffects?.length)return next;
  }
- if(!next.pendingCombat&&next.phase!=="Main")next=applyCommand(next,{type:"phase",phase:"Main"});
+ if(!next.pendingCombat&&!next.pendingEffects?.length&&next.phase!=="Main")next=applyCommand(next,{type:"phase",phase:"Main"});
  // Keep the reducer's exact revision and resource changes, but display a
  // single understandable history entry rather than five phase transitions.
  if(next.revision!==state.revision){

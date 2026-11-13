@@ -54,7 +54,11 @@ test("unhandled on-play effects fail closed; AI never plays the card by ignoring
  let state=setup();
  state=applyCommand(state,{type:"add",player:"ai",zone:"hand",card:unknown});
  const uid=state.cards.find(c=>c.name==="Mystery").uid;
- assert.throws(()=>applyCommand(state,{type:"play-paid",uid,zone:"base"}),/non automatisé/);
+ const next=applyCommand(state,{type:"play-paid",uid,zone:"base"});
+ assert.equal(next.cards.find(c=>c.uid===uid).zone,"base");
+ assert.equal(next.pendingEffects.length,1,"the missing enemy target must be visible to the player");
+ assert.match(next.pendingEffects[0].reason,/instruction à résoudre/);
+ assert.throws(()=>applyCommand(next,{type:"next-turn"}),/Effet de carte en attente/);
  assert.equal(chooseRequiredDiscards(state,uid,99),null);
 });
 test("discard UID must belong to AI hand and cannot discard another player's hidden card",()=>{

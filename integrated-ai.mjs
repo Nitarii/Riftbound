@@ -38,7 +38,7 @@ const shortCard=c=>c?{code:c.code,name:c.name,type:c.type}:null;
 export function modelBoardState(state){
  return {
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
-  firstPlayer:state.firstPlayer,turnActions:state.turnActions,
+  firstPlayer:state.firstPlayer,turnActions:state.turnActions,pendingEffects:(state.pendingEffects||[]).slice(0,5),
   started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
    human:{legend:shortCard(state.players.human.legend),champion:shortCard(state.players.human.champion),
@@ -162,7 +162,7 @@ export const SYSTEM_PROMPT=[
  "Joue une carte IA avec move(uid,zone) depuis ta main existante, jamais avec add. Add est réservé à une carte humaine explicitement annoncée et trouvée dans gameReference.cards.",
  "Quand le joueur termine son tour, le serveur a déjà avancé : ne l'avance pas deux fois. Lorsque TU finis ton tour, next-turn une seule fois.",
  "Choisis tes actions parmi move, add, exhaust, exhaust-runes, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note. AI must use existing UID from own hand when playing a card, channel its real runes and track payment.",
- "Pour jouer une carte, déplace-la depuis ta main uniquement avec son UID exact présent dans board.cards. Pour piocher, utilise draw(player=ai,count=1). N’invente aucun identifiant et ne paraphrase pas une commande dans reply sans l’émettre dans commands.",
+ "Les cartes doivent être jouées avec leurs coûts et capacités imprimés. Le moteur valide play-paid, les déclenchements et leurs choix ; n’affirme jamais qu’un effet non supporté a été résolu.",
  "Réponds uniquement par un objet JSON avec deux propriétés : reply (une véritable réponse naturelle à la situation du joueur, dans sa langue) et commands (un tableau de commandes autorisées, huit maximum). Si aucune action précise n’est sûre, retourne un tableau vide et explique brièvement pourquoi. Ne copie jamais les instructions, un exemple de format, ni une phrase générique répétitive.",
  "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
 ].join("\n");
@@ -186,7 +186,7 @@ export function modelHTTPError(status,provider){
 export function createIntegratedAI({userData,getState,applyBatch,sendMessage,getMessages,getCatalog,
  fetchImpl=fetch,timeoutMs=45000}){
  const file=path.join(userData,".riftbound-ai-settings.json");
- let config=null,processing=false,lastError="",queue=Promise.resolve();
+ let config=null,processing=false,lastError="",queue=Promise.resolve(),lastEffectPrompt="";
  try{const saved=JSON.parse(fs.readFileSync(file,"utf8"));
   if(saved?.provider)config=validateAIConfig(saved,saved);
  }catch{}
@@ -211,6 +211,17 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   try{
    const game=getState(),revision=game.revision;
    const stillCurrent=()=>getMessages(0).session===session&&config===own&&!!config.enabled;
+   if(game.pendingEffects?.length){
+    const pending=game.pendingEffects[0];
+    const key=pending.id+":"+game.revision;
+    if(stillCurrent()&&lastEffectPrompt!==key){
+     lastEffectPrompt=key;
+     sendMessage("Effet de carte à résoudre — "+pending.cardName+" : "+pending.text+
+      ". "+pending.reason+
+      ". Le plateau est en attente pour éviter d'ignorer cette capacité.");
+    }
+    return;
+   }
    if(game.pendingCombat){
     // The local opponent has already passed priority in the base combat
     // engine. Never call Qwen to fabricate a reaction or to skip the user's.
