@@ -45,7 +45,8 @@ export function drawMainCards(state,owner,count,{place,deckCard,random=Math.rand
    }
    state.players[other].score++;
    burnOuts++;
-   if(state.players[other].score>=8){
+   if(state.players[other].score>=8&&
+       state.players[other].score>state.players[owner].score){
     state.winner=other;
     state.finished=true;
     break;
