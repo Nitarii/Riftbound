@@ -125,7 +125,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
      }):null;
      const accelerate=Boolean(extra&&!extra.error);
      return {card:c,accelerate,payment:accelerate?extra:normal,
-       effect:mandatoryPlayEffects(c)};
+       effect:mandatoryPlayEffects(c,{playedBefore:view.turnActions?.played?.ai||0})};
     })
     .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
     .filter(x=>!x.payment.error&&x.discardUids!==null);
