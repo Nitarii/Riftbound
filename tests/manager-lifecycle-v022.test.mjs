@@ -25,7 +25,7 @@ test("the site and Windows app share a minimum version",()=>{
  assert.equal(companionNeedsUpdate(CURRENT_VERSION),false);
  assert.equal(companionNeedsUpdate("0.28.0"),false);
  assert.equal(companionNeedsUpdate("not installed"),true);
- assert.equal(selectOfficialUpdate(release("0.28.0"),CURRENT_VERSION).version,"0.28.0");
+ assert.equal(selectOfficialUpdate(release("0.29.0"),CURRENT_VERSION).version,"0.29.0");
 });
 test("on first launch an outdated portable EXE cannot launch the board or bypass via offline",async()=>{
  let stoppedProcesses=0;
