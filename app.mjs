@@ -1485,7 +1485,7 @@ function renderWelcome(){
    $("welcome-progress-"+(i+1)).classList.toggle("active",wizardStep===i+1);
    const card=document.querySelector('.welcome-step[data-wizard-step="'+(i+1)+'"]');
    if(card){
-     const visible=!companionGate&&(relay?i>=2:onboarding.preview?i===2:i<=1);
+     const visible=!companionGate&&(relay?i>=2:onboarding.preview?i<=2:i<=1);
      card.hidden=!visible;
      card.setAttribute("aria-hidden",String(!visible));
      card.classList.toggle("complete",steps[i]);
