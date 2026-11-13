@@ -769,46 +769,33 @@ voiceButton.onclick=async()=>{
    localReady=Boolean(current.installed&&current.enabled!==false);
   }
  }catch{}
- const requested=$("speech-source").value;
- if(requested==="local"&&!localReady){
+ if(!localReady){
   notify(whisperDisabled?
-   "Whisper est désactivé depuis le gestionnaire. Réactive-le pour utiliser la transcription locale.":
-   "Whisper n'est pas installé. Installe-le dans le dossier choisi ou sélectionne Chrome.",true);
+   "Whisper Small est désactivé depuis le gestionnaire. Réactive-le avant d'ouvrir le micro.":
+   "Whisper Small n'est pas installé. Utilise le bouton « Installer IA et Whisper Small ».",true);
   return;
  }
- const useWhisper=(requested==="auto"&&localReady)||requested==="local";
- if(useWhisper){
-  voiceController=createLocalVoiceConversation({
-   onState:voiceUI,onPreview:showVoiceDraft,
-   onTranscript:handleVoiceTranscript,
-   sendAudio:async blob=>{
-    const response=await fetch(relay.url+"/api/speech/transcribe",{
-     ...localFetchOptions(relay.url),method:"POST",
-     headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"audio/wav"},
-     body:blob
-    });
-    const result=await response.json();
-    if(!response.ok)throw Error(result.error||"Whisper n'a pas pu transcrire l'audio.");
-    return result;
-   }
-  });
- }else{
-  if(!SpeechAPI){notify("Chrome ne fournit pas de reconnaissance vocale. Installe Whisper.",true);return;}
-  voiceController=createVoiceConversation({
-   Recognition:SpeechAPI,synthesis:window.speechSynthesis||null,
-   Utterance:window.SpeechSynthesisUtterance||null,
-   onState:voiceUI,onPreview:showVoiceDraft,
-   onTranscript:handleVoiceTranscript,
-   silenceMs:1500,restartMs:700
-  });
- }
+ const useWhisper=true;
+ voiceController=createLocalVoiceConversation({
+  onState:voiceUI,onPreview:showVoiceDraft,
+  onTranscript:handleVoiceTranscript,
+  sendAudio:async blob=>{
+   const response=await fetch(relay.url+"/api/speech/transcribe",{
+    ...localFetchOptions(relay.url),method:"POST",
+    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"audio/wav"},
+    body:blob
+   });
+   const result=await response.json();
+   if(!response.ok)throw Error(result.error||"Whisper Small n'a pas pu transcrire l'audio.");
+   return result;
+  }
+ });
  voiceController.setSpeechEnabled(voiceReadReplies.checked);
  voiceController.setLanguage(uiLanguage);
  const started=await voiceController.start();
  voiceUsingWhisper=Boolean(started&&useWhisper);
  if(started){voiceTranscript.hidden=true;voiceHeard.textContent="";}
- if(started)notify(localReady&&requested!=="chrome"?
-  "Micro Whisper local activé · parole transcrite sur ton PC.":"Micro Chrome activé.");
+ if(started)notify("Micro Whisper Small activé · parole transcrite uniquement sur ton PC.");
 };
 voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);
 // The manager may disable Whisper while the browser microphone is listening.
@@ -954,7 +941,7 @@ async function refreshKnowledgeStatus(){
  })().finally(()=>{knowledgeRequest=null;});
  return knowledgeRequest;
 }
-let freeAIInfo=null,freeAILoading=false;
+let freeAIInfo=null,freeAILoading=false,speechInfo=null;
 const runningPhases=new Set(["checking","engine","extracting","starting","model"]);
 function freeReadableBytes(n){
  if(!Number.isFinite(n)||n<=0)return "0 Mo";
@@ -964,24 +951,30 @@ function freeReadableBytes(n){
 function renderFreeAI(message=""){
  const info=freeAIInfo;
  const active=Boolean(integratedAIStatus?.enabled&&integratedAIStatus.provider==="free");
- const busy=Boolean(freeAILoading||info?.running||runningPhases.has(info?.phase));
+ const voiceReady=Boolean(speechInfo?.installed&&speechInfo.enabled!==false);
+ const busy=Boolean(freeAILoading||info?.running||runningPhases.has(info?.phase)||speechInfo?.running);
+ const complete=active&&voiceReady;
  const button=$("free-ai-install"),stop=$("free-ai-stop"),stage=$("free-ai-stage"),bar=$("free-ai-progress");
- button.disabled=!localAI()||busy||active;
- button.textContent=busy?"Installation en cours…":active?"✓ IA gratuite activée":
-  info?.installed?"Activer mon IA gratuite":"Installer et activer mon IA gratuite";
+ button.disabled=!localAI()||busy||complete;
+ button.textContent=busy?"Installation en cours…":complete?"✓ IA et voix prêtes":
+  active?"Installer Whisper Small":info?.installed?"Activer IA et voix":"Installer IA et Whisper Small";
  stop.disabled=!active;
- $("free-ai-model").disabled=busy||active;
+ $("free-ai-model").disabled=busy||complete;
  const percent=Number(info?.progress)||0;
- bar.hidden=!busy;bar.value=Math.min(100,Math.max(0,percent));
+ const speechPercent=Number(speechInfo?.progress)||0;
+ bar.hidden=!busy;bar.value=Math.min(100,Math.max(0,speechInfo?.running&&!info?.running?speechPercent:percent));
  const amount=info?.total>0?" • "+freeReadableBytes(info.transferred)+
   " / "+freeReadableBytes(info.total):"";
  stage.textContent=message||(
-  info?.phase==="error"?"Installation interrompue : "+(info.error||"Erreur inconnue")+" · Réessaie avec le même bouton.":
-  active?"✓ Ton adversaire local gratuit est prêt à jouer dans la discussion.":
+  info?.phase==="error"?"Installation IA interrompue : "+(info.error||"Erreur inconnue")+" · Réessaie avec le même bouton.":
+  speechInfo?.phase==="error"?"Installation vocale interrompue : "+(speechInfo.error||"Erreur inconnue")+" · Réessaie avec le même bouton.":
+  complete?"✓ Qwen3 4B et Whisper Small sont prêts.":
+  speechInfo?.running&&!info?.running?"Whisper Small : "+speechInfo.message+" ("+speechPercent+" %)":
   busy?(info?.message||"Préparation de l'IA gratuite…")+(info?.total?" ("+percent+" %"+amount+")":""):
-  !localAI()?"Lance et connecte ton exécutable Windows pour installer l'IA gratuite.":
-  info?.installed?"Moteur installé. Réactive le modèle sans tout retélécharger.":
-  "Aucun paiement : clique pour télécharger le moteur et ton modèle gratuitement."
+  active?"✓ Adversaire IA actif. Clique pour terminer l'installation de Whisper Small.":
+  !localAI()?"Connecte ton exécutable Windows avant d'installer l'IA et la voix.":
+  info?.installed?"IA installée. Clique pour l'activer avec Whisper Small.":
+  "Un seul clic installe Qwen3 4B et Whisper Small dans le dossier choisi."
  );
 }
 async function pollFreeAI(){
@@ -1014,7 +1007,7 @@ $("free-ai-install").onclick=async()=>{
   if(!r.ok)throw Error("Dossier portable introuvable.");
   folder=(await r.json()).path;
  }catch(e){notify(e.message,true);return;}
- if(!confirm("Installer l'IA gratuite exclusivement dans le dossier choisi ?\n"+folder))return;
+ if(!confirm("Installer Qwen3 4B (2,5 Go) et Whisper Small (488 Mo) exclusivement dans ce dossier ?\n"+folder))return;
  freeAILoading=true;renderFreeAI();
  try{
   const reply=await fetch(relay.url+"/api/ai/free/install",{
@@ -1025,6 +1018,7 @@ $("free-ai-install").onclick=async()=>{
   const data=await reply.json();
   if(!reply.ok)throw Error(data.error||"Installation impossible");
   freeAIInfo=data;
+  if(data.speech)speechInfo=data.speech;
   renderFreeAI();
  }catch(e){notify(e.message,true);renderFreeAI(e.message);}
  finally{freeAILoading=false;renderFreeAI();}
@@ -1038,7 +1032,6 @@ $("free-ai-stop").onclick=async()=>{
 };
 renderFreeAI();
 setInterval(()=>{if(localAI()&&(freeAIInfo?.running||freeAIInfo?.ready))pollFreeAI();},1200);
-let speechInfo=null,speechBusy=false;
 async function refreshSpeech(){
  if(!localAI())return;
  try{
@@ -1052,30 +1045,9 @@ async function refreshSpeech(){
   stage.textContent=speechInfo.message+(speechInfo.error?" "+speechInfo.error:"")+
    (speechInfo.installed?" · Disponible dans Mode vocal.":"");
   bar.hidden=!isBusy;bar.value=Number(speechInfo.progress)||0;
-  $("speech-install").disabled=isBusy;
+  renderFreeAI();
  }catch(e){$("speech-stage").textContent="Whisper : "+e.message;}
 }
-$("speech-install").onclick=async()=>{
- if(!localAI()){notify("Connecte le programme Windows pour installer Whisper.",true);return;}
- if(speechBusy)return;
- const manager=await fetch(relay.url+"/api/manager/status",{
-  ...localFetchOptions(relay.url),headers:{"Authorization":"Bearer "+relay.token}
- }).then(r=>r.json()).catch(()=>null);
- if(!manager?.path){notify("Dossier portable non disponible.",true);return;}
- if(!confirm("Installer Whisper "+$("speech-model-choice").value+" dans ce dossier uniquement ?\n"+manager.path))return;
- speechBusy=true;
- try{
-  const response=await fetch(relay.url+"/api/speech/install",{
-   ...localFetchOptions(relay.url),method:"POST",
-   headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
-   body:JSON.stringify({model:$("speech-model-choice").value,confirmFolder:manager.path})
-  });
-  const result=await response.json();
-  if(!response.ok)throw Error(result.error||"Impossible d'installer Whisper.");
-  notify("Téléchargement vocal lancé dans ton dossier.");
- }catch(e){notify(e.message,true);}
- finally{speechBusy=false;refreshSpeech();}
-};
 setInterval(()=>{if(localAI())refreshSpeech();},6000);
 let remoteSession=null;
 let remoteStarting=false;
