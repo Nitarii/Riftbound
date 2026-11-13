@@ -71,3 +71,19 @@ test("unsupported targeting and conditions never invent an automatic effect",()=
  }));
  assert.equal(read.unsupported.length,1);
 });
+
+test("Deflect targeting pays a real Power rune and never chooses a protected unit for free",()=>{
+ let s=setup();
+ s=add(s,c("Kato the Arm","Unit",{might:4,
+  text:"[Deflect] (Opponents must pay {power:any} to choose me with a spell or ability.)"
+ }),"human","base");
+ s=add(s,c("Solari Shieldbearer","Unit",{
+  text:"When you play me, stun a unit. (It doesn't deal combat damage this turn.)"
+ }));
+ const prior=s.cards.filter(x=>x.owner==="ai"&&x.zone==="runes").length;
+ s=play(s,"Solari Shieldbearer");
+ assert.equal(s.cards.find(x=>x.name==="Kato the Arm").stunned,true);
+ assert.equal(s.pendingEffects.length,0);
+ assert.equal(s.cards.filter(x=>x.owner==="ai"&&x.zone==="runes").length,prior-1);
+ assert.ok(s.message.includes("Deflect"));
+});
