@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import {spawn} from "node:child_process";
 import {setTimeout as sleep} from "node:timers/promises";
 import {inside,readMarker,OWNED_DIRS,OWNED_FILES,INSTALL_MARKER,
- legacyDataFolder,powershellEncoded} from "./portable.mjs";
+ legacyDataFolder} from "./portable.mjs";
 const SELF_ARG="--riftbound-uninstall-helper";
 const requestName="uninstall-request.json",statusName="uninstall-status.json";
 const goName="uninstall-go.signal";
@@ -147,6 +147,7 @@ function scheduleTemporaryHelperRemoval(helperExe){
   const externalTemp=path.join(process.env.LOCALAPPDATA||
    path.join(os.homedir(),"AppData","Local"),"Temp");
   const quoted=s=>"'"+String(s).replace(/'/g,"''")+"'";
+  const cleanupFile=path.join(parent,"cleanup.ps1");
   const traceFile=path.join(parent,"cleanup-diagnostic.txt");
   const trace=message=>{try{fs.appendFileSync(traceFile,message+"\\n");}catch{}};
   trace("cleanup scheduled");
@@ -155,6 +156,7 @@ function scheduleTemporaryHelperRemoval(helperExe){
    "$exe="+quoted(helperExe),
    "$dir="+quoted(parent),
    "$trace="+quoted(traceFile),
+   "$self="+quoted(cleanupFile),
    "try{[IO.File]::AppendAllText($trace,'powershell started' + [Environment]::NewLine)}catch{}",
    "for($i=0;$i -lt 120;$i++){",
    "  if(Test-Path -LiteralPath $exe){Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue}",
@@ -163,6 +165,7 @@ function scheduleTemporaryHelperRemoval(helperExe){
    "  Start-Sleep -Milliseconds 250",
    "}",
    "if(!(Test-Path -LiteralPath $exe)){",
+   "  Remove-Item -LiteralPath $self -Force -ErrorAction SilentlyContinue",
    "  for($i=0;$i -lt 30;$i++){",
    "    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue",
    "    if(!(Test-Path -LiteralPath $dir)){break}",
@@ -170,8 +173,11 @@ function scheduleTemporaryHelperRemoval(helperExe){
    "  }",
    "}"
   ].join("\n");
+  // Executing a parsed .ps1 with -File is reliable in Windows PowerShell
+  // launched from SEA, unlike EncodedCommand which can exit without running.
+  fs.writeFileSync(cleanupFile,"\\uFEFF"+script,{encoding:"utf8",mode:0o600});
   const child=spawn("powershell.exe",["-NoProfile","-NonInteractive",
-   "-EncodedCommand",powershellEncoded(script)],{
+   "-ExecutionPolicy","Bypass","-File",cleanupFile],{
    cwd:path.dirname(parent),windowsHide:true,detached:false,stdio:"ignore",
    env:{...process.env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
   });
