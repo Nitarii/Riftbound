@@ -38,6 +38,7 @@ test("Update script validates source, destination, marker, SHA256, version and p
   assert.match(script,/rolled-back/);
   assert.match(script,/update-status\.json/);
   assert.match(script,/update\.log/);
+  assert.doesNotMatch(script,/[’‘“”]/,"PowerShell smart quotes break parsing");
   assert.match(script,/\$version='0\.26\.0'/);
   assert.match(script,/\$port=8879/);
   assert.match(script,/\$expected='f{64}'/);
