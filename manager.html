@@ -555,10 +555,10 @@ $("manager-stop").onclick=()=>execute(async()=>{
  showExitScreen({uninstall:false});
 });
 for(const button of document.querySelectorAll("[data-ai-model]")){
- button.onclick=()=>{aiProfileTouched=true;$("ai-profile").value=button.dataset.aiModel;refresh();};
+ button.onclick=()=>{aiProfileTouched=true;$("ai-profile").value=button.dataset.aiModel;renderProfileChoices();refresh();};
 }
 for(const button of document.querySelectorAll("[data-ai-backend]")){
- button.onclick=()=>{aiProfileTouched=true;$("ai-backend").value=button.dataset.aiBackend;refresh();};
+ button.onclick=()=>{aiProfileTouched=true;$("ai-backend").value=button.dataset.aiBackend;renderProfileChoices();refresh();};
 }
 $("ai-install").onclick=()=>execute(async()=>{
  const model=$("ai-profile").value,backend=$("ai-backend").value;
