@@ -247,6 +247,7 @@ export function applyCommand(old, command) {
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
     v.exhausted=isSpell||isGear||accelerate?false:
       !entersNaturallyReady(v);
+    if(!accelerate&&!isGear&&!isSpell&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
