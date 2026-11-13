@@ -30,6 +30,7 @@ on:
       - 'update-transaction.mjs'
       - 'update-helper.mjs'
       - 'scripts/windows-update-smoke.mjs'
+      - 'scripts/windows-uninstall-smoke.mjs'
       - 'release-policy.mjs'
       - 'process-lifecycle.mjs'
       - 'process-dashboard.mjs'
@@ -248,6 +249,17 @@ jobs:
               Get-Content -LiteralPath $_.FullName -Tail 80
             }
             throw "Self-updater failed to restart or recover"
+          }
+      - name: Windows end-to-end uninstall and cleanup smoke test
+        shell: pwsh
+        run: |
+          node scripts/windows-uninstall-smoke.mjs
+          if ($LASTEXITCODE -ne 0) {
+            Get-ChildItem -Path "dist" -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -in @("uninstall-status.json","uninstall-clean.log","uninstall-keep-personal.log")} | ForEach-Object {
+              Write-Host "=== $($_.FullName) ==="
+              Get-Content -LiteralPath $_.FullName -Tail 80
+            }
+            throw "Windows uninstall failed to remove owned files"
           }
       - name: SHA256
         shell: pwsh
