@@ -90,6 +90,8 @@ async function run({name,path:root,port,otherFile}){
   console.error("Uninstall smoke "+name+" failed: ",error.stack||error);
   const diag=path.join(root,"updates","uninstall-status.json");
   if(fs.existsSync(diag))console.error("Helper status:",fs.readFileSync(diag,"utf8"));
+  const launchLog=path.join(root,"updates","uninstall-launch.log");
+  if(fs.existsSync(launchLog))console.error("Helper launch:",fs.readFileSync(launchLog,"utf8"));
   if(fs.existsSync(logPath))console.error("Server log:",fs.readFileSync(logPath,"utf8").slice(-3000));
   throw error;
  }finally{
