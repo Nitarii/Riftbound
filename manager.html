@@ -461,10 +461,20 @@ async function refresh(){
   const speechReady=Boolean(speech.installed&&speech.enabled);
  const aiReady=Boolean(ai.ready&&processes.qwen?.active);
  const modelsBusy=Boolean(ai.running||speech.running||busy);
+ const recommendation=ai.recommendation||{};
+ const anyInstalled=!!ai.models?.some(m=>m.installed);
  if(!aiProfileTouched){
-  $("ai-profile").value=ai.selectedModel||ai.model||"qwen3:4b-instruct-2507";
-  $("ai-backend").value=ai.preferredBackend||"auto";
+  $("ai-profile").value=anyInstalled?
+   (ai.selectedModel||ai.model||"qwen3:4b-instruct-2507"):
+   (recommendation.model||ai.selectedModel||"qwen3:4b-instruct-2507");
+  $("ai-backend").value=anyInstalled?
+   (ai.preferredBackend||"auto"):(recommendation.backend||"auto");
  }
+ const recommendedName=recommendation.model==="qwen3.5:9b-q4km"?"Qwen3.5 9B":"Qwen3 4B";
+ $("model-recommendation").textContent="Recommandé : "+recommendedName+
+  (recommendation.gpuName?" · "+recommendation.gpuName:"")+
+  (recommendation.ramGB?" · "+Math.round(recommendation.ramGB)+" Go RAM":"");
+ renderProfileChoices();
  const requestedModel=$("ai-profile").value,requestedBackend=$("ai-backend").value;
  const profileReady=aiReady&&ai.selectedModel===requestedModel&&ai.preferredBackend===requestedBackend;
  showStatus("ai-runtime","Profil : "+(ai.models?.find(m=>m.id===requestedModel)?.label||requestedModel)+
@@ -485,6 +495,14 @@ async function refresh(){
   $("open-local").disabled=!manager.canLaunch;
   progress("update-progress",manager);
   if(manager.updating)showStatus("update-info","Téléchargement "+manager.progress+" %");
+  if(manager.updating)showActivity({kind:"update",phase:manager.phase||"transfert",
+   percent:Number(manager.progress)||0,detail:"Téléchargement, contrôle SHA-256 puis redémarrage"});
+  else if(ai.running||ai.installing)showActivity({kind:"ai",phase:ai.phase||"préparation",
+   percent:Number(ai.progress)||0,bytes:Number(ai.transferred)||0,detail:ai.message||"Préparation de Qwen"});
+  else if(speech.running||speech.installing)showActivity({kind:"speech",phase:speech.phase||"préparation",
+   percent:Number(speech.progress)||0,detail:speech.message||"Préparation de Whisper"});
+  else showActivity({});
+
   if(awaitingUpdateRestart&&manager.lastUpdate?.phase==="success")
    report("✓ Mise à jour "+manager.version+" terminée. Gestionnaire reconnecté.");
  }catch(e){
@@ -590,6 +608,8 @@ $("uninstall").onclick=()=>execute(async()=>{
  if(!confirmed?.ok||!confirmed?.uninstalling)
   throw Error("Le désinstalleur n'a pas confirmé son démarrage.");
  showExitScreen({uninstall:true,warning:confirmed.warning||""});
+ showActivity({kind:"uninstall",phase:"transmise au nettoyeur Windows",
+  detail:"Le navigateur ne peut plus mesurer le nettoyage après l'arrêt du serveur.",terminal:true});
 });
 refresh();setInterval(()=>{if(!document.hidden||awaitingUpdateRestart)refresh();},2500);
 </script>
