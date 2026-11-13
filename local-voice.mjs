@@ -23,6 +23,7 @@ export function audioToWav(chunks,inputRate=48000){
  }
  return new Blob([wav],{type:"audio/wav"});
 }
+export const isNonSpeechTranscript=text=>/^\s*(?:\([^)]{1,50}\)|\[[^\]]{1,50}\])\s*$/i.test(String(text||""));
 export const audioRms=samples=>Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/Math.max(1,samples.length));
 export function createLocalVoiceConversation({
  mediaDevices=navigator.mediaDevices,AudioContextCtor=window.AudioContext||window.webkitAudioContext,
@@ -55,7 +56,7 @@ export function createLocalVoiceConversation({
       if(!enabled||session!==captureId)break;
       const text=String(response?.text||"").trim();
       // Whisper can turn a short non-speech sound into "(whoosh)" or "[Music]".
-      const soundEffect=/^(?:\\([^)]{1,50}\\)|\\[[^\\]]{1,50}\\])$/i.test(text);
+      const soundEffect=isNonSpeechTranscript(text);
       if(text&&!soundEffect){
        onPreview(text);
        emit("captured","Entendu : "+text.slice(0,100));
