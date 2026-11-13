@@ -93,8 +93,15 @@ function openCompanionManager(){
  if(relay?.token&&isLoopbackRelay(relay.url)){
   // A real user gesture opens the authenticated loopback manager.
   // Fragment credentials never reach the web server or external websites.
-  window.open(relay.url+"/manager.html#access="+encodeURIComponent(relay.token),
-   "_blank","noopener");
+  const managerUrl=relay.url+"/manager.html#access="+encodeURIComponent(relay.token);
+  if(document.body.classList.contains("home-visible")){
+   // The manager launches the welcome screen in this tab. Return in the same
+   // tab so Windows users don't accumulate redundant manager/game windows.
+   window.location.assign(managerUrl);
+  }else{
+   // In a live game, preserve the board in its tab when managing processes.
+   window.open(managerUrl,"_blank","noopener");
+  }
   return true;
  }
  showHome();
