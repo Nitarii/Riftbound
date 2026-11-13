@@ -99,8 +99,7 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
   // Never allow the conversation model to bypass actual card play or payment.
   if(cmd.type==="move"&&card?.owner==="ai"&&["hand","champion"].includes(card.zone))
    throw Error("L'IA doit utiliser le moteur de paiement pour jouer cette carte.");
-  if(cmd.type==="score"&&cmd.player==="ai")
-   throw Error("Les points de l'IA proviennent uniquement des règles vérifiées.");
+
   if(cmd.type==="score"&&!/\b(?:point|pv|score|marqu|gagn[ée]|victory|scored)\b/i.test(heard))
    throw Error("Le joueur n'a annoncé aucun changement de score.");
   if(cmd.type==="damage"&&card?.owner==="human"&&
@@ -127,6 +126,8 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
   if(cmd.type==="mulligan"&&cmd.player!=="ai")throw Error("Mulligan IA uniquement.");
   if(cmd.type==="score"&&(!["human","ai"].includes(cmd.player)||!Number.isInteger(cmd.value)||Math.abs(cmd.value)>3))
    throw Error("Score non autorisé.");
+  if(cmd.type==="score"&&cmd.player==="ai")
+   throw Error("Les points de l'IA proviennent uniquement des règles vérifiées.");
   if(["counter","damage"].includes(cmd.type)&&(!Number.isInteger(cmd.value)||Math.abs(cmd.value)>12))
    throw Error("Marqueur non autorisé.");
   if(cmd.type==="note"&&(typeof cmd.text!=="string"||cmd.text.length>300))
