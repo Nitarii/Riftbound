@@ -47,7 +47,7 @@ test("setup has one conditional page instead of a four-screen wizard",()=>{
  assert.match(html,/class="wizard-progress"[^>]*hidden/);
  assert.match(html,/class="wizard-navigation"[^>]*hidden/);
  assert.match(css,/\.welcome-steps\{display:flex;flex-direction:column/);
- assert.match(js,/const visible=!companionGate&&\(relay\?i>=2:onboarding\.preview\?i===2:i<=1\)/);
+ assert.match(js,/const visible=!companionGate&&\(relay\?i>=2:onboarding\.preview\?i<=2:i<=1\)/);
  assert.match(js,/card\.hidden=!visible/);
  assert.match(js,/showGame\(\);/);
 });
