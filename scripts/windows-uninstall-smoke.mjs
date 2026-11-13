@@ -49,7 +49,7 @@ async function run({name,path:root,port,otherFile}){
   const res=await fetch(base+route,{
    method:body?"POST":"GET",headers:{
     Authorization:"Bearer "+token,...(body?{"Content-Type":"application/json"}:{})},
-   ...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(2000)});
+   ...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(route==="/api/manager/uninstall"?15000:2500)});
   return {status:res.status,body:await res.json()};
  }
  try{
