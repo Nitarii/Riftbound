@@ -3,7 +3,7 @@
 export const CURRENT_VERSION="0.29.0";
 export const MINIMUM_COMPANION_VERSION=CURRENT_VERSION;
 export const OFFICIAL_RELEASE="https://api.github.com/repos/Nitarii/Riftbound/releases/tags/companion-latest";
-export const DOWNLOAD_URL="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.28.exe";
+export const DOWNLOAD_URL="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.29.exe";
 export function compareVersions(a,b){
  const parse=value=>String(value||"").replace(/^v/i,"").split(".").slice(0,3)
    .map(part=>/^\d+$/.test(part)?Number(part):0);
