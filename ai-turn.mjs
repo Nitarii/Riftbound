@@ -132,7 +132,17 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
        effect:mandatoryPlayEffects(c,{playedBefore:view.turnActions?.played?.ai||0})};
     })
     .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
-    .filter(x=>!x.payment.error&&x.discardUids!==null);
+    .filter(x=>!x.payment.error&&x.discardUids!==null)
+    .map(x=>{
+     try{
+      const simulated=applyCommand(view,{type:"play-paid",uid:x.card.uid,
+       zone:"base",discardUids:x.discardUids,accelerate:x.accelerate});
+      // Never knowingly enter an unresolved mandatory or continuous ability
+      // when other legal actions can progress the complete physical match.
+      return {...x,safe:!simulated.pendingEffects?.length};
+     }catch{return {...x,safe:false};}
+    })
+    .filter(x=>x.safe);
    if(!candidates.length)break;
    // Prefer useful units with affordable Power cost, so the AI develops a
    // board while preserving the rune economy when two choices are comparable.
