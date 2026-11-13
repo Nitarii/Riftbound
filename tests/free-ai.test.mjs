@@ -9,12 +9,12 @@ import {createFreeLocalAI,freeModelID,FREE_MODELS,FREE_ENGINE_DOWNLOAD,
  FREE_MODEL_DOWNLOAD,downloadVerified,verifiedDownloadHash} from "../free-ai.mjs";
 
 test("CPU model has a single simple free option and cryptographically pinned downloads",()=>{
- assert.deepEqual(FREE_MODELS.map(x=>x.id),["qwen3:0.6b"]);
- assert.equal(freeModelID(), "qwen3:0.6b");
- assert.equal(freeModelID("qwen3:0.6b"),"qwen3:0.6b");
- assert.throws(()=>freeModelID("qwen3:4b-instruct"),/indisponible/);
+ assert.deepEqual(FREE_MODELS.map(x=>x.id),["qwen3:4b-instruct-2507"]);
+ assert.equal(freeModelID(), "qwen3:4b-instruct-2507");
+ assert.equal(freeModelID("qwen3:4b-instruct-2507"),"qwen3:4b-instruct-2507");
+ assert.throws(()=>freeModelID("qwen3:0.6b"),/Un seul modèle/);
  assert.match(FREE_ENGINE_DOWNLOAD.url,/win-cpu-x64\.zip/);
- assert.match(FREE_MODEL_DOWNLOAD.url,/huggingface\.co\/Qwen\/Qwen3-0\.6B-GGUF/);
+ assert.match(FREE_MODEL_DOWNLOAD.url,/huggingface\.co\/Open4bits\/Qwen3-4B-Instruct-2507-GGUF/);
  assert.match(FREE_ENGINE_DOWNLOAD.sha256,/^[a-f0-9]{64}$/);
  assert.match(FREE_MODEL_DOWNLOAD.sha256,/^[a-f0-9]{64}$/);
  assert.notEqual(FREE_ENGINE_DOWNLOAD.sha256,FREE_MODEL_DOWNLOAD.sha256);
@@ -62,7 +62,7 @@ test("simple free UI has one button and avoids API keys or paid model choices",(
  const html=fs.readFileSync(new URL("../index.html",import.meta.url),"utf8");
  const app=fs.readFileSync(new URL("../app.mjs",import.meta.url),"utf8");
  assert.match(html,/Ton adversaire IA 100 % gratuit/);
- assert.match(html,/id="free-ai-model" type="hidden" value="qwen3:0\.6b"/);
+ assert.match(html,/id="free-ai-model" type="hidden" value="qwen3:4b-instruct-2507"/);
  assert.match(html,/id="free-ai-install"/);
  assert.match(html,/id="free-ai-progress"/);
  assert.match(html,/id="free-ai-stage"/);
