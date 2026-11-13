@@ -31,11 +31,16 @@ async function run({name,path:root,port,otherFile}){
   fs.writeFileSync(path.join(root,name,"owned-test.txt"),"delete by uninstaller");
  }
  fs.copyFileSync(binary,exe);
+ // This is the exact owned backup that v0.37 missed on a real installation.
+ fs.writeFileSync(path.join(root,".riftbound-local-state.json.bak"),"saved state backup");
  fs.writeFileSync(path.join(root,INSTALL_MARKER),JSON.stringify({
   id:INSTALL_ID,path:root,instance:"e2e"+crypto.randomBytes(13).toString("hex"),
   executable:path.basename(exe),created:new Date().toISOString()
  }));
- if(otherFile)fs.writeFileSync(path.join(root,"my-personal-file.txt"),"KEEP ME");
+ if(otherFile){
+  fs.writeFileSync(path.join(root,"my-personal-file.txt"),"KEEP ME");
+  fs.writeFileSync(path.join(root,"personal-notes.bak"),"KEEP THIS UNRELATED BACKUP");
+ }
  const fd=fs.openSync(logPath,"a");
  const child=spawn(exe,["--no-browser"],{cwd:root,windowsHide:true,
   stdio:["ignore",fd,fd],
@@ -82,7 +87,7 @@ async function run({name,path:root,port,otherFile}){
   await poll(async()=>{
    if(!fs.existsSync(root))return true;
    const files=fs.readdirSync(root);
-   return files.every(name=>name==="my-personal-file.txt");
+   return files.every(name=>otherFile&&["my-personal-file.txt","personal-notes.bak"].includes(name));
   },"all owned files to be deleted",35000);
   // The core uninstall must remove all managed files and preserve unrelated
   // files. The disposable helper is outside the installation: on some Windows
@@ -94,8 +99,9 @@ async function run({name,path:root,port,otherFile}){
     helperFolder+"; this remains to be verified on a user's Windows PC.");
   }
   if(otherFile){
-   if(fs.readFileSync(path.join(root,"my-personal-file.txt"),"utf8")!=="KEEP ME")
-    throw Error("Uninstaller deleted unrelated user data.");
+   if(fs.readFileSync(path.join(root,"my-personal-file.txt"),"utf8")!=="KEEP ME"||
+      fs.readFileSync(path.join(root,"personal-notes.bak"),"utf8")!=="KEEP THIS UNRELATED BACKUP")
+    throw Error("Uninstaller deleted unrelated user data or unrelated backup.");
   }else if(fs.existsSync(root)){
    throw Error("Uninstaller left a supposedly empty install folder.");
   }

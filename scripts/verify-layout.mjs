@@ -231,17 +231,20 @@ try{
  // UI integration regression: the manager MUST show the updater screen
  // before allowing game launch when an old release is installed.
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
- let upToDate=false;
+ let upToDate=false,uninstallCalls=0,managerApiRequests=0;
  const managerPayload=()=>({
-  version:upToDate?"0.37.0":"0.26.0",portable:true,
+  version:upToDate?"0.38.0":"0.26.0",portable:true,
   path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
   canLaunch:upToDate,mustUpdate:!upToDate,
-  availableVersion:upToDate?null:"0.37.0",progress:0,
+  availableVersion:upToDate?null:"0.38.0",progress:0,
   error:"",updating:false,shuttingDown:false
  });
  await managerPage.route("**/api/**",async route=>{
   const pathname=new URL(route.request().url()).pathname;
-  const response=pathname==="/api/manager/status"?managerPayload():
+  managerApiRequests++;
+  const response=pathname==="/api/manager/uninstall"?
+   (uninstallCalls++,{ok:true,uninstalling:true,message:"Cleanup authorized"}):
+   pathname==="/api/manager/status"?managerPayload():
    pathname==="/api/ai/free/status"?{ready:false,running:false,message:"IA arrêtée"}:
    pathname==="/api/speech/status"?{installed:false,running:false,message:"Whisper absent"}:
    pathname==="/api/manager/processes"?{
@@ -280,6 +283,26 @@ try{
   "Updated companion should hide its update-only splash screen");
  ensure(!errors.length,"Manager script errors: "+errors.join("; "));
  console.log("PASS manager update-first screen and permanent process-stop button");
+ // Mock an accepted uninstall handoff and simulate that localhost disappears.
+ // The page must remain readable, hide stale process panels, and stop polling.
+ managerPage.on("dialog",dialog=>dialog.accept());
+ await managerPage.locator(".manager-advanced > summary").click();
+ await managerPage.locator("#uninstall").click();
+ await managerPage.waitForFunction(()=>
+  document.querySelector("#startup-title")?.textContent?.includes("tu peux fermer cet onglet"));
+ ensure(uninstallCalls===1,"The manager did not submit exactly one uninstall request");
+ ensure(await managerPage.locator("#process-dashboard").isHidden(),
+  "Process dashboard still visible after the Windows server closes");
+ ensure(await managerPage.locator("#startup-retry").isHidden(),
+  "The exit screen still offers a broken reconnection button");
+ ensure((await managerPage.locator("#startup-details").textContent()).includes("127.0.0.1"),
+  "Exit screen does not explain normal localhost connection refusal");
+ const callsAfterUninstall=managerApiRequests;
+ await managerPage.evaluate(()=>refresh());
+ ensure(managerApiRequests===callsAfterUninstall,
+  "Closed companion keeps polling a no-longer-existent server");
+ ensure(!errors.length,"Manager script errors: "+errors.join("; "));
+ console.log("PASS accepted uninstall shows a stable post-exit screen without localhost polling");
  await managerPage.close();
 
  // The hosted game's UI must refuse to open an outdated local companion.
@@ -290,9 +313,9 @@ try{
   const pathname=new URL(route.request().url()).pathname;
   const body=pathname==="/api/state"?{state:localState}:
    pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
-   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.37.0",
-    updateState:installedVersion==="0.37.0"?"current":"outdated",
-    mustUpdate:installedVersion!=="0.37.0",availableVersion:"0.26.0"}:
+   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.38.0",
+    updateState:installedVersion==="0.38.0"?"current":"outdated",
+    mustUpdate:installedVersion!=="0.38.0",availableVersion:"0.26.0"}:
    pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
    pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
   await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
@@ -311,7 +334,7 @@ try{
   "Outdated companion still permits skipping the install wizard");
  ensure(await gamePage.locator("#manager-open").count()===1,
   "Manager button missing from the main header");
- installedVersion="0.37.0";
+ installedVersion="0.38.0";
  await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));
