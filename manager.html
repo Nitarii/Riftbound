@@ -115,6 +115,12 @@ main>footer{order:7}
 <p class="lead">Tes modèles, sauvegardes et fichiers restent dans ton dossier choisi.</p>
 <div class="status"><b id="connection">Connexion locale…</b>
  <div class="mono" id="storage">Dossier : …</div><small id="version"></small></div>
+<div id="activity-monitor" class="activity-monitor" hidden role="status" aria-live="polite">
+ <img src="/assets/companion-icon.svg" alt="" class="activity-icon">
+ <div><strong id="activity-title">Opération en cours</strong>
+ <div id="activity-details">Vérification du transfert...</div></div>
+ <span id="activity-live" class="activity-clock">● interface active</span>
+</div>
 <section id="startup-screen" class="startup-screen" aria-labelledby="startup-title">
  <h2 id="startup-title">Vérification de la version…</h2>
  <p id="startup-details" role="status" aria-live="polite">Le compagnon vérifie la dernière version officielle avant d'autoriser une partie.</p>
@@ -140,28 +146,30 @@ main>footer{order:7}
  <section class="manager-models wide">
   <h2>Adversaire IA et microphone</h2>
   <p>IA gratuite sur ton PC : profil équilibré ou avancé, GPU Vulkan automatique avec repli CPU. Micro Whisper Small.</p>
-  <div class="ai-profile-grid">
-   <label for="ai-profile">Modèle de l'adversaire
-    <select id="ai-profile">
-     <option value="qwen3:4b-instruct-2507">Équilibré · Qwen3 4B (~2,5 Go)</option>
-     <option value="qwen3.5:9b-q4km">Avancé · Qwen3.5 9B (~5,7 Go)</option>
-    </select>
-   </label>
-   <label for="ai-backend">Accélération locale
-    <select id="ai-backend">
-     <option value="auto">Auto : Vulkan GPU → CPU</option>
-     <option value="vulkan">Préférer Vulkan GPU</option>
-     <option value="cpu">CPU uniquement</option>
-    </select>
-   </label>
+  <div class="ai-profile-grid" aria-label="Choisir un modèle et l'accélération">
+   <div class="profile-options"><div class="group-label">Modèle local <span id="model-recommendation">Détection du PC…</span></div>
+    <input type="hidden" id="ai-profile" value="qwen3:4b-instruct-2507">
+    <div class="profile-choice-row" id="model-choices">
+     <button type="button" data-ai-model="qwen3:4b-instruct-2507" aria-pressed="true">Qwen3 4B <small>léger · 2,5 Go</small></button>
+     <button type="button" data-ai-model="qwen3.5:9b-q4km" aria-pressed="false">Qwen3.5 9B <small>plus puissant · 5,7 Go</small></button>
+    </div>
+   </div>
+   <div class="profile-options"><div class="group-label">Accélération</div>
+    <input type="hidden" id="ai-backend" value="auto">
+    <div class="profile-choice-row" id="backend-choices">
+     <button type="button" data-ai-backend="auto" aria-pressed="true">Auto · GPU → CPU</button>
+     <button type="button" data-ai-backend="vulkan" aria-pressed="false">Vulkan</button>
+     <button type="button" data-ai-backend="cpu" aria-pressed="false">CPU</button>
+    </div>
+   </div>
   </div>
   <p id="ai-runtime" role="status" aria-live="polite">Les modèles restent stockés dans le dossier du compagnon.</p>
-  <div class="actions"><button class="primary" id="ai-install">Installer / activer IA et micro</button><button id="ai-stop">Arrêter l'IA</button></div>
+  <div class="actions"><button class="primary" id="ai-install">Installer / activer IA et micro</button></div>
   <div id="ai-info" class="notice" role="status"></div><progress hidden id="ai-progress" max="100"></progress>
   <div id="speech-info" class="notice" role="status"></div><progress hidden id="speech-progress" max="100"></progress>
  </section>
- <details class="manager-advanced wide">
-  <summary>Options et maintenance</summary>
+ <section class="manager-advanced wide" aria-labelledby="maintenance-title">
+  <h2 id="maintenance-title">Maintenance</h2>
   <div class="manager-advanced-body">
    <section>
     <h2>Mises à jour</h2>
@@ -175,11 +183,11 @@ main>footer{order:7}
     <button class="danger" id="uninstall">Désinstaller et supprimer mes données</button>
    </section>
   </div>
- </details>
+ </section>
  <div id="message" class="notice wide" role="status" aria-live="polite"></div>
 </div>
-<details id="process-dashboard" class="process-dashboard" open>
- <summary id="process-dashboard-title">Processus et arrêt avancé</summary>
+<section id="process-dashboard" class="process-dashboard" aria-labelledby="process-dashboard-title">
+ <h2 id="process-dashboard-title">Processus locaux</h2>
  <p class="process-subtitle">État réel des moteurs lancés par Riftbound. Une IA installée ne fonctionne pas nécessairement en arrière-plan.</p>
  <div class="process-grid">
   <div class="process-card">
@@ -205,7 +213,7 @@ main>footer{order:7}
   <small id="process-summary" role="status" aria-live="polite">Lecture de l'état des processus…</small>
   <button id="process-stop-all" type="button" class="danger" disabled>■ Tout arrêter · garder le gestionnaire ouvert</button>
  </div>
-</details>
+</section>
 <footer>Les données de navigation propres à Chrome/Edge (historique, cache ou stockage du site hébergé) et le fichier .exe téléchargé initialement en dehors du dossier choisi ne sont pas créés ni contrôlés par ce gestionnaire. La suppression Windows se limite aux fichiers appartenant au compagnon.</footer>
 </main>
 <script>
@@ -300,9 +308,6 @@ function renderStartup(data){
  const startup=$("startup-screen"),dashboard=$("manager-dashboard");
  const state=data.updateState||"checking";
  const blocked=!data.canLaunch;
- const proc=$("process-dashboard");
- if(blocked)proc.open=true;
- else if(!proc.dataset.compacted){proc.open=false;proc.dataset.compacted="true";}
  startup.hidden=!blocked;
  dashboard.hidden=blocked;
  const title=$("startup-title"),message=$("startup-details");
@@ -413,7 +418,6 @@ async function refresh(){
   aiReady&&requestedModel!==ai.selectedModel?"Changer de modèle IA":
   aiReady?"Activer le micro ou changer d'accélérateur":
   ai.models?.find(m=>m.id===requestedModel)?.installed?"Activer ce modèle":"Installer / activer IA et micro";
- $("ai-stop").disabled=busy||!(processes.qwen?.active||processes.qwen?.enabled);
  $("update-apply").disabled=!availableVersion||!!manager.updating;
   $("open-site").disabled=!manager.canLaunch;
   $("open-local").disabled=!manager.canLaunch;
@@ -470,11 +474,15 @@ $("manager-stop").onclick=()=>execute(async()=>{
  await api("/api/manager/stop","POST",{confirm:"STOP_RIFTBOUND"});
  showExitScreen({uninstall:false});
 });
-$("ai-profile").onchange=()=>{aiProfileTouched=true;refresh();};
-$("ai-backend").onchange=()=>{aiProfileTouched=true;refresh();};
+for(const button of document.querySelectorAll("[data-ai-model]")){
+ button.onclick=()=>{aiProfileTouched=true;$("ai-profile").value=button.dataset.aiModel;refresh();};
+}
+for(const button of document.querySelectorAll("[data-ai-backend]")){
+ button.onclick=()=>{aiProfileTouched=true;$("ai-backend").value=button.dataset.aiBackend;refresh();};
+}
 $("ai-install").onclick=()=>execute(async()=>{
  const model=$("ai-profile").value,backend=$("ai-backend").value;
- const name=$("ai-profile").selectedOptions[0]?.textContent||model;
+ const name=document.querySelector('[data-ai-model="'+model+'"]')?.textContent?.trim()||model;
  if(!confirm("Installer ou activer "+name+" avec "+backend+
   " et Whisper Small ?\nFichiers exclusivement dans :\n"+root))return;
  const r=await api("/api/ai/free/install","POST",{model,backend,confirmFolder:root});
@@ -498,7 +506,6 @@ $("process-whisper-enable").onclick=()=>execute(async()=>{
  const result=await api("/api/manager/processes/whisper/enable","POST");
  report(result.message);renderProcesses(result);
 });
-$("ai-stop").onclick=()=>execute(()=>stopProcess("qwen"));
 $("update-check").onclick=()=>execute(async()=>{
  const result=await api("/api/manager/update/check","POST");
  availableVersion=result.availableVersion||"";
