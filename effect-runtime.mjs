@@ -10,7 +10,7 @@ const ownerName=p=>p==="ai"?"IA":"Joueur";
 const isTracked=t=>["beginning","ending","hold","conquer","play","die"].includes(t);
 function eligibleSources(state,event){
  const {trigger,actor,source,field}=event;
- if(["play","move","die"].includes(trigger))return source?[source]:[];
+ if(["play","move","die","attack","defend"].includes(trigger))return source?[source]:[];
  let cards=state.cards.filter(c=>c.owner===actor&&activeZone(c.zone));
  if(["hold","conquer"].includes(trigger))
   cards=cards.filter(c=>c.zone==="battlefield"&&c.battlefield===field);
