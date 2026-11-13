@@ -12,7 +12,7 @@ const ownerName=p=>p==="ai"?"IA":"Joueur";
 const isTracked=ability=>Number.isInteger(ability.perTurnLimit)&&ability.perTurnLimit>0;
 function eligibleSources(state,event){
  const {trigger,actor,source,field}=event;
- if(["play","move","die","attack","defend"].includes(trigger))return source?[source]:[];
+ if(["play","move","die","attack","defend","discard"].includes(trigger))return source?[source]:[];
  let cards=state.cards.filter(c=>c.owner===actor&&activeZone(c.zone));
  if(["hold","conquer"].includes(trigger))
   cards=cards.filter(c=>c.zone==="battlefield"&&c.battlefield===field);
@@ -50,6 +50,11 @@ function selectTarget(state,kind,source,actor){
 }
 function buildSteps(state,source,ability,actor,choices){
  const instructions=[],previous=choices?.discardUids||[];
+ if(ability.optional&&actor==="human")
+  return {reason:"Effet facultatif : choisis de le résoudre ou de le décliner."};
+ if(ability.optional&&actor==="ai"&&ability.steps.some(x=>
+    ["discard","exhaust-runes","exhaust-self"].includes(x.kind)))
+  return {instructions:[],declined:true};
  const required=ability.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
  const selected=previous.length?previous:
   required?chooseRequiredDiscards(state,source.uid,required):[];
@@ -69,10 +74,16 @@ function buildSteps(state,source,ability,actor,choices){
    detail.uids=uids;discarded+=step.count;
   }
   if(step.kind==="damage-enemy"){
-   const target=selectTarget(state,step.kind,source,actor);
-   if(!target)return {reason:"Cible ennemie absente ; effet à arbitrer."};
+   const chosen=choices?.targetUid?state.cards.find(c=>c.uid===choices.targetUid):null;
+   const target=chosen||(actor==="ai"?selectTarget(state,step.kind,source,actor):null);
+   if(!target||target.owner===actor||!unit(target)||!activeZone(target.zone))
+    return {reason:"Choisis une unité ennemie valide comme cible."};
+   if(/\bdeflect\b/i.test(target.text||""))
+    return {reason:"La cible possède Deflect : coût de ciblage non vérifié."};
    detail.targetUid=target.uid;
   }
+  if(step.kind==="predict"&&actor==="human")
+   return {reason:"Vision/Predict : regarde la prochaine carte physique et choisis si tu la recycles."};
   if(["ready-self","exhaust-self","self-buff","heal-self"].includes(step.kind)&&
    !state.cards.some(c=>c.uid===source.uid))
    return {reason:"Source de l'effet absente du plateau."};
@@ -95,6 +106,35 @@ function applySteps(state,source,steps,actor,place,deckCard){
     names.push(card.name);
    }
    logs.push("défausse "+names.join(", "));
+  }else if(step.kind==="predict"){
+   const top=state.decks?.ai?.main?.[0];
+   if(actor==="ai"&&top){
+    const ready=state.cards.filter(c=>c.owner==="ai"&&c.zone==="runes").length;
+    const recycle=Number(top.energy??99)>ready+3;
+    if(recycle)state.decks.ai.main.push(state.decks.ai.main.shift());
+    logs.push("Vision : regarde la carte du dessus et "+
+     (recycle?"la recycle":"la conserve"));
+   }
+  }else if(step.kind==="channel"||step.kind==="channel-exhausted"){
+   let actual=0;
+   for(let i=0;i<n;i++){
+    if(actor==="ai"){
+     const rune=state.decks.ai.runes.shift();if(!rune)break;
+     const instance=place(state,actor,rune,"runes",undefined,false,
+      "c_effect_rune_"+state.revision+"_"+state.cards.length+"_"+i);
+     instance.exhausted=step.kind==="channel-exhausted";
+     state.players.ai.runeCount=state.decks.ai.runes.length;
+    }else{
+     if(state.players.human.runeCount<=0)break;
+     const rune=place(state,"human",{code:"PHYSICAL-RUNE",name:"Rune physique",
+      type:"Rune"},"runes",undefined,false);
+     rune.exhausted=step.kind==="channel-exhausted";
+     state.players.human.runeCount--;
+    }
+    actual++;
+   }
+   logs.push("canalise "+actual+" rune(s)"+
+    (step.kind==="channel-exhausted"?" épuisées":""));
   }else if(step.kind==="draw"){
    let actual=0;
    for(let i=0;i<n;i++){
