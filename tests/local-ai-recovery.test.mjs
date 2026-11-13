@@ -20,7 +20,7 @@ function createHarness(responses){
    return responses[requests.length-1]||{ok:false,status:400};
   }
  });
- ai.configure({provider:"free",model:"qwen3:0.6b",enabled:true});
+ ai.configure({provider:"free",model:"qwen3:4b-instruct-2507",enabled:true});
  return {dir,ai,requests,finished,dispose:()=>fs.rmSync(dir,{recursive:true,force:true})};
 }
 test("local HTTP 400 retries once using shorter context, without JSON response grammar",async()=>{
@@ -37,7 +37,7 @@ test("local HTTP 400 retries once using shorter context, without JSON response g
   assert.equal(h.requests[1].payload.response_format,undefined);
   assert.ok(h.requests[1].payload.max_tokens<h.requests[0].payload.max_tokens);
   assert.ok(h.requests[1].payload.messages[0].content.includes("physical Riftbound"));
-  assert.equal(h.requests[1].payload.model,"qwen3:0.6b");
+  assert.equal(h.requests[1].payload.model,"qwen3:4b-instruct-2507");
  }finally{h.dispose();}
 });
 test("repeated local HTTP 400 gives actionable local error, never an API-key prompt",async()=>{
