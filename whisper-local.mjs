@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import {spawn} from "node:child_process";
 import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import {once} from "node:events";
+import net from "node:net";
 import {downloadVerified} from "./free-ai.mjs";
 
 export const WHISPER_RELEASE="b5454";
@@ -31,6 +32,11 @@ export function whisperPrompt(cards=[],max=220){
   seen.add(cleaned.toLowerCase());selected.push(cleaned);
  }
  return selected.join(", ")+".";
+}
+export function whisperServerArguments({model,port,threads=4}){
+ if(!Number.isInteger(port)||port<1024||port>65535)throw Error("Port local Whisper invalide.");
+ return ["--model",model,"--host","127.0.0.1","--port",String(port),"--no-gpu",
+  "--threads",String(Math.min(8,Math.max(1,threads))),"--no-context"];
 }
 export function whisperArguments({model,wav,out,language="auto",prompt=""}){
  const lang=["fr","en","auto"].includes(language)?language:"auto";
@@ -76,7 +82,7 @@ export function createLocalWhisper({
   downloads=path.join(root,"downloads"),models=path.join(root,"models"),temp=path.join(root,"temp");
  const stamp=path.join(engineDir,".verified.json"),preferences=path.join(root,".speech-preferences.json");
  const selected=WHISPER_MODEL;
- let job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false,downloadAbort=null;
+ let job=null,transcribing=false,activeProc=null,serverProc=null,serverPort=0,warmPromise=null,idleTimer=null,extractProc=null,stopping=false,downloadAbort=null;
  let enabled=true; // Preserve the existing hands-free default for current users.
  const ensureRunning=()=>{if(stopping)throw Error("Installation vocale interrompue : fermeture du compagnon.");};
  async function unpack(zip,dir,env){
@@ -105,15 +111,86 @@ export function createLocalWhisper({
   const ready=installed(selected);
   const effective=ready&&info.phase==="idle"?
    {...info,phase:"ready",progress:100,message:"Whisper "+selected+" installé dans ton dossier."}:info;
-  const processActive=Boolean(activeProc&&activeProc.exitCode==null&&
-   activeProc.signalCode==null&&!activeProc.killed);
+  const running=serverProc||activeProc;
+  const processActive=Boolean(running&&running.exitCode==null&&
+   running.signalCode==null&&!running.killed);
   return {...effective,installed:ready,selected,enabled,
    processing:Boolean(transcribing&&processActive),processActive,
-   pid:processActive&&Number.isSafeInteger(activeProc.pid)?activeProc.pid:null,
+   pid:processActive&&Number.isSafeInteger(running.pid)?running.pid:null,
    installing:Boolean(job),
    engineInstalled:Boolean(findWhisper(engineDir)),options:Object.fromEntries(
    Object.entries(WHISPER_OPTIONS).map(([id,c])=>[id,{label:c.label,bytes:c.bytes,installed:installed(id)}])),
   running:Boolean(job)};}
+ function stopServer(){
+  if(idleTimer){clearTimeout(idleTimer);idleTimer=null;}
+  const proc=serverProc;serverProc=null;serverPort=0;
+  if(proc)try{stopOwnedProcess(proc);}catch{}
+ }
+ function extendServerIdle(){
+  if(idleTimer)clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>{if(!transcribing)stopServer();},5*60*1000);
+  idleTimer.unref?.();
+ }
+ async function startWhisperServer(){
+  if(serverProc&&serverPort)return serverPort;
+  if(warmPromise)return warmPromise;
+  if(stopping||!enabled||!installed(selected))return 0;
+  const binary=findWhisper(engineDir);
+  const serverBinary=path.join(path.dirname(binary),"whisper-server.exe");
+  if(!binary||!fs.existsSync(serverBinary))return 0;
+  warmPromise=(async()=>{
+   const probe=net.createServer();
+   const port=await new Promise((resolve,reject)=>{
+    probe.once("error",reject);
+    probe.listen(0,"127.0.0.1",()=>resolve(probe.address().port));
+   });
+   await new Promise(resolve=>probe.close(resolve));
+   if(stopping)return 0;
+   const proc=spawnImpl(serverBinary,whisperServerArguments({
+    model:modelPath(selected),port,threads:Math.min(8,os.availableParallelism?.()||4)
+   }),{cwd:path.dirname(serverBinary),windowsHide:true,stdio:"ignore",
+    env:{...process.env,TEMP:temp,TMP:temp,TMPDIR:temp}});
+   serverProc=proc;
+   proc.once("error",()=>{if(serverProc===proc){serverProc=null;serverPort=0;}});
+   proc.once("close",()=>{if(serverProc===proc){serverProc=null;serverPort=0;}});
+   for(let attempt=0;attempt<125;attempt++){
+    if(stopping||serverProc!==proc)return 0;
+    try{
+     const response=await fetch("http://127.0.0.1:"+port+"/",{
+      signal:AbortSignal.timeout(700),cache:"no-store"
+     });
+     if(response.ok){serverPort=port;extendServerIdle();return port;}
+    }catch{}
+    await new Promise(resolve=>setTimeout(resolve,120));
+   }
+   stopServer();
+   return 0;
+  })();
+  try{return await warmPromise;}finally{warmPromise=null;}
+ }
+ function warm(){
+  if(!enabled||stopping||!installed(selected))return {warming:false};
+  void startWhisperServer().catch(()=>{stopServer();});
+  return {warming:true,model:selected};
+ }
+ async function transcribeOnServer(audio,{language="auto",cards=[]}={}){
+  const port=await startWhisperServer();
+  if(!port)return null;
+  const data=new FormData();
+  data.append("file",new Blob([audio],{type:"audio/wav"}),"voice.wav");
+  data.append("language",["fr","en","auto"].includes(language)?language:"auto");
+  data.append("prompt",whisperPrompt(cards));
+  data.append("response_format","json");
+  data.append("temperature","0");
+  const response=await fetch("http://127.0.0.1:"+port+"/inference",{
+   method:"POST",body:data,signal:AbortSignal.timeout(90000)
+  });
+  if(!response.ok)throw Error("Whisper local HTTP "+response.status);
+  const result=await response.json();
+  extendServerIdle();
+  return {text:String(result.text||"").replace(/\\[[^\\]]{1,50}\\]/g," ")
+   .replace(/\\s+/g," ").trim().slice(0,1200),language,model:selected};
+ }
  async function prepare(id){
   if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
   if(platform!=="win32")throw Error("Whisper intégré est destiné au Windows x64.");
