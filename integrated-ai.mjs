@@ -96,6 +96,16 @@ export function validateAgentCommands(actions,state,announcement,catalog=[]){
    if(card.owner==="human"&&card.zone==="hand")throw Error("La main physique reste cachée.");
   }
   if(cmd.type==="move"&&!zones.has(cmd.zone))throw Error("Zone interdite.");
+  // Never allow the conversation model to bypass actual card play or payment.
+  if(cmd.type==="move"&&card?.owner==="ai"&&["hand","champion"].includes(card.zone))
+   throw Error("L'IA doit utiliser le moteur de paiement pour jouer cette carte.");
+  if(cmd.type==="score"&&cmd.player==="ai")
+   throw Error("Les points de l'IA proviennent uniquement des règles vérifiées.");
+  if(cmd.type==="score"&&!/\b(?:point|pv|score|marqu|gagn[ée]|victory|scored)\b/i.test(heard))
+   throw Error("Le joueur n'a annoncé aucun changement de score.");
+  if(cmd.type==="damage"&&card?.owner==="human"&&
+    !/\b(?:d[ée]g[aâ]t|blesse|inflige|touche|damage|deal|hit)\b/i.test(heard))
+   throw Error("Le joueur n'a annoncé aucun dégât sur cette carte.");
   if(cmd.type==="exhaust-runes"&&
    (!["human","ai"].includes(cmd.player)||!Number.isInteger(cmd.count)||cmd.count<1||cmd.count>3))
     throw Error("Épuisement de runes invalide.");
@@ -159,9 +169,9 @@ export const SYSTEM_PROMPT=[
  "Tu dois lire l'état du plateau, identifier les UID EXACTS présents dans board.cards, évaluer tes cartes disponibles et annoncer tes actions avant de les appliquer. Never invent card UIDs.",
  "Un déplacement ou effet n'est possible que si le texte de carte connu et les règles le permettent; quand un texte est absent ou ambigu, demande au joueur.",
  "Les actions que tu fournis changent vraiment le plateau; ne simule pas le résultat d'un combat incertain.",
- "Joue une carte IA avec move(uid,zone) depuis ta main existante, jamais avec add. Add est réservé à une carte humaine explicitement annoncée et trouvée dans gameReference.cards.",
+ "L'IA ne joue JAMAIS une carte depuis sa main via move : seul le moteur déterministe utilise play-paid, paie les runes et vérifie les capacités. Add sert aux cartes physiques confirmées.",
  "Quand le joueur termine son tour, le serveur a déjà avancé : ne l'avance pas deux fois. Lorsque TU finis ton tour, next-turn une seule fois.",
- "Choisis tes actions parmi move, add, exhaust, exhaust-runes, ready, flip, damage, counter, score, draw, channel, mulligan, phase, next-turn, note. AI must use existing UID from own hand when playing a card, channel its real runes and track payment.",
+ "Ne fabrique jamais de points de victoire, de dégâts ou de paiements. Le modèle conversationnel ne pilote pas directement sa main : le moteur déterministe sélectionne les cartes et vérifie les coûts.",
  "Les cartes doivent être jouées avec leurs coûts et capacités imprimés. Le moteur valide play-paid, les déclenchements et leurs choix ; n’affirme jamais qu’un effet non supporté a été résolu.",
  "Réponds uniquement par un objet JSON avec deux propriétés : reply (une véritable réponse naturelle à la situation du joueur, dans sa langue) et commands (un tableau de commandes autorisées, huit maximum). Si aucune action précise n’est sûre, retourne un tableau vide et explique brièvement pourquoi. Ne copie jamais les instructions, un exemple de format, ni une phrase générique répétitive.",
  "Le logiciel n'est pas un arbitre des règles de compétition. Pour toute incertitude, expliquer la limite et se référer au hub officiel cité dans gameReference."
