@@ -95,8 +95,21 @@ async function run({name,path:root,port,otherFile}){
   console.log("PASS Windows uninstall "+name+": stopped process, deleted owned files, preserved unrelated data.");
  }catch(error){
   console.error("Uninstall smoke "+name+" failed: ",error.stack||error);
-  if(helperFolder)console.error("Temporary helper directory:",helperFolder,
-   fs.existsSync(helperFolder)?fs.readdirSync(helperFolder):"(already removed)");
+  if(helperFolder){
+   console.error("Temporary helper directory:",helperFolder,
+    fs.existsSync(helperFolder)?fs.readdirSync(helperFolder):"(already removed)");
+   const helperExecutable=path.join(helperFolder,"RiftboundUninstall.exe");
+   try{
+    const wmi=execFileSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",
+     "Get-CimInstance Win32_Process -Filter \"Name='RiftboundUninstall.exe'\" | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List | Out-String"],{
+     encoding:"utf8",timeout:6000,windowsHide:true});
+    console.error("Active helper process:",wmi.slice(0,1800));
+   }catch(e){console.error("Helper WMI failed:",String(e.message||e).slice(0,300));}
+   if(fs.existsSync(helperExecutable))try{
+    fs.rmSync(helperExecutable,{force:true});
+    console.error("Manual diagnostic removal succeeded: helper was not locked");
+   }catch(e){console.error("Manual diagnostic removal failed:",e.code,e.message);}
+  }
   try{
    const file=path.join(root,"updates","uninstall-request.json");
    if(fs.existsSync(file)){
