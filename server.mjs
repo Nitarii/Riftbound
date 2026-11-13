@@ -583,7 +583,7 @@ const server=http.createServer(async(req,res)=>{
      // The recognizer prompt is intentionally short; resolve the *entire*
      // locally cached catalogue afterwards, including names not in the prompt.
      // Report the original heard phrase whenever a safe correction was made.
-     const correction=correctSpokenCardPhrase(known,result.text,{
+     const correction=correctSpokenCardPhrase(known.length?known:cards,result.text,{
       expectCardName:Boolean(pendingSpokenPlay&&Date.now()-pendingSpokenPlay.time<30000)
      });
      json(res,200,{...result,...correction,
