@@ -185,15 +185,13 @@ function startCleanupJanitor(helperDir,helperExe,helperPid,{env=process.env,spaw
  fs.writeFileSync(scriptFile,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
  const externalTemp=path.join(env.LOCALAPPDATA||
   path.join(os.homedir(),"AppData","Local"),"Temp");
- // Windows can terminate ordinary children when the manager exits. Launch
- // the janitor in a separate process group via the built-in START command;
- // the manager verifies READY before it shuts down. The generated script
- // path travels through an environment variable, never as shell text.
- const command='start "" /min powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "%RIFTBOUND_JANITOR_FILE%"';
- const janitor=spawnImpl("cmd.exe",["/d","/c",command],{
-  cwd:path.dirname(helperDir),windowsHide:true,detached:false,stdio:"ignore",
-  env:{...env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp,
-   RIFTBOUND_JANITOR_FILE:scriptFile}
+ // A dedicated process group must survive the manager's exit. On Windows,
+ // DETACHED_PROCESS together with a hidden console can prevent PowerShell
+ // from executing; let PowerShell hide its own window instead.
+ const janitor=spawnImpl("powershell.exe",["-NoProfile","-NonInteractive",
+  "-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-File",scriptFile],{
+  cwd:path.dirname(helperDir),windowsHide:false,detached:true,stdio:"ignore",
+  env:{...env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
  });
  if(!validPid(janitor?.pid))throw Error("Impossible de démarrer le nettoyeur temporaire.");
  janitor.unref?.();
