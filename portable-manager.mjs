@@ -177,17 +177,8 @@ export function createPortableManager({
     TMP:path.join(root,"temp"),TMPDIR:path.join(root,"temp")}});
   if(!Number.isSafeInteger(launched?.pid)||launched.pid<1)
    throw Error("Le programme de désinstallation n'a pas démarré. Le gestionnaire reste ouvert.");
-  const janitorReady=launched.janitorReady;
-  if(typeof janitorReady!=="string"||!path.isAbsolute(janitorReady)||
-     inside(path.resolve(root),path.resolve(janitorReady)))
-   throw Error("Nettoyeur temporaire invalide. Le gestionnaire reste ouvert.");
-  let janitorConfirmed=false;
-  for(let i=0;i<100;i++){
-   try{if(fs.readFileSync(janitorReady,"utf8")==="READY"){janitorConfirmed=true;break;}}catch{}
-   await new Promise(resolve=>setTimeout(resolve,100));
-  }
-  if(!janitorConfirmed)
-   throw Error("Nettoyeur temporaire non prêt. Application conservée pour éviter des fichiers résiduels.");
+  // The janitor cleans only its temporary own executable and is best-effort.
+  // Do not keep a valid user's installation hostage to optional Temp cleanup.
   let acknowledged=false;
   for(let i=0;i<80;i++){
    let info=null;
@@ -207,7 +198,8 @@ export function createPortableManager({
   // exit before deleting the executable and the chosen install directory.
   setTimeout(shutdown,650);
   return {ok:true,uninstalling:true,message:
-   "Désinstallation confirmée. Fermeture des moteurs, puis suppression des fichiers gérés."};
+   "Désinstallation confirmée. Fermeture des moteurs, puis suppression des fichiers gérés.",
+   warning:launched.janitorWarning||null};
  }
  return {status,checkUpdate,startupCheck,continueOffline,applyUpdate,requestStop,uninstall};
 }
