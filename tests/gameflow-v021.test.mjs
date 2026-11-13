@@ -134,7 +134,7 @@ test("two paid units spoken in one sentence are applied in order or rejected ato
  for(const cmd of result.commands)s=applyCommand(s,cmd);
  assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="base"&&c.name==="Loyal Poro").length,2);
  assert.equal(s.cards.filter(c=>c.zone==="runes"&&c.exhausted).length,2);
- const invalid=planPlayerSequence("je joue loyal poro dans ma base et je joue loyal poro dans ma base",setup(),catalog);
+ const invalid=planPlayerSequence("je joue loyal poro dans ma base et je joue loyal poro dans ma base et je joue loyal poro dans ma base",setup(),catalog);
  assert.ok(invalid.error);
  assert.equal(invalid.commands.length,0);
 });

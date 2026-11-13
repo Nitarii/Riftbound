@@ -6,11 +6,13 @@ import path from "node:path";
 import {EventEmitter} from "node:events";
 import {audioToWav,audioRms} from "../local-voice.mjs";
 import {
- WHISPER_RELEASE,WHISPER_OPTIONS,WHISPER_ENGINE_SHA,
+ WHISPER_RELEASE,WHISPER_OPTIONS,WHISPER_MODEL,WHISPER_ENGINE_SHA,
  whisperPrompt,whisperArguments,validateWAV,createLocalWhisper
 } from "../whisper-local.mjs";
 
 test("official multilingual speech sources have pinned SHA-256 and CPU binaries",()=>{
+ assert.equal(WHISPER_MODEL,"small");
+ assert.deepEqual(Object.keys(WHISPER_OPTIONS),["small"]);
  assert.match(WHISPER_RELEASE,/^b\d+$/);
  assert.match(WHISPER_ENGINE_SHA,/^[a-f0-9]{64}$/);
  for(const [name,model] of Object.entries(WHISPER_OPTIONS)){
@@ -18,7 +20,7 @@ test("official multilingual speech sources have pinned SHA-256 and CPU binaries"
   assert.match(model.url,/^https:\/\/huggingface\.co\/ggerganov\/whisper\.cpp\/resolve\//);
   assert.ok(model.bytes>1e8);
  }
- const args=whisperArguments({model:"C:\\Riftbound\\speech\\models\\ggml-base.bin",
+ const args=whisperArguments({model:"C:\\Riftbound\\speech\\models\\ggml-small.bin",
   wav:"C:\\Riftbound\\speech\\temp\\sample.wav",
   out:"C:\\Riftbound\\speech\\temp\\sample",language:"auto",prompt:"Shen, Loyal Poro"});
  assert.ok(args.includes("--no-gpu"));
@@ -76,10 +78,10 @@ test("speech installer, WAV and transcription output use only the selected folde
    }
   });
   assert.equal(tool.status().installed,false);
-  tool.begin("base");
+  tool.begin();
   for(let n=0;n<50&&tool.status().running;n++)await new Promise(r=>setTimeout(r,10));
   assert.equal(tool.status().installed,true,tool.status().error);
-  assert.ok(files.some(p=>p.endsWith("ggml-base.bin")));
+  assert.ok(files.some(p=>p.endsWith("ggml-small.bin")));
   const result=await tool.transcribe(Buffer.from(await audioToWav([
    Float32Array.from({length:16000},()=>.05)],16000).arrayBuffer()),{
    language:"auto",cards:[{name:"Loyal Poro"}]
@@ -88,7 +90,7 @@ test("speech installer, WAV and transcription output use only the selected folde
   assert.equal(calls.length,1);
   assert.equal(fs.readdirSync(path.join(location,"speech","temp")).length,0);
   const persisted=createLocalWhisper({userData:location});
-  assert.equal(persisted.status().selected,"base");
+  assert.equal(persisted.status().selected,"small");
   assert.equal(persisted.status().installed,true);
  }finally{fs.rmSync(location,{recursive:true,force:true});}
 });

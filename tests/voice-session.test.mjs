@@ -162,7 +162,7 @@ test("site exposes visible hands-free controls, not the old single-shot Dictatio
   assert.ok(html.includes('id="'+id+'"'),id);
   assert.ok(app.includes('"'+id+'"'),"missing JS handler for "+id);
  }
- assert.match(app,/createVoiceConversation/);
+ assert.match(app,/createLocalVoiceConversation/);
  assert.match(app,/enqueuePlayerAnnouncement\(text\)/);
  assert.match(app,/voiceController\.speak\(m\.text\)/);
  assert.match(app,/voiceController\.setHidden\(document\.hidden\)/);

@@ -2,42 +2,49 @@
 
 Projet fan gratuit et non commercial, **sans affiliation à Riot Games**. Ce site accompagne une partie de Riftbound jouée avec des cartes physiques face à un agent IA : plateau visuel, marqueurs, tours, decks, historique et accès temporaire de l'agent. Ce n'est pas une copie du jeu ni un service de parties numériques.
 
+## v0.28 — Un seul modèle IA et un seul modèle vocal
+
+Qwen3 4B Instruct 2507 Q4_K_M remplace Qwen3 0.6B ; Whisper Small multilingue remplace le choix Base/Small. **Un bouton unique installe les deux modèles**, sans profil ou fournisseur de transcription à sélectionner. Les anciennes pondérations connues ne sont supprimées qu’après installation réussie des nouvelles. Les étapes normales de début de tour et les annonces naturelles sont également améliorées (voir PR #12).
+
+---
+
 ## Installation gratuite, un seul exécutable Windows 10/11 x64
 
 **Site :** https://nitarii.github.io/Riftbound/
 
-**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.27.exe
+**Téléchargement :** https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.28.exe
 
-1. Télécharge et lance `RiftboundCompanion-v0.27.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
+1. Télécharge et lance `RiftboundCompanion-v0.28.exe`, puis choisis un dossier dédié pour **tous** les fichiers. Le compagnon ouvre un gestionnaire local pour lancer le site, installer les IA et gérer les mises à jour.
 2. Choisis ta légende, ton champion et ton champ de bataille ; crée la partie avec le deck adverse.
-3. Confirme le dossier sélectionné puis clique **Installer et activer mon IA gratuite**. La première fois, le programme télécharge deux fichiers officiels : **llama.cpp CPU Windows x64 (~25 Mo)** et **Qwen3-0.6B Q8 (~639 Mo)**. Les fichiers sont gardés sur ton PC et vérifiés avec leurs empreintes SHA-256.
-4. Quand « IA gratuite prête » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, le microphone prépare une dictée, et le bouton **Passer mon tour** annonce la fin du tour.
+3. Confirme le dossier sélectionné puis clique **Installer IA et Whisper Small**. Un seul clic installe les deux modèles locaux : **Qwen3 4B Instruct 2507 Q4_K_M (~2,5 Go)** pour l’adversaire et **Whisper Small multilingue (~488 Mo)** pour la voix, ainsi que leurs moteurs libres. Tous les téléchargements sont vérifiés par SHA-256 et enregistrés dans le même dossier.
+4. Quand « IA et voix prêtes » apparaît, utilise la discussion : **Entrée** envoie un message, **Maj+Entrée** insère un saut de ligne, **Mode vocal** démarre Whisper Small local et **Passer mon tour** annonce la fin du tour.
 
 **Coût : zéro abonnement, zéro clé API, aucune facture liée à un modèle cloud.** Le modèle s'exécute directement sur le processeur du PC avec `llama-server.exe`, sans GPU dédié, aucune configuration ROCm/CUDA et sans tunnel. Après l'installation, les réponses IA fonctionnent hors ligne. Les fichiers sont conservés pour les prochaines sessions.
 
-**Compatibilité :** ce package vise **Windows 10/11 64 bits** avec un processeur x64 compatible et assez de mémoire libre (prévoir environ **2 Go de RAM disponibles** pour le modèle et son contexte, davantage si le jeu et le navigateur sont très chargés). Il ne peut pas fonctionner sur absolument tous les PC, notamment les Windows 32 bits, machines à très faible RAM ou autres systèmes sans version dédiée. Les performances varient selon le CPU. Le petit modèle peut être moins compétent pour les règles de Riftbound qu'un modèle plus gros.
+**Compatibilité :** ce package vise **Windows 10/11 64 bits**. Prévoir au moins **6 Go de RAM disponibles** pour Qwen3 4B, son contexte et Whisper Small, avec davantage de marge pour Windows et le navigateur ; **16 Go de RAM système ou plus sont recommandés**. Le moteur fonctionne sur CPU sans pilote GPU particulier. La qualité des réponses progresse par rapport à 0.6B, mais les performances dépendent du processeur et les règles complexes restent supervisées par le moteur du jeu. Aucun profil de modèle plus léger n’est proposé.
 
 Le programme n'est pas signé numériquement; Windows SmartScreen peut afficher un avertissement. Les images officielles des cartes et le catalogue nécessitent ponctuellement Internet; le moteur d'IA n'en a pas besoin après téléchargement. Le mode avancé de tunnel Cloudflare est conservé en option pour les agents réellement dotés d'outils réseau, mais **il n'est pas nécessaire pour jouer gratuitement avec l'IA intégrée**.
 
 **Sources et sécurité des téléchargements** :
 - moteur `ggml-org/llama.cpp`, release [b12277](https://github.com/ggml-org/llama.cpp/releases/tag/b12277), fichier Windows CPU, SHA-256 `5943df89ff76289e16fd9c9600a38871b47f20272c589c3b803eca2181f67a08` (licence MIT) ;
-- modèle officiel [Qwen3-0.6B Q8 GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q8_0.gguf), SHA-256 `9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031` (licence Apache 2.0).
+- modèle [Qwen3 4B Instruct 2507 Q4_K_M GGUF](https://huggingface.co/Open4bits/Qwen3-4B-Instruct-2507-GGUF/blob/main/qwen3-4b-instruct-2507-Q4_K_M.gguf), SHA-256 `1571ec5115bcfed4b4327fc27b5f44ea284806caf5331eef89326191c9b031d6` (base Qwen sous licence Apache 2.0, quantification Open4bits) ;
+- reconnaissance [Whisper Small multilingue ggml](https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-small.bin), SHA-256 `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` (Whisper, licence MIT).
 
 ### IA préconfigurée : règles, cartes et commandes de jeu
 
-L'adversaire local Qwen3 0.6B n'a **aucune étape d'apprentissage à effectuer**. Au moment de chaque message, le serveur lui fournit automatiquement un petit guide des règles pertinentes, le fonctionnement des tours et de la chatbox, les commandes possibles avec UID et les textes des cartes nécessaires. Les références proviennent du [hub officiel Riot](https://playriftbound.com/fr-fr/rules-hub/) (règles de base et de tournoi du **9 octobre 2026**) et du catalogue déjà utilisé par le site. L'agent n'a pas besoin de sortir sur le Web.
+L'adversaire local Qwen3 4B Instruct 2507 n'a **aucune étape d'apprentissage à effectuer**. Au moment de chaque message, le serveur lui fournit automatiquement un petit guide des règles pertinentes, le fonctionnement des tours et de la chatbox, les commandes possibles avec UID et les textes des cartes nécessaires. Les références proviennent du [hub officiel Riot](https://playriftbound.com/fr-fr/rules-hub/) (règles de base et de tournoi du **9 octobre 2026**) et du catalogue déjà utilisé par le site. L'agent n'a pas besoin de sortir sur le Web.
 
 La sélection des cartes privilégie **la main de l'IA**, **les légendes/champions**, **les champs de bataille**, les unités visibles et les **cartes mentionnées par le joueur**. Le moteur cherche le code et le texte d'effet dans le catalogue, puis les injecte au modèle avec ses restrictions de commandes. Il n'envoie **jamais** la main physique humaine cachée. Pour rester compatible avec les petits PC et une fenêtre de contexte réduite, seuls les détails pertinents sont passés à chaque échange, sans tenter de charger toutes les cartes du jeu à la fois.
 
 **Références consultables** : `GET /api/ai/reference?q=nom` est disponible uniquement depuis l'API locale authentifiée. Il fournit les sources Riot, un mémo synthétique des règles, le fonctionnement du plateau et des fiches de cartes correspondantes, y compris leurs effets lorsque le catalogue les contient. L'écran de préparation de l'IA affiche automatiquement la révision des règles et la taille du catalogue accessible. Les PDF complets et errata doivent être consultés sur le hub officiel ; le projet ne les recopie pas.
 
-**Limites importantes** : le mémo est un résumé original, et non l'intégralité des 142 pages de règles compétitives. Le modèle Qwen3 0.6B peut se tromper malgré ces informations, notamment sur les capacités, réactions, timings, coûts et combats. Les données du catalogue peuvent être incomplètes ou antérieures à un errata. Dans ces situations, l'IA doit demander une vérification au joueur plutôt que déduire une règle non documentée.
+**Limites importantes** : le mémo est un résumé original, et non l'intégralité des 142 pages de règles compétitives. Le modèle Qwen3 4B peut se tromper malgré ces informations, notamment sur les capacités, réactions, timings, coûts et combats. Les données du catalogue peuvent être incomplètes ou antérieures à un errata. Dans ces situations, l'IA doit demander une vérification au joueur plutôt que déduire une règle non documentée.
 
 **Propriété intellectuelle et conformité :** les règles et cartes appartiennent à Riot Games. La [politique officielle des outils Riftbound](https://developer.riotgames.com/docs/riftbound) indique que l'utilisation d'actifs Riot dans une application nécessite une autorisation/API key appropriée et ne favorise pas actuellement les outils qui imposent automatiquement les règles. Un usage fan gratuit ne remplace pas ces autorisations. Cette version renvoie donc aux ressources officielles et utilise le catalogue existant sans embarquer de copie intégrale des règles ou des illustrations.
 
 ### Limite des règles
 
-Le site constitue un outil de suivi pour une partie **physique**. Le petit modèle peut jouer, répondre et commander le plateau, mais ne garantit pas à lui seul l'application exacte de toutes les règles compétitives ni des effets des cartes. Les actions automatiques restent vérifiées par le code contre des erreurs techniques évidentes.
+Le site constitue un outil de suivi pour une partie **physique**. Le modèle local peut jouer, répondre et commander le plateau, mais ne garantit pas à lui seul l'application exacte de toutes les règles compétitives ni des effets des cartes. Les actions automatiques restent vérifiées par le code contre des erreurs techniques évidentes.
 
 ---
 
@@ -69,11 +76,11 @@ Sur les petits écrans (moins de 891 pixels CSS de largeur), il est impossible d
 
 Le bouton **🎙 Mode vocal**, dans la discussion en bas à droite, active l'écoute mains libres. Parle normalement en français : l'interface affiche la transcription en direct, puis **une pause d'environ 1,5 seconde** envoie automatiquement la phrase au relais local. Aucune touche Entrée ni nouvel appui sur le micro n'est nécessaire. Toutes les phrases passent par la même file de messages que le texte écrit : l'adversaire IA les reçoit, répond et peut commander le plateau selon ses règles configurées. Les déclarations sans ambiguïté telles que « Je termine mon tour » font également avancer le tour avant transmission.
 
-Le moteur de reconnaissance navigateur tourne en mode **continuous**, puis redémarre automatiquement après la fin d'une session ou une absence de voix détectée (`no-speech`). Un silence n'est donc plus traité comme un échec définitif. Le statut coloré du micro distingue écoute, transcription, réponse de l'IA, reconnexion et erreur de permission/périphérique. En cas de messages `no-speech` répétés, vérifie le microphone sélectionné dans **Chrome → Paramètres → Confidentialité et sécurité → Paramètres des sites → Microphone**, ainsi que le périphérique d'entrée de Windows, et parle suffisamment près du micro. Accepter l'autorisation ne garantit pas qu'une entrée sonore soit captée.
+La reconnaissance vocale utilise **uniquement Whisper Small multilingue installé sur le PC**. Le micro écoute en continu tant que le mode vocal est actif ; après une pause, l’enregistrement est transcrit sur l’ordinateur. Aucun menu de choix de modèle ou de service de transcription n’est affiché. Autorise l’accès au microphone dans le navigateur et vérifie le périphérique choisi dans Windows si aucune parole n’est détectée.
 
 Pendant la lecture vocale de l'adversaire, **le microphone s'interrompt pour éviter que l'IA se réentende**. Il reprend ensuite automatiquement. La case **L'IA me répond à voix haute** permet de couper la synthèse vocale ; le texte des réponses reste toujours dans la discussion. Le bouton **■ Couper le micro** arrête immédiatement l'écoute. La capture vocale est mise en pause quand l'onglet devient invisible.
 
-**Confidentialité :** cette fonctionnalité utilise l'API Web Speech de Chrome/Edge. Selon le navigateur, **la transcription vocale peut utiliser un service Internet et y transmettre l'audio** ; elle n'est pas nécessairement hors ligne, même si le modèle Qwen3 de Riftbound est entièrement local et gratuit. Elle ne nécessite **ni clé API, ni abonnement, ni paiement par message**. Les navigateurs sans prise en charge Web Speech conservent le chat écrit.
+**Confidentialité :** la transcription passe par le module Whisper local du compagnon, sans service de reconnaissance Chrome/Edge. Aucune phrase audio n’est envoyée à un fournisseur cloud par ce module. Les fichiers WAV temporaires restent dans le dossier choisi et sont supprimés après transcription. Le mode écrit reste disponible sans microphone.
 
 ## Contrôle du plateau par les annonces du joueur
 

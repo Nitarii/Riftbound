@@ -17,9 +17,10 @@ import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
 import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
 import {planPlayerSequence} from "./player-sequence.mjs";
+import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
-import {createFreeLocalAI} from "./free-ai.mjs";
-import {createLocalWhisper} from "./whisper-local.mjs";
+import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
+import {createLocalWhisper,WHISPER_MODEL} from "./whisper-local.mjs";
 import {createPortableManager,CURRENT_VERSION} from "./portable-manager.mjs";
 import {createProcessDashboard} from "./process-dashboard.mjs";
 import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
@@ -135,7 +136,7 @@ const guide={
  "POST /api/ai/config":"Configure outbound OpenAI-compatible model; LOCAL only",
  "POST /api/ai/disable":"Stop generating model responses; LOCAL only",
  "GET /api/ai/free/status":"Free local CPU model installation progress; LOCAL only",
- "POST /api/ai/free/install":"One-click free local Qwen3 0.6B CPU installer; LOCAL only",
+ "POST /api/ai/free/install":"One-click local Qwen3 4B + Whisper Small installer; LOCAL only",
  "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
@@ -178,6 +179,7 @@ async function executeGameCommand(input){
     format:"preconstructed",deckName:deck.label};
  }
  state=applyCommand(state,command);
+ if(["start","next-turn"].includes(command.type))state=advanceMandatoryTurn(state);
  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
  save();broadcast();return state;
 }
@@ -187,7 +189,10 @@ function applyAgentBatch(actions,revision){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
  let next=state;
- for(const cmd of actions)next=applyCommand(next,cmd);
+ for(const cmd of actions){
+  next=applyCommand(next,cmd);
+  if(["start","next-turn"].includes(cmd.type))next=advanceMandatoryTurn(next);
+ }
  state=next;save();broadcast();return state;
 }
 const integratedAI=createIntegratedAI({
@@ -247,7 +252,7 @@ const receiveHumanMessage=text=>{
     return;
    }
   }
-  integratedAI.onHumanMessage(announcement);
+  integratedAI.onHumanMessage(announcement,{actionApplied:Boolean(plan.recognized||plan.commands?.length)});
  }).catch(e=>receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180)));
  return entry;
 };
@@ -405,7 +410,9 @@ const server=http.createServer(async(req,res)=>{
       if(!manager.status().canLaunch)throw Error("Termine la mise à jour ou la vérification avant de démarrer l'IA.");
       const input=await body(req);
       if(input?.confirmFolder!==userData)throw Error("Choisis et confirme le dossier d'installation dans le gestionnaire Windows.");
-      json(res,202,localFreeAI.start(input?.model||"qwen3:0.6b"),req);
+      const opponent=localFreeAI.start(LOCAL_AI_MODEL);
+      const voice=speech.begin(WHISPER_MODEL);
+      json(res,202,{...opponent,speech:voice},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }
 
@@ -471,7 +478,7 @@ const server=http.createServer(async(req,res)=>{
     try{
      const input=await body(req);
      if(input?.confirmFolder!==userData)throw Error("Confirme le dossier choisi avant l'installation de Whisper.");
-     json(res,202,speech.begin(input?.model||"base"),req);
+     json(res,202,speech.begin(WHISPER_MODEL),req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/transcribe"){
