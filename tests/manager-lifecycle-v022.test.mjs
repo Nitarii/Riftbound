@@ -20,7 +20,7 @@ const fetchRelease=source=>async url=>{
 test("the site and Windows app share a minimum version",()=>{
  assert.equal(CURRENT_VERSION,"0.32.0");
  assert.equal(MINIMUM_COMPANION_VERSION,CURRENT_VERSION);
- assert.match(DOWNLOAD_URL,/\/RiftboundCompanion-v0\.31\.exe$/);
+ assert.match(DOWNLOAD_URL,/\/RiftboundCompanion-v0\.32\.exe$/);
  assert.equal(compareVersions("0.21.0",CURRENT_VERSION),-1);
  assert.equal(companionNeedsUpdate("0.21"),true);
  assert.equal(companionNeedsUpdate(CURRENT_VERSION),false);
