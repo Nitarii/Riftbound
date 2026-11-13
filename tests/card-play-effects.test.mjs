@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "../play-effects.mjs";
 import {planAutonomousAITurn} from "../ai-turn.mjs";
+import {effectiveMight} from "../combat-engine.mjs";
 const card=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:1,...extra});
 const chem=card("Chemtech Enforcer","Unit",{energy:2,might:2,text:"[Assault 2] (+2 while I'm an attacker.)\nWhen you play me, discard 1."});
 function setup(){
@@ -69,4 +70,10 @@ test("no spare hand card means the AI refuses the mandatory-discard unit",()=>{
  const plan=planAutonomousAITurn(state);
  assert.equal(plan.commands.some(x=>x.type==="play-paid"&&
   state.cards.find(c=>c.uid===x.uid)?.name==="Chemtech Enforcer"),false);
+});
+
+test("bracketed Assault 2 gives Chemtech Enforcer +2 Might when attacking only",()=>{
+ assert.equal(effectiveMight(chem,"attack"),4);
+ assert.equal(effectiveMight(chem,"defend"),2);
+ assert.equal(effectiveMight(card("Wall","Unit",{might:3,text:"[Shield 1]"}),"defend"),4);
 });
