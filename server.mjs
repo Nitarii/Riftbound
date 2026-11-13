@@ -270,7 +270,7 @@ function shutdownAll(){
  setTimeout(()=>process.exit(0),2200).unref();
 }
 const manager=createPortableManager({
- root:userData,exePath:process.execPath,portable,
+ root:userData,exePath:process.execPath,portable,sessionToken:token,port,
  skipStartupCheck:process.env.RIFTBOUND_PORTABLE_TEST==="1"||
   process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
  onOutdated:()=>{
@@ -433,6 +433,14 @@ const server=http.createServer(async(req,res)=>{
       // A player explicitly opted to launch despite a failed network check.
       resumeLocalOpponent();
     }catch(e){msg(res,409,String(e.message||e),req);}return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/manager/update/log"){
+    try{
+      const logFile=path.join(userData,"updates","update.log");
+      const content=fs.existsSync(logFile)?fs.readFileSync(logFile,"utf8").slice(-12000):"Aucun journal de mise à jour.";
+      json(res,200,{log:content},req);
+    }catch(e){msg(res,500,String(e.message||e),req);}
+    return;
   }
   if(req.method==="POST"&&url.pathname==="/api/manager/update/check"){
     try{json(res,200,await manager.checkUpdate(),req);}

@@ -24,6 +24,8 @@ on:
       - 'whisper-local.mjs'
       - 'portable.mjs'
       - 'portable-manager.mjs'
+      - 'update-transaction.mjs'
+      - 'scripts/windows-update-smoke.mjs'
       - 'release-policy.mjs'
       - 'process-lifecycle.mjs'
       - 'process-dashboard.mjs'
@@ -132,7 +134,7 @@ jobs:
           $bmp.Dispose()
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.25.exe" -Force
+          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.26.exe" -Force
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
@@ -225,12 +227,23 @@ jobs:
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }
+      - name: Windows end-to-end self-update and recovery smoke test
+        shell: pwsh
+        run: |
+          node scripts/windows-update-smoke.mjs
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== Updater diagnostic log ==="
+            Get-ChildItem -Path "dist" -Filter "update.log" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              Get-Content -LiteralPath $_.FullName -Tail 80
+            }
+            throw "Self-updater failed to restart or recover"
+          }
       - name: SHA256
         shell: pwsh
         run: |
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.25.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.25.exe.sha256" -Encoding ascii -NoNewline
+          "$hash  RiftboundCompanion-v0.26.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.26.exe.sha256" -Encoding ascii -NoNewline
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
@@ -242,5 +255,5 @@ jobs:
             gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
             if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
           }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.25.exe" "dist/RiftboundCompanion-v0.25.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
+          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.26.exe" "dist/RiftboundCompanion-v0.26.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
           if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}

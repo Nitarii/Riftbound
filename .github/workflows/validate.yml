@@ -28,6 +28,8 @@ jobs:
           node --check player-actions.mjs
           node --check clarification.mjs
           node --check portable.mjs
+          node --check update-transaction.mjs
+          node --check scripts/windows-update-smoke.mjs
           node --check portable-manager.mjs
           node --check release-policy.mjs
           node --check process-lifecycle.mjs

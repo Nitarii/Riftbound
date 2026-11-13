@@ -39,6 +39,15 @@ header{justify-content:space-between;flex-wrap:wrap}
 #startup-progress{width:100%;margin:6px 0}
 #manager-dashboard{transition:opacity .2s}
 .notice{min-height:28px;color:#bbddcd;font-size:12px;line-height:1.5;padding-top:8px}
+.update-diagnostics{margin:0 0 18px;border-color:#4c6a65}
+.update-diagnostics h2{font-size:16px}
+.update-diagnostics[data-state="failed"],.update-diagnostics[data-state="rolled-back"]{border-color:#b97759;background:#2d2630e8}
+.update-diagnostics[data-state="success"]{border-color:#538e6f;background:#19312de8}
+.update-diagnostics p{margin:5px 0 9px;white-space:pre-wrap}
+#update-log-preview{white-space:pre-wrap;word-break:break-word;max-height:210px;
+ overflow:auto;background:#081720;border:1px solid #46616b;border-radius:6px;
+ padding:10px;font:11px/1.6 Consolas,monospace;color:#d4e1df}
+
 footer{font-size:11px;line-height:1.65;color:#91a8b2;margin:20px 0 0}
 .process-dashboard{margin:0 0 18px;padding:18px;border-color:#54776f;
  background:linear-gradient(140deg,#142c34ed,#10212cea)}
@@ -110,6 +119,12 @@ footer{font-size:11px;line-height:1.65;color:#91a8b2;margin:20px 0 0}
   <button id="startup-offline" type="button" hidden>Continuer sans vérification réseau</button>
  </div>
 </section>
+<section id="update-diagnostics" class="update-diagnostics" hidden aria-live="polite">
+ <h2 id="update-diagnostics-title">État de la mise à jour</h2>
+ <p id="update-diagnostics-text">Vérification en cours…</p>
+ <button id="update-log-button" type="button">Afficher le journal de mise à jour</button>
+ <pre id="update-log-preview" hidden></pre>
+</section>
 <div id="manager-dashboard" class="grid" hidden>
  <section>
   <h2>Plateau de jeu</h2><p>Ouvre Riftbound dans ton navigateur. Le serveur reste privé sur cet ordinateur.</p>
@@ -150,7 +165,7 @@ if(token)try{sessionStorage.setItem(key,token)}catch{}
 if(!token)try{token=sessionStorage.getItem(key)||""}catch{}
 history.replaceState(null,"",location.pathname);
 let root="",availableVersion="",busy=false,managerStatus=null,stopping=false,refreshing=false;
-let latestProcesses=null;
+let latestProcesses=null,awaitingUpdateRestart=false;
 const api=async(url,method="GET",data)=>{
  const response=await fetch(url,{method,cache:"no-store",headers:{
   "Authorization":"Bearer "+token,...(data?{"Content-Type":"application/json"}:{})},
@@ -206,6 +221,28 @@ function renderProcesses(data){
  $("process-stop-all").disabled=busy||!(
   q.active||q.enabled||q.installing||w.active||w.enabled||w.installing||t.active||t.starting);
 }
+function renderUpdateResult(manager){
+ const detail=manager.lastUpdate;
+ const pane=$("update-diagnostics");
+ if(!detail){pane.hidden=true;return;}
+ pane.hidden=false;pane.dataset.state=detail.phase;
+ const titles={
+  waiting:"Fermeture de l'ancienne version",
+  verifying:"Vérification du téléchargement",
+  replacing:"Remplacement de l'exécutable",
+  restarting:"Redémarrage du nouveau gestionnaire",
+  success:"✓ Mise à jour terminée",
+  failed:"⚠ Mise à jour interrompue",
+  "rolled-back":"⚠ Mise à jour annulée — ancienne version restaurée",
+  launching:"Réparation manuelle installée"
+ };
+ $("update-diagnostics-title").textContent=titles[detail.phase]||"Mise à jour";
+ $("update-diagnostics-text").textContent=
+  (detail.version?"Version : "+detail.version+". ":"")+(detail.message||"")+
+  (detail.phase==="failed"||detail.phase==="rolled-back"?
+   "\nLe journal ci-dessous permet de diagnostiquer la panne. Les fichiers et modèles ont été conservés.":"");
+ if(["success","rolled-back","failed"].includes(detail.phase))awaitingUpdateRestart=false;
+}
 function renderStartup(data){
  managerStatus=data;
  const startup=$("startup-screen"),dashboard=$("manager-dashboard");
@@ -224,8 +261,11 @@ function renderStartup(data){
  $("startup-progress").hidden=!data.updating;
  $("startup-progress").value=Number(data.progress)||0;
  if(data.shuttingDown){
-  title.textContent="Fermeture en cours…";
-  message.textContent="Arrêt de tous les processus Riftbound. Les fichiers seront conservés.";
+  title.textContent=data.phase==="restarting"?
+   "Mise à jour : redémarrage automatique…":"Fermeture en cours…";
+  message.textContent=data.phase==="restarting"?
+   "Le nouveau compagnon se substitue à l'ancien. Cet onglet restera utilisable après le redémarrage.":
+   "Arrêt de tous les processus Riftbound. Les fichiers seront conservés.";
  }else if(data.updating){
   title.textContent="Mise à jour en cours · "+(data.progress||0)+" %";
   message.textContent="Téléchargement et vérification dans ton dossier, puis redémarrage automatique.";
@@ -260,6 +300,7 @@ async function refresh(){
    api("/api/speech/status"),api("/api/manager/processes")]);
   root=manager.path;availableVersion=manager.availableVersion||"";
   renderStartup(manager);
+  renderUpdateResult(manager);
   renderProcesses(processes);
   $("storage").textContent="Dossier exclusif : "+root;
   $("version").textContent="Version "+manager.version;
@@ -278,9 +319,16 @@ async function refresh(){
   $("open-local").disabled=!manager.canLaunch;
   progress("update-progress",manager);
   if(manager.updating)showStatus("update-info","Téléchargement "+manager.progress+" %");
+  if(awaitingUpdateRestart&&manager.lastUpdate?.phase==="success")
+   report("✓ Mise à jour "+manager.version+" terminée. Gestionnaire reconnecté.");
  }catch(e){
   if(!stopping){
-   $("connection").textContent="● Compagnon indisponible";report(e.message,true);
+   if(awaitingUpdateRestart){
+    $("connection").textContent="◌ Mise à jour : reconnexion du gestionnaire…";
+    showStatus("update-info","L'ancienne version est fermée, vérification du redémarrage automatique…");
+   }else{
+    $("connection").textContent="● Compagnon indisponible";report(e.message,true);
+   }
   }
  }finally{refreshing=false;}
 }
@@ -312,7 +360,9 @@ async function beginUpdate(){
  if(!availableVersion||!confirm("Installer la version "+availableVersion+
   " dans le même dossier ? Le compagnon et ses moteurs seront arrêtés puis redémarrés."))return;
  const result=await api("/api/manager/update/apply","POST");
- renderStartup(result);showStatus("update-info",result.message);
+ awaitingUpdateRestart=Boolean(result.shuttingDown&&result.phase==="restarting");
+ renderStartup(result);renderUpdateResult(result);
+ showStatus("update-info",result.message);
 }
 $("startup-update").onclick=()=>execute(beginUpdate);
 $("manager-stop").onclick=()=>execute(async()=>{
@@ -361,6 +411,13 @@ $("update-check").onclick=()=>execute(async()=>{
  showStatus("update-info",result.message);
 });
 $("update-apply").onclick=()=>execute(beginUpdate);
+$("update-log-button").onclick=()=>execute(async()=>{
+ const panel=$("update-log-preview");
+ if(!panel.hidden){panel.hidden=true;return;}
+ const result=await api("/api/manager/update/log");
+ panel.textContent=result.log||"Aucun journal disponible.";
+ panel.hidden=false;
+});
 $("uninstall").onclick=()=>execute(async()=>{
  if(!confirm("Supprimer définitivement tous les fichiers gérés par Riftbound dans :\n"+root+" ?"))return;
  if(!confirm("Cette opération supprimera aussi tes sauvegardes et les modèles téléchargés. Continuer ?"))return;
