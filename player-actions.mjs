@@ -208,10 +208,15 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    if(Number(card.power||0)>0)return fail(
     "Cette carte exige aussi du Power de domaine : confirme les runes à recycler avant de la jouer.",
     "This card also requires domain Power: confirm which runes to recycle before playing.");
-   if(!Number.isInteger(spent)||spent!==energy||spent>ready)
-    return fail("Paiement invalide pour "+card.name+" : "+energy+" énergie, "+ready+" runes prêtes, "+spent+" annoncées.",
-      "Invalid payment for "+card.name+": "+energy+" energy, "+ready+" ready runes, "+spent+" announced.");
-   if(spent>0)add({type:"exhaust-runes",player:"human",count:spent});
+   if(ready<energy)return fail(
+     "Tu ne peux pas encore jouer "+card.name+" : cette carte coûte "+energy+
+     " énergies, mais tu n'as que "+ready+" rune(s) prête(s). Aucune carte n'a été posée.",
+     "You cannot play "+card.name+" yet: it costs "+energy+
+     " energy, but you only have "+ready+" ready rune(s). No card was played.");
+    if(!Number.isInteger(spent)||spent!==energy)
+     return fail("Pour jouer "+card.name+", il faut épuiser exactement "+energy+" rune(s), et non "+spent+".",
+      "Playing "+card.name+" requires exactly "+energy+" runes, not "+spent+".");
+    if(spent>0)add({type:"exhaust-runes",player:"human",count:spent});
    add({type:"phase",phase:"Main"});
    add({type:"add",player:"human",card,zone:"base",fromHand:true});
   }else if(spend){
