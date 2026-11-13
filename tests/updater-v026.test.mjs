@@ -65,9 +65,10 @@ test("Detached PowerShell updater is written only in the portable folder and fai
    spawnImpl:(file,args,opts)=>{spawned={file,args,opts};return {pid:2500,once(){},unref(){}};}});
   assert.equal(started.pid,2500);
   assert.equal(spawned.file,"powershell.exe");
-  assert.ok(spawned.args.includes("-File"));
-  const file=spawned.args.at(-1);
-  assert.equal(file,path.join(target,"updates","companion-update.ps1"));
+  assert.ok(spawned.args.includes("-EncodedCommand"));
+  const encoded=spawned.args.at(-1);
+  assert.equal(Buffer.from(encoded,"base64").toString("utf16le"),script);
+  const file=path.join(target,"updates","companion-update.ps1");
   assert.equal(fs.readFileSync(file,"utf8").replace(/^\uFEFF/,""),script);
   assert.equal(spawned.opts.cwd,target);
   assert.equal(spawned.opts.env.RIFTBOUND_TOKEN,"mock-secret");
