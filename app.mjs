@@ -950,7 +950,7 @@ function freeReadableBytes(n){
 }
 function renderFreeAI(message=""){
  const info=freeAIInfo;
- const active=Boolean(integratedAIStatus?.enabled&&integratedAIStatus.provider==="free");
+ const active=Boolean(integratedAIStatus?.enabled&&integratedAIStatus.provider==="free"&&info?.ready);
  const voiceReady=Boolean(speechInfo?.installed&&speechInfo.enabled!==false);
  const busy=Boolean(freeAILoading||info?.running||runningPhases.has(info?.phase)||speechInfo?.running);
  const complete=active&&voiceReady;
@@ -1040,7 +1040,7 @@ async function refreshSpeech(){
   });
   if(!result.ok)return;
   speechInfo=await result.json();
-  const isBusy=Boolean(speechBusy||speechInfo.running);
+  const isBusy=Boolean(speechInfo.running);
   const stage=$("speech-stage"),bar=$("speech-progress");
   stage.textContent=speechInfo.message+(speechInfo.error?" "+speechInfo.error:"")+
    (speechInfo.installed?" · Disponible dans Mode vocal.":"");
