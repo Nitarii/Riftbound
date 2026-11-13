@@ -794,6 +794,11 @@ voiceButton.onclick=async()=>{
    "Whisper Small n'est pas installé. Utilise le bouton « Installer IA et Whisper Small ».",true);
   return;
  }
+ // Start the already-installed Whisper model while the browser opens the microphone.
+ void fetch(relay.url+"/api/speech/warm",{
+  ...localFetchOptions(relay.url),method:"POST",
+  headers:{"Authorization":"Bearer "+relay.token}
+ }).catch(()=>{});
  const useWhisper=true;
  voiceController.setSpeechEnabled(voiceReadReplies.checked);
  voiceController.setLanguage(uiLanguage);
