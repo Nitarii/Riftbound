@@ -339,6 +339,16 @@ export function createFreeLocalAI({
   persistPreferences();
   stopping=false;notice="";downloadAbort=new AbortController();
   const promise=prepare({download}).catch(async error=>{
+   // If the optional 9B download failed, keep the previously running 4B
+   // opponent alive. Only stop processes from a failed launch attempt.
+   const existing=activeModel&&activeModel!==preferredModel&&active&&await probe(800);
+   if(existing&&!stopping){
+    preferredModel=activeModel;persistPreferences();
+    notice="Nouveau profil indisponible : "+failure(error);
+    set({phase:"ready",ready:true,installed:true,error:"",
+     message:"Le modèle déjà actif a été conservé."});
+    return;
+   }
    await stopPrevious();
    if(!stopping)set({phase:"error",ready:false,installed:engineInstalled("cpu"),
     error:failure(error),message:"Installation ou démarrage de l'IA inachevé."});
