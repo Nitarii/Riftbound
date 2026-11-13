@@ -1,14 +1,14 @@
 <!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.28.0"/></head>
 <body class="home-visible">
-<header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><label class="language-toggle" for="language-select"><select id="language-select" aria-label="Language / Langue"><option value="fr">FR</option><option value="en">EN</option></select></label><button id="manager-open" type="button" class="header-manager" title="Ouvrir le gestionnaire Windows : mises à jour, IA et arrêt des processus">⚙ Gestionnaire</button><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></header>
+<header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><label class="language-toggle" for="language-select"><select id="language-select" aria-label="Language / Langue"><option value="fr">FR</option><option value="en">EN</option></select></label><button id="manager-open" type="button" class="header-manager" title="Ouvrir le gestionnaire Windows : mises à jour, IA et arrêt des processus">⚙ Gestionnaire</button><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><details class="header-extra"><summary>Plus</summary><div class="header-extra-menu"><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></details></div></header>
 
 <section id="welcome-screen" class="welcome-screen" aria-labelledby="welcome-heading">
 
   <div class="wizard-intro">
     <div class="wizard-intro-copy">
       <span class="welcome-eyebrow">RIFTBOUND · COMPAGNON DE TABLE NON OFFICIEL</span>
-      <h1 id="welcome-heading">Tes vraies cartes. <span>Un adversaire IA.</span></h1>
-      <p>Joue physiquement à Riftbound contre une IA, comme contre un ami. Ce site sert à afficher et suivre le plateau ; ce n'est pas un jeu en ligne ni une copie numérique autonome.</p>
+      <h1 id="welcome-heading">Tes cartes. <span>Ton adversaire IA.</span></h1>
+      <p>Installe le compagnon, prépare ton deck et joue sur le plateau.</p>
       <p class="wizard-legal">Projet fan gratuit, non commercial et non affilié à Riot Games. Les joueurs et l'agent restent responsables des règles.</p>
     </div>
     <button type="button" id="home-resume" class="primary" hidden>Reprendre ma partie</button>
@@ -20,11 +20,11 @@
       <p id="companion-version-info" role="status" aria-live="polite">Vérifie la version de ton compagnon avant de lancer la partie.</p>
       <div class="version-gate-actions">
         <button id="version-open-manager" type="button" class="primary">Ouvrir le gestionnaire</button>
-        <a id="version-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.27.exe" target="_blank" rel="noopener noreferrer">Télécharger la version récente ↓</a>
+        <a id="version-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.28.exe" target="_blank" rel="noopener noreferrer">Télécharger la version récente ↓</a>
       </div>
     </div>
   </section>
-  <div class="wizard-progress" aria-label="Progression de la configuration">
+  <div class="wizard-progress" aria-label="Progression de la configuration" hidden>
     <div class="wizard-progress-top">
       <strong id="wizard-current-label">Étape 1 sur 4</strong>
       <span id="welcome-progress-label">0 / 4 validées</span>
@@ -41,24 +41,24 @@
     <section class="welcome-step" data-wizard-step="1" aria-labelledby="welcome-step-one">
       <div class="welcome-step-header">
         <span class="welcome-step-index">01</span>
-        <div><h2 id="welcome-step-one">Télécharger le module serveur</h2>
-          <p>Un seul fichier Windows à lancer : le plateau et le serveur sont intégrés, sans installation de Node.js.</p></div>
+        <div><h2 id="welcome-step-one">Installer le compagnon</h2>
+          <p>Un fichier Windows, sans dépendance.</p></div>
         <label class="welcome-step-check quest-check"><input type="checkbox" id="home-installed"><span class="quest-check-badge" aria-hidden="true"><span class="quest-check-symbol">✓</span></span><span class="quest-check-label">J'ai lancé l'application</span></label>
       </div>
       <div class="welcome-step-body">
         <div class="download-feature">
           <div class="download-feature-icon" aria-hidden="true">✦</div>
           <div class="download-feature-copy"><strong>Riftbound Companion pour Windows</strong><span>Windows 10/11 · 64 bits · 1 exécutable autonome</span></div>
-          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.27.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
+          <a id="home-download" class="welcome-action primary-link" href="https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.28.exe">Télécharger .exe <span aria-hidden="true">↓</span></a>
         </div>
-        <p class="welcome-hint">Télécharge le fichier puis <strong>double-clique dessus</strong>. Il lance ton serveur privé sur cet ordinateur. Reviens ensuite sur cet onglet pour autoriser la connexion. Aucune installation ni dépendance supplémentaire. <strong>Logiciel non signé</strong> : Windows peut demander une confirmation.</p>
+        <p class="welcome-hint">Lance le fichier téléchargé. Windows peut afficher un avertissement car le programme n’est pas signé.</p>
         <div class="welcome-actions"><button type="button" id="home-skip-install">Essayer sans installer (aperçu limité)</button></div>
       </div>
     </section>
 
     <section class="welcome-step" data-wizard-step="2" aria-labelledby="welcome-step-two" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">02</span>
-        <div><h2 id="welcome-step-two">Autoriser la connexion au compagnon</h2><p>Le navigateur doit autoriser ce site à communiquer avec l'application installée sur <strong>ton propre ordinateur</strong>.</p></div>
+        <div><h2 id="welcome-step-two">Connecter le compagnon</h2><p>Une seule autorisation, uniquement sur ton PC.</p></div>
         <span id="home-relay-status" class="welcome-state">Non connecté</span></div>
       <div class="welcome-step-body">
         <div class="connection-feature"><div class="connection-feature-led" aria-hidden="true"></div><div><strong id="home-connection-label">En attente de l'application locale</strong><p>Connexion au programme Riftbound Companion, uniquement sur <code>127.0.0.1</code>.</p></div></div>
@@ -92,12 +92,12 @@
 
     <section class="welcome-step" data-wizard-step="3" aria-labelledby="welcome-step-three" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">03</span>
-        <div><h2 id="welcome-step-three">Créer une partie</h2><p>Tu gardes tes cartes en main secrètes. L'IA reçoit un deck préconstruit de démonstration.</p></div>
+        <div><h2 id="welcome-step-three">Nouvelle partie</h2><p>Ta main reste secrète pour l’IA.</p></div>
         <span class="welcome-state" id="home-game-status">À préparer</span></div>
       <div class="welcome-step-body">
         <div class="welcome-setup-grid">
           <fieldset class="hero-picker-panel"><legend>Ton deck physique</legend>
-            <p class="picker-instructions">Recherche le nom du personnage (par exemple <strong>Shen</strong> ou <strong>Lillia</strong>), puis choisis la carte. Le champion compatible sera proposé automatiquement.</p>
+            <p class="picker-instructions">Choisis ta légende, puis ton champion compatible et ton terrain.</p>
             <div class="card-search-field" data-picker="legend">
               <label for="home-human-legend">1 · Ta légende</label>
               <div class="picker-input-wrap"><span aria-hidden="true">⌕</span><input id="home-human-legend" type="search" placeholder="Choisis une légende…" autocomplete="off" aria-autocomplete="list" aria-expanded="false" aria-controls="picker-legend-results" role="combobox" required></div>
@@ -120,13 +120,13 @@
           <fieldset><legend>Adversaire IA</legend>
             <label>Deck de l'IA<select id="home-ai-deck"><option value="random">🎲 Deck aléatoire parmi tous les decks</option></select></label><div id="home-deck-preview" class="deck-preview" aria-live="polite">Choisis un deck pour afficher ses informations.</div>
             <label>Qui commence ?<select id="home-first-player"><option value="human">Moi</option><option value="ai">L'IA</option></select></label>
-            <p class="welcome-hint">Les decks sont des listes de produits publiées par Riot, sans garantie de légalité en compétition actuelle. La main physique n'est pas montrée à l'IA.</p>
+            <p class="welcome-hint">Deck préconstruit pour l’IA.</p>
           </fieldset>
         </div>
 
         <div class="welcome-actions">
-          <button id="home-create-game" type="button" class="primary">Créer et démarrer ma partie</button>
-          <button id="home-advanced-setup" type="button">Configuration avancée</button>
+          <button id="home-create-game" type="button" class="primary">▶ Commencer la partie</button>
+          <button id="home-advanced-setup" type="button">Options avancées</button>
         </div>
         <p class="welcome-hint" id="home-catalog-count">Chargement du catalogue…</p>
       </div>
@@ -134,19 +134,17 @@
 
     <section class="welcome-step" data-wizard-step="4" aria-labelledby="welcome-step-four" hidden>
       <div class="welcome-step-header"><span class="welcome-step-index">04</span>
-        <div><h2 id="welcome-step-four">Choisir ton adversaire IA</h2>
-          <p>IA intégrée au compagnon : elle répond directement dans le chat et déplace les cartes, sans tunnel ni prompt.</p></div>
+        <div><h2 id="welcome-step-four">IA locale et microphone</h2>
+          <p></p></div>
         <span class="welcome-state" id="home-prompt-status">À copier</span></div>
       <div class="welcome-step-body">
         <section class="integrated-agent-panel free-agent-primary" aria-labelledby="integrated-agent-heading">
           <div class="integrated-heading"><span aria-hidden="true">✦</span><div>
             <h3 id="integrated-agent-heading">Ton adversaire IA 100 % gratuit</h3>
-            <p>Il joue directement sur ton ordinateur, sans abonnement, compte, clé API, crédit ni paiement.</p>
+            <p>Gratuit, hors ligne après installation.</p>
           </div></div>
           <div class="free-agent-choice">
-            <p><strong>Modèle unique : Qwen3 4B Instruct 2507 (Q4_K_M)</strong> · environ 2,5 Go.
-              Reconnaissance vocale unique : Whisper Small multilingue · environ 488 Mo.
-              Les deux moteurs gratuits fonctionnent en local et sont installés dans le même dossier, en une seule étape. Prévoir environ 6 Go de RAM libre.</p>
+            <p><strong>Qwen3 4B + Whisper Small</strong> · environ 3 Go à télécharger une fois.</p>
             <input id="free-ai-model" type="hidden" value="qwen3:4b-instruct-2507">
           </div>
           <div class="welcome-actions free-agent-actions">
@@ -158,7 +156,7 @@
           <p id="free-ai-stage" class="integrated-status" role="status" aria-live="polite">Connecte ton programme Windows pour installer l'IA gratuite.</p>
           <section class="speech-setup" aria-labelledby="speech-setup-heading">
             <h4 id="speech-setup-heading">Micro local · Whisper Small</h4>
-            <p>Un seul moteur vocal multilingue FR/EN : il est installé et activé avec ton adversaire, sans choix de modèle et sans service de transcription Chrome.</p>
+            <p></p>
             <progress id="speech-progress" max="100" value="0" hidden></progress>
             <p id="speech-stage" class="integrated-status" role="status" aria-live="polite">Whisper Small s’installe en même temps que l’IA.</p>
           </section>
@@ -167,7 +165,7 @@
             <p id="ai-knowledge-cards" role="status" aria-live="polite">Règles de base et de tournoi · Commandes du plateau · Textes des cartes consultés automatiquement.</p>
             <a href="https://playriftbound.com/fr-fr/rules-hub/" target="_blank" rel="noopener noreferrer">Consulter le hub officiel des règles et errata</a>
           </div>
-          <p class="integrated-caution">Le modèle local reçoit automatiquement les règles utiles, les commandes du site et les effets des cartes concernées. Le résumé n'est pas un arbitre officiel et les règles compétitives doivent être vérifiées. Ta main physique cachée reste privée.</p>
+          <p class="integrated-caution">Les règles complexes peuvent demander une confirmation ; ta main physique reste privée.</p>
           <div hidden aria-hidden="true" id="legacy-ai-config">
             <select id="ai-provider"><option value="openai">OpenAI</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="compatible">Compatible</option></select>
             <input id="ai-model" type="text">
@@ -217,7 +215,7 @@
       </div>
     </section>
   </div>
-  <nav class="wizard-navigation" aria-label="Navigation entre les étapes">
+  <nav class="wizard-navigation" aria-label="Navigation entre les étapes" hidden>
     <button id="home-back" type="button" disabled>← Retour</button>
     <p id="wizard-next-hint" class="wizard-next-hint" role="status">Valide l'installation ou choisis l'aperçu.</p>
     <button id="home-next" type="button" class="primary" disabled>Valider et continuer →</button>
