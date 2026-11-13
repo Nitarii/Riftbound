@@ -17,6 +17,7 @@ import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
 import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
 import {planPlayerSequence} from "./player-sequence.mjs";
+import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI} from "./free-ai.mjs";
 import {createLocalWhisper} from "./whisper-local.mjs";
@@ -178,6 +179,7 @@ async function executeGameCommand(input){
     format:"preconstructed",deckName:deck.label};
  }
  state=applyCommand(state,command);
+ if(["start","next-turn"].includes(command.type))state=advanceMandatoryTurn(state);
  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
  save();broadcast();return state;
 }
@@ -187,7 +189,10 @@ function applyAgentBatch(actions,revision){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
  let next=state;
- for(const cmd of actions)next=applyCommand(next,cmd);
+ for(const cmd of actions){
+  next=applyCommand(next,cmd);
+  if(["start","next-turn"].includes(cmd.type))next=advanceMandatoryTurn(next);
+ }
  state=next;save();broadcast();return state;
 }
 const integratedAI=createIntegratedAI({
