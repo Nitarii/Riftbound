@@ -145,7 +145,7 @@ export function createFreeLocalAI({
  const zipFile=path.join(root,"downloads",ENGINE_FILE);
  const modelFile=path.join(modelFolder,MODEL_FILE);
  const marker=path.join(engineFolder,".verified.json");
- let active=null,job=null,extractProcess=null,stopping=false;
+ let active=null,job=null,extractProcess=null,stopping=false,downloadAbort=null;
  const ensureRunning=()=>{if(stopping)throw Error("Installation IA interrompue : fermeture du compagnon.");};
  async function unpack(archive,directory){
   if(extract){await extract(archive,directory);return;}
@@ -191,7 +191,8 @@ export function createFreeLocalAI({
   fs.mkdirSync(engineFolder,{recursive:true});
   set({phase:"engine",message:"Téléchargement du petit moteur CPU (25 Mo)…",progress:0,transferred:0,total:0});
   await downloadVerified(ENGINE_URL,zipFile,ENGINE_SHA256,(bytes,total)=>
-   set({transferred:bytes,total,progress:total?Math.round(bytes/total*100):0}),fetchImpl);
+   set({transferred:bytes,total,progress:total?Math.round(bytes/total*100):0}),fetchImpl,
+   {signal:downloadAbort?.signal});
   ensureRunning();
   set({phase:"extracting",message:"Extraction du moteur CPU…",progress:0});
   await unpack(zipFile,engineFolder);
@@ -210,7 +211,8 @@ export function createFreeLocalAI({
    transferred:0,total:EXPECTED_MODEL_SIZE,progress:0});
   await downloadVerified(MODEL_URL,modelFile,MODEL_SHA256,(bytes,total)=>
    set({transferred:bytes,total:total||EXPECTED_MODEL_SIZE,
-    progress:Math.min(99,Math.round(bytes/(total||EXPECTED_MODEL_SIZE)*100))}),fetchImpl);
+    progress:Math.min(99,Math.round(bytes/(total||EXPECTED_MODEL_SIZE)*100))}),fetchImpl,
+   {signal:downloadAbort?.signal});
   ensureRunning();
  }
  async function runServer(){
@@ -267,9 +269,11 @@ export function createFreeLocalAI({
  function begin(download){
   if(job)return status();
   stopping=false;
-  const promise=prepare({download}).catch(error=>set({phase:"error",ready:false,
-   installed:installed(),error:failure(error),message:"Installation inachevée."}))
-  .finally(()=>{if(job===promise)job=null;});
+  downloadAbort=new AbortController();
+  const promise=prepare({download}).catch(error=>{
+   if(!stopping)set({phase:"error",ready:false,installed:installed(),
+    error:failure(error),message:"Installation inachevée."});
+  }).finally(()=>{if(job===promise)job=null;downloadAbort=null;});
   job=promise;
   return status();
  }
@@ -277,6 +281,7 @@ export function createFreeLocalAI({
  function resume(model=MODEL_NAME){freeModelID(model);return job?status():installed()&&modelPresent()?begin(false):status();}
  function stop(){
   stopping=true;
+  downloadAbort?.abort();
   if(extractProcess){stopOwnedProcess(extractProcess);extractProcess=null;}
   if(active){stopOwnedProcess(active);active=null;}
   set({phase:"idle",ready:false,progress:0,installed:installed(),message:"IA locale arrêtée. Les modèles sont conservés."});
