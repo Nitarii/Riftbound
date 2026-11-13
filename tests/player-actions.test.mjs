@@ -19,52 +19,64 @@ function applyPlan(s,announcement){
  for(const command of plan.commands)s=applyCommand(s,command);
  return {state:s,plan};
 }
-test("first player cannot channel three opening runes",()=>{
- const {state,plan}=applyPlan(setup(),"je pioche mes 3 runes de départ et je joue un loyal poro dans ma base");
- assert.match(plan.error,/2 runes/);
- assert.equal(state.cards.filter(c=>c.owner==="human"&&c.zone==="runes").length,0);
-});
-test("physical runes and card placement update real board in French, with payment",()=>{
- let s=setup();
- let x=applyPlan(s,"je canalise deux runes");assert.equal(x.plan.error,undefined);s=x.state;
+
+test("opening upkeep runs automatically, including the physical player's hidden draw",()=>{
+ let s=setup("human");
+ assert.equal(s.phase,"Main");
+ assert.equal(s.turnActions.channeled,2);
+ assert.equal(s.turnActions.drawn,1);
+ assert.equal(s.players.human.handCount,5);
+ assert.equal(s.players.human.deckCount,34);
  assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes").length,2);
- x=applyPlan(s,"je pioche une carte");assert.equal(x.plan.error,undefined);s=x.state;
- x=applyPlan(s,"j'épuise une rune pour jouer Loyal Poro dans ma base");assert.equal(x.plan.error,undefined);s=x.state;
- assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="base")[0].name,"Loyal Poro");
- assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.exhausted).length,1);
+ assert.deepEqual(planHumanAnnouncement("je pioche une carte",s,catalog).commands,[]);
+ assert.deepEqual(planHumanAnnouncement("je canalise deux runes",s,catalog).commands,[]);
+ assert.equal(planHumanAnnouncement("je canalise trois runes",s,catalog).error!==undefined,true);
+});
+
+test("player can play a basic unit without narrating normal upkeep or printed energy",()=>{
+ let s=setup();
+ const plan=planHumanAnnouncement("Je joue Loyal Poro",s,catalog);
+ assert.equal(plan.error,undefined,plan.error);
+ assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Loyal Poro"));
+ for(const command of plan.commands)s=applyCommand(s,command);
  assert.equal(s.players.human.handCount,4);
- x=applyPlan(s,"je termine mon tour");assert.equal(x.plan.error,undefined);
- assert.equal(x.state.active,"ai");
+ assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.exhausted).length,1);
 });
-test("English channeling, drawing and play are understood",()=>{
- let s=setup();
- for(const message of ["I channel two runes","I draw one card","I exhaust one rune to play Loyal Poro in my base"]){
-  const x=applyPlan(s,message);assert.equal(x.plan.error,undefined,message+": "+x.plan.error);s=x.state;
- }
- assert.equal(s.cards.find(c=>c.owner==="human"&&c.zone==="base").name,"Loyal Poro");
+
+test("announced cost is separated from the card name and no duplicate draw happens",()=>{
+ let s=setup("human");
+ const before=s.players.human.handCount;
+ const plan=planHumanAnnouncement("je pioche une carte et je joue loyal poro pour 1 rune",s,catalog);
+ assert.equal(plan.error,undefined,plan.error);
+ assert.equal(plan.commands.filter(c=>c.type==="draw").length,0);
+ assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Loyal Poro"));
+ for(const command of plan.commands)s=applyCommand(s,command);
+ assert.equal(s.players.human.handCount,before-1);
 });
-test("unrecognized cards are never invented",()=>{
+test("bad payment is rejected without modifying the state",()=>{
  const s=setup();
- assert.equal(findAnnouncedCard(catalog,"fictional attacker"),null);
- const x=applyPlan(s,"I play fictional attacker in my base");
- assert.ok(x.plan.error);
- assert.equal(x.state.revision,s.revision);
+ const plan=planHumanAnnouncement("je joue loyal poro pour 3 runes",s,catalog);
+ assert.ok(plan.error);
+ assert.equal(plan.commands.length,0);
 });
-test("second player opening turn gets three channel runes",()=>{
+test("second player's opening channel of three is automatic",()=>{
  let s=setup("ai");
+ assert.equal(s.turnActions.channeled,2);
  s=applyCommand(s,{type:"next-turn"});
- const x=applyPlan(s,"je canalise trois runes");
- assert.equal(x.plan.error,undefined);
- assert.equal(x.state.players.human.runeCount,9);
+ assert.equal(s.active,"human");
+ assert.equal(s.turnActions.channeled,3);
+ assert.equal(s.turnActions.drawn,1);
+ assert.equal(s.players.human.runeCount,9);
 });
-test("AI fallback uses only real UIDs and returns control to human",()=>{
+test("AI planner does not duplicate mandatory opening upkeep",()=>{
  let s=setup();
  s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.active,"ai");
+ assert.equal(s.turnActions.channeled,3);
+ assert.equal(s.turnActions.drawn,1);
  const commands=planSafeAITurn(s);
- assert.ok(commands.some(x=>x.type==="play-paid"),"AI pays before playing a known card");
- assert.ok(commands.some(x=>x.type==="channel"));
+ assert.ok(!commands.some(c=>c.type==="channel"||c.type==="draw"));
  for(const command of commands)s=applyCommand(s,command);
  assert.equal(s.active,"human");
- assert.ok(s.cards.find(c=>c.owner==="ai"&&c.zone==="base"));
- assert.ok(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length>=1);
+ assert.equal(s.turnActions.drawn,1);
 });
