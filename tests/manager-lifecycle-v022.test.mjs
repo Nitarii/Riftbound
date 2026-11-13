@@ -18,15 +18,15 @@ const fetchRelease=source=>async url=>{
  return {ok:true,json:async()=>source};
 };
 test("the site and Windows app share a minimum version",()=>{
- assert.equal(CURRENT_VERSION,"0.31.0");
+ assert.equal(CURRENT_VERSION,"0.32.0");
  assert.equal(MINIMUM_COMPANION_VERSION,CURRENT_VERSION);
  assert.match(DOWNLOAD_URL,/\/RiftboundCompanion-v0\.31\.exe$/);
  assert.equal(compareVersions("0.21.0",CURRENT_VERSION),-1);
  assert.equal(companionNeedsUpdate("0.21"),true);
  assert.equal(companionNeedsUpdate(CURRENT_VERSION),false);
- assert.equal(companionNeedsUpdate("0.31.0"),false);
+ assert.equal(companionNeedsUpdate("0.32.0"),false);
  assert.equal(companionNeedsUpdate("not installed"),true);
- assert.equal(selectOfficialUpdate(release("0.32.0"),CURRENT_VERSION).version,"0.32.0");
+ assert.equal(selectOfficialUpdate(release("0.33.0"),CURRENT_VERSION).version,"0.33.0");
 });
 test("on first launch an outdated portable EXE cannot launch the board or bypass via offline",async()=>{
  let stoppedProcesses=0;
