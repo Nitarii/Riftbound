@@ -93,8 +93,11 @@ test("Accelerate is never free: extra Energy and domain Power must be paid",()=>
  let b=setup();b=add(b,unit);
  b=play(b,"Fast Unit",{accelerate:true});
  assert.equal(b.cards.find(c=>c.name==="Fast Unit").exhausted,false);
- assert.ok(b.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length>=2);
- assert.ok(b.cards.filter(c=>c.owner==="ai"&&c.zone==="runes").length<=2);
+ // The extra Power rune is recycled back under the rune deck, so only one
+ // of the two Energy runes remains on the board as exhausted.
+ assert.equal(b.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length,1);
+ assert.equal(b.cards.filter(c=>c.owner==="ai"&&c.zone==="runes").length,2);
+ assert.equal(b.decks.ai.runes.length,s.decks.ai.runes.length+1);
 });
 test("remaining trigger prevents automatic upkeep from advancing during unresolved phase",()=>{
  let s=setup();s=add(s,card("Unclear","Unit",{
