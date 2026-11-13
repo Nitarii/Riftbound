@@ -83,9 +83,19 @@ export function applyCommand(old, command) {
       warnings:[],createdAt:new Date().toISOString()};
     const party=battleParties(s,field,attacker);
     s.pendingCombat.warnings=combatWarnings(s,field,party.attackers,party.defenders);
+    const combatEffects=[];
+    for(const unit of party.attackers.filter(x=>arriving.includes(x.uid)))
+     combatEffects.push(...processCardEvent(s,{trigger:"attack",actor:attacker,source:unit},{place,deckCard}));
+    for(const unit of party.defenders)
+     combatEffects.push(...processCardEvent(s,{trigger:"defend",actor:unit.owner,source:unit},{place,deckCard}));
+    if(combatEffects.length)s.pendingCombat.warnings.push(...combatEffects.map(
+     text=>"Capacité de combat déclenchée : "+text));
+    if(s.pendingEffects.length)s.pendingCombat.warnings.push(
+     "Capacité déclenchée non résolue : "+s.pendingEffects[0].cardName);
   }
   function settleCombat(){
     const fight=s.pendingCombat;
+    if(s.pendingEffects?.length)throw Error("Effet de carte en attente avant la résolution du combat.");
     if(!fight||!fight.passes.human||!fight.passes.ai)
       throw Error("Attends que les deux joueurs aient passé leur fenêtre de réactions.");
     if(fight.warnings.length&&!fight.confirmedEffects)
