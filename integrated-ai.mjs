@@ -67,7 +67,7 @@ function relevantCards(catalog,text){
  }).slice(0,20).map(c=>({code:c.code,name:c.name,type:c.type,
   text:c.text,power:c.power,energy:c.energy}));
 }
-function extractJSON(raw){
+export function extractJSON(raw){
  let value=String(raw||"").trim();
  // Some small local Qwen models include a reasoning tag even when asked not to.
  // Never display that tag to the player; parse only the final JSON.
@@ -79,7 +79,14 @@ function extractJSON(raw){
   if(value.endsWith(ticks))value=value.slice(0,-ticks.length);
  }
  if(value.length>30000)throw Error("Réponse du modèle trop longue.");
- try{return JSON.parse(value);}catch{throw Error("Le modèle n'a pas produit de JSON valide.");}
+ try{return JSON.parse(value);}catch{}
+ // Some local models add non-JSON explanations before or after a valid object.
+ // Extract only a fully parseable JSON object; never turn prose into commands.
+ const start=value.indexOf("{"),end=value.lastIndexOf("}");
+ if(start>=0&&end>start){
+  try{return JSON.parse(value.slice(start,end+1));}catch{}
+ }
+ throw Error("Le modèle local n'a pas retourné de réponse structurée.");
 }
 export function validateAgentCommands(actions,state,announcement,catalog=[]){
  if(!Array.isArray(actions)||actions.length>8)throw Error("Maximum huit commandes par réponse.");
@@ -364,7 +371,14 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      }catch{}
     }
    }
-   sendMessage((own.provider==="free"?"⚠️ ":"⚠️ Impossible de joindre l'IA intégrée : ")+lastError);
+   if(own.provider==="free"&&/réponse structurée|Réponse IA mal formée/.test(lastError)){
+   // A broken model response is NOT a gameplay move. Do not spam raw JSON
+   // errors or claim the card was played when the deterministic engine did not.
+   sendMessage("Je n'ai pas pu interpréter la réponse du modèle local. "+
+    "Le plateau reste inchangé. Répète ton action complète ou consulte le journal du gestionnaire.");
+   return;
+  }
+  sendMessage((own.provider==="free"?"⚠️ ":"⚠️ Impossible de joindre l'IA intégrée : ")+lastError);
   }finally{processing=false;}
  }
  function onHumanMessage(text,{actionApplied=false}={}){
