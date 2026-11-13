@@ -130,7 +130,7 @@ main>footer{order:7}
  <section class="manager-primary wide">
   <h2>Prêt à jouer ?</h2>
   <p>Ouvre ton plateau et retrouve tes cartes physiques.</p>
-  <div class="actions"><button class="primary manager-play-button" id="open-site">▶ Jouer à Riftbound</button><button id="open-local">Plateau hors ligne</button></div>
+  <div class="actions"><button class="primary manager-play-button" id="open-site">▶ Jouer à Riftbound</button><button id="open-local">Site public</button></div>
  </section>
  <section class="manager-models wide">
   <h2>Adversaire IA et microphone</h2>
@@ -379,10 +379,10 @@ function launchIfCurrent(url){
   report("La version doit être vérifiée ou mise à jour avant d'ouvrir le plateau.",true);
   return;
  }
- window.open(url,"_blank","noopener");
+ window.location.assign(url);
 }
-$("open-site").onclick=()=>launchIfCurrent("https://nitarii.github.io/Riftbound/");
-$("open-local").onclick=()=>launchIfCurrent("/#companion="+encodeURIComponent(token));
+$("open-site").onclick=()=>launchIfCurrent("/#companion="+encodeURIComponent(token));
+$("open-local").onclick=()=>launchIfCurrent("https://nitarii.github.io/Riftbound/");
 $("startup-retry").onclick=()=>execute(async()=>{
  const data=await api("/api/manager/update/check","POST");
  renderStartup(data);
