@@ -69,3 +69,16 @@ test("an incorrect announced rune count is never silently accepted",()=>{
  assert.ok(plan.error);
  assert.equal(plan.commands.length,0);
 });
+
+test("real Loyal Poro costing 3 energy is played on first turn of second player",()=>{
+ let s=advanceMandatoryTurn(start("ai"));
+ s=advanceMandatoryTurn(applyCommand(s,{type:"next-turn"}));
+ const realCost=[card("Loyal Poro","Unit",3)];
+ const plan=planHumanAnnouncement("je pioche une carte et je joue Loyal Poro pour 3 runes",s,realCost);
+ assert.equal(plan.error,undefined,plan.error);
+ assert.equal(plan.commands.filter(c=>c.type==="draw").length,0);
+ assert.equal(plan.commands.find(c=>c.type==="exhaust-runes")?.count,3);
+ assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Loyal Poro"));
+ for(const cmd of plan.commands)s=applyCommand(s,cmd);
+ assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.exhausted).length,3);
+});
