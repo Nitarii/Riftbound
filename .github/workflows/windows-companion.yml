@@ -45,6 +45,7 @@ on:
       - 'play-effects.mjs'
       - 'effect-engine.mjs'
       - 'effect-runtime.mjs'
+      - 'draw-rules.mjs'
       - 'app.mjs'
       - 'index.html'
       - 'style.css'
