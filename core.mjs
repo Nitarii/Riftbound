@@ -17,7 +17,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -124,6 +124,20 @@ export function applyCommand(old, command) {
       (triggered.length?" · "+triggered.join(" · "):"")+
       (s.pendingEffects?.length?" · Effet(s) en attente":"");
   }
+  function finishBeginningScoring(){
+    if(!s.beginningScoringDue||s.pendingEffects.length)return [];
+    const scored=[];
+    s.beginningScoringDue=false;
+    for(let i=0;i<s.battlefields.length;i++){
+     if(battlefieldController(s,i)!==s.active)continue;
+     const score=scoreControlledBattlefield(s,s.active,i,"hold");
+     if(!score)continue;
+     scored.push(score);
+     scored.push(...processCardEvent(s,{trigger:"hold",
+      actor:s.active,field:i},{place,deckCard}));
+    }
+    return scored;
+  }
   if(type==="reset") {
     const fresh=createState();fresh.revision=(old?.revision||0)+1;
     fresh.history=[{revision:fresh.revision,at:new Date().toISOString(),text:"Partie réinitialisée"}];
@@ -195,21 +209,15 @@ export function applyCommand(old, command) {
      temporaryDeaths.push(card.name);
      processCardEvent(s,{trigger:"die",actor:card.owner,source:card},{place,deckCard});
     }
-    const holds=[];
-    for(let i=0;i<s.battlefields.length;i++){
-      if(battlefieldController(s,i)===s.active){
-        const scored=scoreControlledBattlefield(s,s.active,i,"hold");
-        if(scored)holds.push(scored);
-      }
-    }
-    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
-     (holds.length?". "+holds.join(" · "):". Beginning résolu, phases restantes à jouer.")+
-     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", ")+" détruite(s)":"");
+    s.beginningScoringDue=true;
+    // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
     const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
-    for(let i=0;i<s.battlefields.length;i++)if(battlefieldController(s,i)===s.active)
-     triggered.push(...processCardEvent(s,{trigger:"hold",actor:s.active,field:i},{place,deckCard}));
-    if(triggered.length)summary+=" · "+triggered.join(" · ");
-    if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
+    const holds=finishBeginningScoring();
+    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
+     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", "):"")+
+     (triggered.length?" · "+triggered.join(" · "):"")+
+     (holds.length?" · "+holds.join(" · "):"");
+    if(s.beginningScoringDue)summary+=" · effet(s) à résoudre avant le maintien";
   } else if(type==="phase") {
     const phase=string(c.phase,30);
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
@@ -303,6 +311,8 @@ export function applyCommand(old, command) {
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
     s.pendingEffects.shift();
     summary="Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
+    const holds=finishBeginningScoring();
+    if(holds.length)summary+=" · "+holds.join(" · ");
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
     checkOwner(p);
