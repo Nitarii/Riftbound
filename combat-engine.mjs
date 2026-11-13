@@ -1,5 +1,6 @@
 // Riftbound combat arithmetic for the October 9, 2026 Core Rules 466–468.
 // Pure, deterministic. Reactions/triggered effects must be resolved before damage.
+import {conditionalShieldRule} from "./effect-engine.mjs";
 export const COMBAT_RULES_DATE="2026-10-09";
 export const OPPOSITE={ai:"human",human:"ai"};
 const number=v=>Number.isFinite(Number(v))?Number(v):0;
@@ -17,7 +18,20 @@ function keywordValue(card,keyword){
  const match=new RegExp("\\b(?:"+keyword+")\\b\\s*\\+?(\\d+)?","i").exec(text);
  return match?match[1]?Number(match[1]):1:0;
 }
-export function effectiveMight(card,role="none"){
+function shieldBonus(card,role,state){
+ if(role!=="defend")return 0;
+ const normal=keywordValue(card,"Shield|Bouclier");
+ const condition=conditionalShieldRule(card);
+ if(!condition)return normal;
+ // Without board context, do NOT grant an unverified conditional bonus.
+ if(!state||card.zone!=="battlefield"||!Number.isInteger(card.battlefield))
+  return 0;
+ const otherFriendlyUnits=state.cards.filter(unit=>
+  unit.uid!==card.uid&&isUnit(unit)&&unit.owner===card.owner&&
+  unit.zone==="battlefield"&&unit.battlefield===card.battlefield).length;
+ return otherFriendlyUnits===condition.otherFriendlyUnits?condition.shield:0;
+}
+export function effectiveMight(card,role="none",state=null){
  if(!isUnit(card))return null;
  const printed=Number(card.counters?.baseMight??card.might);
  if((card.counters?.baseMight??card.might)==null||!Number.isFinite(printed))return null;
@@ -25,11 +39,11 @@ export function effectiveMight(card,role="none"){
  const stats=Math.max(0,printed+number(counters.might)+number(counters.buff)+
   number(counters.tempMight)+number(counters.mightThisTurn)+number(counters["might bonus"])+
   (role==="attack"?keywordValue(card,"Assault|Assaut"):0)+
-  (role==="defend"?keywordValue(card,"Shield|Bouclier"):0));
+  shieldBonus(card,role,state));
  return stats;
 }
-export function offensiveMight(card,role){
- return card.stunned||card.counters?.stunned?0:effectiveMight(card,role);
+export function offensiveMight(card,role,state=null){
+ return card.stunned||card.counters?.stunned?0:effectiveMight(card,role,state);
 }
 export function combatPriority(card){
  const tank=hasKeyword(card,"Tank"),backline=hasKeyword(card,"Backline");
@@ -47,26 +61,26 @@ export function combatWarnings(state,index,attackers,defenders){
    const special=words(u).replace(/\b(?:Assault|Assaut|Shield|Bouclier)\s*\d*|\b(?:Tank|Backline)\b/gi,"").trim();
    if(combatRelevant.test(special))notices.push(u.name+" : effet ou déclenchement à vérifier");
   }
-  if(effectiveMight(u,u.owner===state.pendingCombat?.attacker?"attack":"defend")===null)
+  if(effectiveMight(u,u.owner===state.pendingCombat?.attacker?"attack":"defend",state)===null)
    notices.push(u.name+" : Might manquante");
  }
  const battlefield=state.battlefields?.[index]?.card;
  if(battlefield?.text?.trim())notices.push("Champ de bataille "+battlefield.name+" : vérifier ses effets de combat et conquête");
  return [...new Set(notices)];
 }
-export function assignDamage(total,targets,role,preferredOrder=[]){
+export function assignDamage(total,targets,role,preferredOrder=[],state=null){
  if(!Number.isFinite(total)||total<0)throw Error("Total de dégâts invalide.");
  const order=new Map((preferredOrder||[]).map((uid,i)=>[uid,i]));
  const sorted=[...targets].sort((a,b)=>
    combatPriority(a)-combatPriority(b)||
    (order.get(a.uid)??999)-(order.get(b.uid)??999)||
-   (Math.max(1,(effectiveMight(a,role)??0)-number(a.damage))-
-    Math.max(1,(effectiveMight(b,role)??0)-number(b.damage)))||
+   (Math.max(1,(effectiveMight(a,role,state)??0)-number(a.damage))-
+    Math.max(1,(effectiveMight(b,role,state)??0)-number(b.damage)))||
    String(a.uid).localeCompare(String(b.uid)));
  const assigned={};let left=total;
  for(let i=0;i<sorted.length&&left>0;i++){
   const u=sorted[i];
-  const might=effectiveMight(u,role);
+  const might=effectiveMight(u,role,state);
   if(might===null)throw Error("Might inconnue sur "+u.name);
   const lethal=Math.max(1,might-number(u.damage));
   // Rule 467.2.c.4: no more than the minimum lethal until all other
@@ -97,19 +111,19 @@ export function previewCombat(state,index,attacker,orders={}){
    winner:attackers.length?attacker:defenders.length?OPPOSITE[attacker]:"none",
    survivors:{attacker:attackers.length,defender:defenders.length}};
  }
- const unknown=[...attackers.map(c=>effectiveMight(c,"attack")),
-  ...defenders.map(c=>effectiveMight(c,"defend"))].some(x=>x===null);
+ const unknown=[...attackers.map(c=>effectiveMight(c,"attack",state)),
+  ...defenders.map(c=>effectiveMight(c,"defend",state))].some(x=>x===null);
  if(unknown)return {ready:false,error:"Might d'une unité inconnue : préciser les statistiques avant résolution."};
- const attackingMight=attackers.reduce((n,c)=>n+offensiveMight(c,"attack"),0);
- const defendingMight=defenders.reduce((n,c)=>n+offensiveMight(c,"defend"),0);
+ const attackingMight=attackers.reduce((n,c)=>n+offensiveMight(c,"attack",state),0);
+ const defendingMight=defenders.reduce((n,c)=>n+offensiveMight(c,"defend",state),0);
  // Both allocations are determined first; only then is damage dealt.
  const toDefenders=assignDamage(attackingMight,defenders,"defend",orders.ai&&attacker==="ai"?orders.ai:
-  orders.human&&attacker==="human"?orders.human:[]);
- const toAttackers=assignDamage(defendingMight,attackers,"attack",orders[OPPOSITE[attacker]]||[]);
+  orders.human&&attacker==="human"?orders.human:[],state);
+ const toAttackers=assignDamage(defendingMight,attackers,"attack",orders[OPPOSITE[attacker]]||[],state);
  const after=[...attackers,...defenders].map(c=>{
   const damage=(c.damage||0)+(toDefenders.assigned[c.uid]||0)+(toAttackers.assigned[c.uid]||0);
   const role=c.owner===attacker?"attack":"defend";
-  const might=effectiveMight(c,role);
+  const might=effectiveMight(c,role,state);
   return {uid:c.uid,name:c.name,owner:c.owner,might,
    assigned:(toDefenders.assigned[c.uid]||0)+(toAttackers.assigned[c.uid]||0),
    damage,dead:damage>0&&damage>=might};
