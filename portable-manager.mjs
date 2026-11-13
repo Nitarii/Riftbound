@@ -168,7 +168,9 @@ export function createPortableManager({
   // cleanup. Wait for an actual acknowledgement while the server is alive.
   const receipt=path.join(root,"updates","uninstall-status.json");
   fs.mkdirSync(path.dirname(receipt),{recursive:true});
+  const go=path.join(root,"updates","uninstall-go.signal");
   fs.rmSync(receipt,{force:true});
+  fs.rmSync(go,{force:true});
   const launched=launch(script,{root,mode:"uninstall",
    env:{...process.env,TEMP:path.join(root,"temp"),
     TMP:path.join(root,"temp"),TMPDIR:path.join(root,"temp")}});
@@ -185,6 +187,9 @@ export function createPortableManager({
   }
   if(!acknowledged)
    throw Error("Le désinstalleur ne répond pas. Application conservée : consulte le dossier updates.");
+  // The independent helper MUST NOT delete even one file until the HTTP
+  // server has observed its acknowledgement and explicitly sent GO.
+  fs.writeFileSync(go,"GO",{mode:0o600});
   shuttingDown=true;
   // Stop the local AI, speech and tunnel; the helper waits for this PID to
   // exit before deleting the executable and the chosen install directory.
