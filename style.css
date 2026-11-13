@@ -1959,3 +1959,43 @@ body:not(.home-visible) #game-app.history-collapsed{
  padding:10px 16px;background:#183e34;border:1px solid #bda45a;border-radius:8px;margin:5px 0}
 #game-victory strong{color:#ffe19d;font-weight:750;font-size:17px}
 #game-victory button{padding:7px 12px}
+
+
+/* Floating rule notifications must not be auto-placed as unnamed CSS grid
+   children. The old implicit 4th column squeezed the entire playmat to ~30px. */
+body:not(.home-visible) #game-app{position:relative}
+#game-app #pending-effect-panel,
+#game-app #game-victory{
+ position:absolute;
+ z-index:60;
+ top:calc(42px + var(--game-gap) + var(--game-gap));
+ left:50%;
+ transform:translateX(-50%);
+ width:min(700px,calc(100% - 24px));
+ max-width:calc(100% - 24px);
+ min-width:0;
+ max-height:min(48dvh,390px);
+ margin:0;
+ overflow-y:auto;
+ overflow-x:hidden;
+ overflow-wrap:anywhere;
+ box-shadow:0 15px 35px rgba(0,0,0,.5);
+}
+#game-app #game-victory{z-index:62;max-height:160px;max-width:520px}
+#game-app #pending-effect-panel .pending-effect-copy{
+ flex:1 1 260px;min-width:0;overflow-wrap:anywhere;
+}
+#game-app #pending-effect-panel button{
+ flex:0 0 auto;max-width:100%;min-width:160px;
+}
+#game-app:has(#game-victory:not([hidden])) #pending-effect-panel{
+ top:calc(116px + var(--game-gap));
+}
+@media(max-width:600px){
+ #game-app #pending-effect-panel,#game-app #game-victory{
+  width:calc(100% - 16px);max-width:calc(100% - 16px);
+  top:calc(42px + var(--game-gap) + 8px);padding:10px;
+  gap:9px;max-height:45dvh;
+ }
+ #game-app #pending-effect-panel button{width:100%}
+}
