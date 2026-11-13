@@ -5,7 +5,7 @@ import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
  .replace(/[\u0300-\u036f]/g,"").replace(/[’‘]/g,"'").toLowerCase()
- .replace(/[,;:!?()[\]{}]+/g," ").replace(/[-–—]+/g," ")
+ .replace(/[.,;:!?()[\]{}]+/g," ").replace(/[-–—]+/g," ")
  .replace(/\s+/g," ").trim();
 const words=value=>clean(value).match(/[a-z0-9']+/g)||[];
 const num=value=>({un:1,une:1,one:1,a:1,an:1,deux:2,two:2,trois:3,three:3,quatre:4,four:4}[value]||Number(value));
