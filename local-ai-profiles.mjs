@@ -102,5 +102,8 @@ export function llamaServerArgs({modelFile,model,backend="cpu",threads=4,ctx=819
  if(!["cpu","vulkan"].includes(backend))throw Error("Backend inconnu.");
  return ["--model",modelFile,"--host","127.0.0.1","--port",String(port),
   "--ctx-size",String(ctx),"--threads",String(Math.max(1,Math.min(8,threads))),
-  "--n-gpu-layers",backend==="vulkan"?"99":"0","--parallel","1","--alias",model];
+  "--n-gpu-layers",backend==="vulkan"?"99":"0","--parallel","1","--alias",model,
+  // Qwen3.5 is hybrid reasoning. Disabling hidden thinking prevents the
+  // local model from exhausting its output budget before writing JSON.
+  ...(model===ADVANCED_LOCAL_MODEL?["--reasoning","off"]:[])];
 }
