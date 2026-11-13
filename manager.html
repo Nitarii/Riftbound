@@ -382,6 +382,7 @@ async function refresh(){
   const [manager,ai,speech,processes]=await Promise.all([
    api("/api/manager/status"),api("/api/ai/free/status"),
    api("/api/speech/status"),api("/api/manager/processes")]);
+  if(stopping)return; // An in-flight poll must not overwrite the final exit screen.
   root=manager.path;availableVersion=manager.availableVersion||"";
   renderStartup(manager);
   renderUpdateResult(manager);
