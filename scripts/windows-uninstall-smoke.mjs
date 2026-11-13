@@ -98,6 +98,9 @@ async function run({name,path:root,port,otherFile}){
   if(helperFolder){
    console.error("Temporary helper directory:",helperFolder,
     fs.existsSync(helperFolder)?fs.readdirSync(helperFolder):"(already removed)");
+   const diagnostics=path.join(helperFolder,"cleanup-diagnostic.txt");
+   if(fs.existsSync(diagnostics))console.error("Self-cleanup diagnostics:",
+    fs.readFileSync(diagnostics,"utf8"));
    const helperExecutable=path.join(helperFolder,"RiftboundUninstall.exe");
    try{
     const wmi=execFileSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",
