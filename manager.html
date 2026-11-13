@@ -317,9 +317,12 @@ function renderStartup(data){
  $("startup-progress").value=Number(data.progress)||0;
  if(data.shuttingDown){
   title.textContent=data.phase==="restarting"?
-   "Mise à jour : redémarrage automatique…":"Fermeture en cours…";
+   "Mise à jour : redémarrage automatique…":data.phase==="uninstalling"?
+   "Désinstallation lancée — cet onglet peut être fermé":"Fermeture en cours…";
   message.textContent=data.phase==="restarting"?
    "Le nouveau compagnon se substitue à l'ancien. Cet onglet restera utilisable après le redémarrage.":
+   data.phase==="uninstalling"?
+   "Le serveur local va s'arrêter et supprimer les fichiers gérés. Une erreur de connexion à 127.0.0.1 sera normale ensuite. Ferme simplement cet onglet.":
    "Arrêt de tous les processus Riftbound. Les fichiers seront conservés.";
  }else if(data.updating){
   title.textContent="Mise à jour en cours · "+(data.progress||0)+" %";
@@ -345,7 +348,33 @@ function renderStartup(data){
   message.textContent="Le gestionnaire est prêt.";
  }
 }
+// The last page stays loaded in Chrome/Edge after the local executable exits.
+// Present a terminal screen without polling a server that no longer exists.
+function showExitScreen({uninstall=false,warning=""}={}){
+ stopping=true;
+ $("startup-screen").hidden=false;
+ $("manager-dashboard").hidden=true;
+ $("process-dashboard").hidden=true;
+ $("process-dashboard").style.display="none";
+ $("update-diagnostics").hidden=true;
+ $("manager-stop").disabled=true;
+ $("startup-title").textContent=uninstall?
+  "Désinstallation lancée — tu peux fermer cet onglet":
+  "Compagnon arrêté — tu peux fermer cet onglet";
+ $("startup-details").textContent=uninstall?
+  "Le désinstalleur indépendant a confirmé son démarrage. Il ferme Riftbound puis supprime les fichiers gérés, y compris les sauvegardes .bak. La connexion à 127.0.0.1 sera ensuite refusée : c'est normal. Tu peux fermer cet onglet du navigateur."+
+   (warning?" Remarque : "+warning:""):
+  "Les moteurs et le serveur local s'arrêtent. Tes modèles et tes sauvegardes sont conservés. La connexion à 127.0.0.1 sera refusée tant que Riftbound est fermé. Tu peux fermer cet onglet.";
+ $("startup-progress").hidden=true;
+ $("startup-retry").hidden=true;
+ $("startup-update").hidden=true;
+ $("startup-offline").hidden=true;
+ $("connection").textContent=uninstall?
+  "○ Désinstallation transmise au programme indépendant":
+  "○ Arrêt du programme demandé";
+}
 async function refresh(){
+ if(stopping)return;
  if(!token){report("Jeton local absent. Relance le compagnon Windows.",true);return;}
  if(refreshing)return;
  refreshing=true;
@@ -405,7 +434,7 @@ async function refresh(){
 async function execute(handler){
  if(busy)return;busy=true;
  try{await handler()}catch(e){report(e.message,true)}
- finally{busy=false;refresh()}
+ finally{busy=false;if(!stopping||awaitingUpdateRestart)refresh()}
 }
 function launchIfCurrent(url){
  if(!managerStatus?.canLaunch){
@@ -437,15 +466,8 @@ async function beginUpdate(){
 $("startup-update").onclick=()=>execute(beginUpdate);
 $("manager-stop").onclick=()=>execute(async()=>{
  if(!confirm("Quitter Riftbound Companion et arrêter ses processus IA/Whisper/tunnel ?\nAucun fichier ne sera supprimé."))return;
- stopping=true;
  await api("/api/manager/stop","POST",{confirm:"STOP_RIFTBOUND"});
- $("startup-screen").hidden=false;$("manager-dashboard").hidden=true;
- $("startup-title").textContent="Compagnon arrêté";
- $("startup-details").textContent="Les moteurs et le serveur se ferment. Tu peux fermer cet onglet.";
- $("manager-stop").disabled=true;
- $("startup-retry").hidden=true;$("startup-update").hidden=true;$("startup-offline").hidden=true;
- $("connection").textContent="● Arrêt demandé";
- report("Arrêt du compagnon demandé, données conservées.");
+ showExitScreen({uninstall:false});
 });
 $("ai-profile").onchange=()=>{aiProfileTouched=true;refresh();};
 $("ai-backend").onchange=()=>{aiProfileTouched=true;refresh();};
@@ -497,18 +519,7 @@ $("uninstall").onclick=()=>execute(async()=>{
  });
  if(!confirmed?.ok||!confirmed?.uninstalling)
   throw Error("Le désinstalleur n'a pas confirmé son démarrage.");
- stopping=true;
- $("uninstall").disabled=true;
- $("manager-stop").disabled=true;
- $("manager-dashboard").hidden=true;
- $("startup-screen").hidden=false;
- $("startup-title").textContent="Désinstallation en cours";
- $("startup-details").textContent="Le désinstalleur a confirmé son démarrage. Fermeture de l'application et des moteurs IA, puis suppression des fichiers du dossier choisi.";
- $("startup-retry").hidden=true;
- $("startup-update").hidden=true;
- $("startup-offline").hidden=true;
- $("connection").textContent="◌ Désinstallation confirmée";
- report("Désinstallation confirmée. Le gestionnaire va se fermer.");
+ showExitScreen({uninstall:true,warning:confirmed.warning||""});
 });
 refresh();setInterval(()=>{if(!document.hidden||awaitingUpdateRestart)refresh();},2500);
 </script>
