@@ -85,21 +85,23 @@ async function loadServerCatalog(force=false) {
 }
 let state=createState();
 const backupStateFile=stateFile+".bak";
+let primaryStateHealthy=false;
 const validSavedState=s=>Boolean(s&&typeof s==="object"&&!Array.isArray(s)&&
  Number.isInteger(s.revision)&&Array.isArray(s.cards)&&Array.isArray(s.history)&&
  Array.isArray(s.battlefields)&&s.players?.human&&s.players?.ai&&s.decks?.ai);
 for(const filename of [stateFile,backupStateFile]){
  try{
   const candidate=JSON.parse(fs.readFileSync(filename,"utf8"));
-  if(validSavedState(candidate)){state=candidate;break;}
+  if(validSavedState(candidate)){state=candidate;primaryStateHealthy=filename===stateFile;break;}
  }catch{}
 }
 function save(){
  const temp=stateFile+"."+crypto.randomBytes(6).toString("hex")+".tmp";
  try{
   fs.writeFileSync(temp,JSON.stringify(state),{flag:"wx",mode:0o600});
-  if(fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
+  if(primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
   fs.renameSync(temp,stateFile);
+  primaryStateHealthy=true;
  }finally{try{fs.rmSync(temp,{force:true});}catch{}}
 }
 function json(res,status,obj,req){
