@@ -97,7 +97,11 @@ test("uninstaller validates the installation, waits for helper acknowledgement a
     fs.mkdirSync(path.join(install.root,"updates"),{recursive:true});
     fs.writeFileSync(path.join(install.root,"updates","uninstall-status.json"),
      JSON.stringify({phase:"waiting",message:"ready"}));
-    return {pid:3333};
+    const janitorDir=path.join(base,"janitor");
+    fs.mkdirSync(janitorDir,{recursive:true});
+    const janitorReady=path.join(janitorDir,"janitor-ready.signal");
+    fs.writeFileSync(janitorReady,"READY");
+    return {pid:3333,janitorReady};
    },shutdown:()=>{shutdown=true;}});
   await assert.rejects(manager.uninstall({confirm:"YES",folder:install.root}),/confirmation/);
   const done=await manager.uninstall({confirm:"DELETE_RIFTBOUND_DATA",folder:install.root});
