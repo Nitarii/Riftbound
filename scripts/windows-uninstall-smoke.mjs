@@ -98,6 +98,8 @@ async function run({name,path:root,port,otherFile}){
   if(helperFolder){
    console.error("Temporary helper directory:",helperFolder,
     fs.existsSync(helperFolder)?fs.readdirSync(helperFolder):"(already removed)");
+   const phase=path.join(helperFolder,"janitor-phase.txt");
+   if(fs.existsSync(phase))console.error("Janitor phase:",fs.readFileSync(phase,"utf8"));
    const diagnostics=path.join(helperFolder,"cleanup-diagnostic.txt");
    if(fs.existsSync(diagnostics))console.error("Self-cleanup diagnostics:",
     fs.readFileSync(diagnostics,"utf8"));
