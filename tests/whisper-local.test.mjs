@@ -108,7 +108,7 @@ test("hands-free speech uses shorter pauses and retains microphone capture while
  const src=fs.readFileSync(new URL("../local-voice.mjs",import.meta.url),"utf8");
  const app=fs.readFileSync(new URL("../app.mjs",import.meta.url),"utf8");
  const relay=fs.readFileSync(new URL("../server.mjs",import.meta.url),"utf8");
- assert.match(src,/silenceMs=650/);
+ assert.match(src,/silenceMs=480/);
  assert.doesNotMatch(src,/hidden\|\|speaking\|\|busy\)return/);
  assert.match(src,/queue\.push\(frames\)/);
  assert.match(app,/await voiceController\.flush\(\)/);
