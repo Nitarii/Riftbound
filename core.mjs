@@ -232,6 +232,9 @@ export function applyCommand(old, command) {
     if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||
        !["unit","gear","spell"].includes(String(v.type||"").toLowerCase()))
      throw Error("La carte ne peut pas être jouée depuis cette zone.");
+    const restrictedText=String(v.text||"").replace(/^\[Accelerate\][^\n]*$/gim,"");
+    if(/\b(?:play only|can't play|cannot play|you may only play|as an additional cost|must pay)\b/i.test(restrictedText))
+     throw Error(v.name+" : condition ou coût supplémentaire non vérifiable. La carte reste en main.");
     const onPlay=mandatoryPlayEffects(v);
     const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
     // Preflight card text before paying the runes. For unfamiliar abilities
