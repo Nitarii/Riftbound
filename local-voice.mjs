@@ -29,7 +29,7 @@ export function createLocalVoiceConversation({
  mediaDevices=navigator.mediaDevices,AudioContextCtor=window.AudioContext||window.webkitAudioContext,
  synthesis=window.speechSynthesis,Utterance=window.SpeechSynthesisUtterance,
  onTranscript=()=>{},onPreview=()=>{},onState=()=>{},sendAudio,
- silenceMs=650,threshold=.012
+ silenceMs=480,threshold=.012
 }={}){
  let enabled=false,hidden=false,phase="off",detail="",speaking=false,speechEnabled=true;
  let stream=null,ctx=null,processor=null,source=null,output=null,locale="fr-FR";

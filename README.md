@@ -3,7 +3,15 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.35](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.35.exe)
+**Windows :** [Télécharger Riftbound Companion v0.36](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.36.exe)
+
+## v0.36 — Profils IA gratuits, Vulkan et commandes vocales rapides
+
+- Le gestionnaire Windows permet de choisir le modèle local : **Qwen3 4B Instruct 2507** (~2,5 Go) ou **Qwen3.5 9B Q4_K_M** (~5,7 Go, téléchargement facultatif). Les deux variantes sont disponibles hors ligne après installation, et vérifiées SHA-256.
+- **GPU Vulkan** (AMD, NVIDIA, Intel Arc) en mode automatique si un GPU discret est détecté, avec **CPU obligatoire en solution de secours**. L'utilisateur peut aussi choisir GPU préféré ou CPU uniquement. Les moteurs proviennent de llama.cpp b12277, vérifiés SHA-256, et restent dans le dossier local choisi.
+- Le modèle avancé peut mieux interpréter la conversation et les textes de cartes. Les suggestions de déplacement/redressement/épuisement des **cartes physiques publiques** ne sont appliquées que si l'annonce nomme explicitement la carte et, pour un déplacement, le terrain. Le moteur du jeu revalide ensuite la commande. **Aucun modèle ne peut attribuer librement des points, payer des runes ou inventer des cartes.** La prise en charge des capacités complexes n'est pas encore exhaustive.
+- **Vocal** : la fin de phrase est détectée après 480 ms de silence (contre 650 ms) ; la transcription ne bloque plus sur les mises à jour distantes du catalogue. Whisper Small reste local, sur CPU dans cette version.
+- L'application ne télécharge aucun modèle sans action utilisateur ; le mode 4B préexistant et les données de partie sont conservés.
 
 ## v0.35 — Retour au gestionnaire depuis l'accueil
 
@@ -52,7 +60,7 @@ L'endpoint local authentifié `GET /api/effects/audit` permet de consulter la co
 
 - L'IA paie l'énergie et les runes Power **et applique les défausses obligatoires reconnues**, par exemple « When you play me, discard 1 » sur Chemtech Enforcer. Elle choisit une carte de sa propre main et la place en défausse lors de la même action. Si l'effet d'entrée en jeu n'est pas encore pris en charge, le moteur refuse le jeu automatique plutôt que de l'ignorer.
 - La fenêtre des cartes garde une image droite même pour une unité épuisée, avec son effet lisible à droite et une croix de fermeture en haut. L'état « Épuisée » reste indiqué.
-- Le micro découpe la phrase après environ **650 ms** de silence au lieu de 1350 ms. Whisper Small peut rester chargé localement pendant la conversation (serveur CPU sur 127.0.0.1, accès interne aléatoire), avec repli sur la commande existante si nécessaire. Les bruits non verbaux sont filtrés avant le chat.
+- Le micro découpe la phrase après environ **480 ms** de silence au lieu de 1350 ms. Whisper Small peut rester chargé localement pendant la conversation (serveur CPU sur 127.0.0.1, accès interne aléatoire), avec repli sur la commande existante si nécessaire. Les bruits non verbaux sont filtrés avant le chat.
 - Le gestionnaire contrôle l'arrêt de Whisper et les modèles, et le plateau explique plus clairement quand les runes prêtes ne suffisent pas.
 
 Les effets plus complexes (ciblage, événements déclenchés, réactions et capacités spéciales) restent soumis à validation : aucun moteur déterministe générique ne peut appliquer tous les textes sans les règles correspondantes.
@@ -60,7 +68,7 @@ Les effets plus complexes (ciblage, événements déclenchés, réactions et cap
 ## Démarrer
 
 1. Lance l'exécutable Windows 10/11 (64 bits) et choisis le dossier où conserver le compagnon. Il n'y a ni Node.js, ni compte, ni clé API à installer.
-2. Dans le gestionnaire, clique **Installer IA et micro**. Un seul clic installe **Qwen3 4B Instruct 2507 Q4_K_M** (l'adversaire) et **Whisper Small multilingue** (le micro). Le premier téléchargement représente environ **3 Go**, moteurs non compris.
+2. Dans le gestionnaire, choisis **Qwen3 4B (équilibré)** ou **Qwen3.5 9B (avancé)**, puis l'accélération **Auto / Vulkan / CPU**. Clique **Installer / activer IA et micro**. Le profil 4B nécessite environ **3 Go** de modèles avec Whisper Small ; le 9B demande environ **6,2 Go**, moteurs non compris. Les modèles supplémentaires ne sont téléchargés qu'à ta demande.
 3. Clique **Jouer à Riftbound**. Le plateau s'ouvre **dans le même onglet** et se connecte automatiquement. Choisis ta légende, ton champion, ton terrain et le deck adverse, puis clique **Commencer la partie**.
 
 Ensuite, annonce tes actions dans la **Discussion avec l'IA** ou active **Mode vocal**. Les pioches et canalisations normales de début de tour sont comptabilisées automatiquement ; manipule simplement tes cartes physiques sans révéler ta main.
@@ -79,13 +87,13 @@ Les modules de voix et d'IA n'utilisent aucun service payant. Après télécharg
 
 | Élément | Choix fixe |
 |---|---|
-| Modèle de langage | Qwen3 4B Instruct 2507, quantification Q4_K_M, ~2,5 Go |
+| Modèle de langage | Qwen3 4B Instruct 2507 (~2,5 Go), ou Qwen3.5 9B Q4_K_M (~5,7 Go), au choix |
 | Reconnaissance vocale | Whisper Small multilingue, ~488 Mo |
-| Inférence | llama.cpp et whisper.cpp sur CPU Windows x64 |
+| Inférence | llama.cpp Vulkan GPU avec repli CPU ; whisper.cpp CPU Windows x64 |
 | RAM | 16 Go système recommandés ; prévoir environ 6 Go libres pour le compagnon et sa voix |
 | Stockage | Modèles, préférences, sauvegardes, téléchargements temporaires et moteurs dans le dossier choisi |
 
-Il n'y a **aucun menu de profils**, aucun modèle vocal alternatif et aucun fournisseur de reconnaissance Chrome. La vitesse dépend du processeur et de la mémoire disponible. Les anciennes pondérations connues sont supprimées uniquement après installation réussie des nouvelles ; les sauvegardes restent conservées.
+Le gestionnaire propose **deux profils IA** et un choix de backend **Auto / Vulkan / CPU**. Whisper Small reste le seul modèle vocal intégré et ne dépend pas de Chrome Speech Recognition. Les performances varient selon le matériel et les pilotes ; le CPU reste le recours fiable. Les anciens modèles valides et les sauvegardes sont conservés lors d'un changement de profil.
 
 ### Mises à jour et fermeture
 
@@ -103,8 +111,9 @@ Les droits sur les cartes et règles appartiennent à Riot Games. Les données d
 
 ## Ressources des modèles
 
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT) : moteur CPU Windows épinglé à la release `b12277`.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT) : moteurs CPU et Vulkan Windows épinglés à la release `b12277`, SHA-256 des archives vérifié.
 - [Qwen3 4B Instruct 2507 GGUF](https://huggingface.co/Open4bits/Qwen3-4B-Instruct-2507-GGUF) (Apache-2.0) : `qwen3-4b-instruct-2507-Q4_K_M.gguf`, SHA-256 `1571ec5115bcfed4b4327fc27b5f44ea284806caf5331eef89326191c9b031d6`.
+- [Qwen3.5 9B Q4_K_M GGUF](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF) : fichier facultatif `Qwen3.5-9B-Q4_K_M.gguf`, SHA-256 `03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8`.
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT), moteur `b5454`.
 - [Whisper Small](https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-small.bin) : SHA-256 `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`.
 

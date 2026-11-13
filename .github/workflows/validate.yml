@@ -29,6 +29,8 @@ jobs:
           node --check integrated-ai.mjs
           node --check game-knowledge.mjs
           node --check free-ai.mjs
+          node --check local-ai-profiles.mjs
+          node --check local-action-gate.mjs
           node --check player-actions.mjs
           node --check clarification.mjs
           node --check portable.mjs

@@ -446,7 +446,7 @@ const server=http.createServer(async(req,res)=>{
       if(!manager.status().canLaunch)throw Error("Termine la mise à jour ou la vérification avant de démarrer l'IA.");
       const input=await body(req);
       if(input?.confirmFolder!==userData)throw Error("Choisis et confirme le dossier d'installation dans le gestionnaire Windows.");
-      const opponent=localFreeAI.start(LOCAL_AI_MODEL);
+      const opponent=localFreeAI.start(input.model||LOCAL_AI_MODEL,{backend:input.backend||"auto"});
       const voice=speech.begin(WHISPER_MODEL);
       json(res,202,{...opponent,speech:voice},req);
     }catch(e){msg(res,400,e.message,req);}return;
@@ -532,14 +532,17 @@ const server=http.createServer(async(req,res)=>{
       if(size>4_000_000)throw Error("Audio trop long (limite 4 Mo).");
       chunks.push(part);
      }
-     let cards=[];
-     try{
-      const list=await loadServerCatalog();
-      cards=[
-       ...state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai").slice(0,18),
-       ...list.filter(c=>/poro|shen|jinx|vex|rumble|fiora/i.test(c.name||"")).slice(0,16)
-      ];
-     }catch{}
+     // Speech must never wait on a remote card-catalog refresh. Use the
+     // current table and the already cached catalogue, entirely offline.
+     const visible=state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai");
+     const known=Array.isArray(catalogCache)?catalogCache:[];
+     const seen=new Set(),cards=[];
+     for(const card of [...visible,...known]){
+      const key=String(card.name||"").trim().toLowerCase();
+      if(!key||seen.has(key))continue;
+      seen.add(key);cards.push(card);
+      if(cards.length>=28)break;
+     }
      json(res,200,await speech.transcribe(Buffer.concat(chunks),{
       language:"auto",cards
      }),req);
