@@ -50,8 +50,8 @@ test("French-accented approximate English card names match full catalog safely",
  assert.ok(rankSpokenCards(cards,"Disciple of Shen").length>=1);
 });
 test("ambiguous names are suggested rather than auto-played",()=>{
- const ambiguous=[card("Mournful Witness"),card("Wonderful Witness")];
- const result=matchSpokenCard(ambiguous,"wonder witness");
+ const ambiguous=[card("Loyal Poro"),card("Royal Poro")];
+ const result=matchSpokenCard(ambiguous,"loyl poro");
  assert.equal(result.card,null);
  assert.ok(result.candidates.length>0);
 });
