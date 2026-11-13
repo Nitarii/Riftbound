@@ -127,3 +127,17 @@ test("a continuous ally play trigger on a different in-play card is recognized",
  assert.equal(s.players.ai.deckCount,before-1);
  assert.match(s.message,/Watcher/);
 });
+
+test("card effects fire on real attack and defense, not only on play",()=>{
+ let s=setup();
+ s=add(s,card("Attacking Scout","Unit",{might:2,
+  text:"When I attack, draw 1."}),"base");
+ s=applyCommand(s,{type:"add",player:"human",zone:"battlefield",battlefield:0,
+  card:card("Defender","Unit",{might:2,text:"When I defend, draw 1."})});
+ const beforeAI=s.players.ai.deckCount,beforeHuman=s.players.human.handCount;
+ const attacker=s.cards.find(c=>c.name==="Attacking Scout");
+ s=applyCommand(s,{type:"combat-attack",player:"ai",uids:[attacker.uid],battlefield:0});
+ assert.ok(s.pendingCombat);
+ assert.equal(s.players.ai.deckCount,beforeAI-1);
+ assert.equal(s.players.human.handCount,beforeHuman+1);
+});
