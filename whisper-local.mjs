@@ -33,10 +33,11 @@ export function whisperPrompt(cards=[],max=220){
  }
  return selected.join(", ")+".";
 }
-export function whisperServerArguments({model,port,threads=4}){
+export function whisperServerArguments({model,port,threads=4,requestPath=""}){
  if(!Number.isInteger(port)||port<1024||port>65535)throw Error("Port local Whisper invalide.");
  return ["--model",model,"--host","127.0.0.1","--port",String(port),"--no-gpu",
-  "--threads",String(Math.min(8,Math.max(1,threads))),"--no-context"];
+  "--threads",String(Math.min(8,Math.max(1,threads))),"--no-context",
+  ...(requestPath?["--request-path",requestPath]:[])];
 }
 export function whisperArguments({model,wav,out,language="auto",prompt=""}){
  const lang=["fr","en","auto"].includes(language)?language:"auto";
@@ -82,7 +83,7 @@ export function createLocalWhisper({
   downloads=path.join(root,"downloads"),models=path.join(root,"models"),temp=path.join(root,"temp");
  const stamp=path.join(engineDir,".verified.json"),preferences=path.join(root,".speech-preferences.json");
  const selected=WHISPER_MODEL;
- let job=null,transcribing=false,activeProc=null,serverProc=null,serverPort=0,warmPromise=null,idleTimer=null,extractProc=null,stopping=false,downloadAbort=null;
+ let job=null,transcribing=false,activeProc=null,serverProc=null,serverPort=0,serverPrefix="",warmPromise=null,idleTimer=null,extractProc=null,stopping=false,downloadAbort=null;
  let enabled=true; // Preserve the existing hands-free default for current users.
  const ensureRunning=()=>{if(stopping)throw Error("Installation vocale interrompue : fermeture du compagnon.");};
  async function unpack(zip,dir,env){
@@ -123,7 +124,7 @@ export function createLocalWhisper({
   running:Boolean(job)};}
  function stopServer(){
   if(idleTimer){clearTimeout(idleTimer);idleTimer=null;}
-  const proc=serverProc;serverProc=null;serverPort=0;
+  const proc=serverProc;serverProc=null;serverPort=0;serverPrefix="";
   if(proc)try{stopOwnedProcess(proc);}catch{}
  }
  function extendServerIdle(){
@@ -146,8 +147,10 @@ export function createLocalWhisper({
    });
    await new Promise(resolve=>probe.close(resolve));
    if(stopping)return 0;
+   serverPrefix="/local-"+crypto.randomBytes(16).toString("hex");
    const proc=spawnImpl(serverBinary,whisperServerArguments({
-    model:modelPath(selected),port,threads:Math.min(8,os.availableParallelism?.()||4)
+    model:modelPath(selected),port,threads:Math.min(8,os.availableParallelism?.()||4),
+    requestPath:serverPrefix
    }),{cwd:path.dirname(serverBinary),windowsHide:true,stdio:"ignore",
     env:{...process.env,TEMP:temp,TMP:temp,TMPDIR:temp}});
    serverProc=proc;
@@ -156,7 +159,7 @@ export function createLocalWhisper({
    for(let attempt=0;attempt<125;attempt++){
     if(stopping||serverProc!==proc)return 0;
     try{
-     const response=await fetch("http://127.0.0.1:"+port+"/",{
+     const response=await fetch("http://127.0.0.1:"+port+serverPrefix+"/",{
       signal:AbortSignal.timeout(700),cache:"no-store"
      });
      if(response.ok){serverPort=port;extendServerIdle();return port;}
@@ -182,7 +185,7 @@ export function createLocalWhisper({
   data.append("prompt",whisperPrompt(cards));
   data.append("response_format","json");
   data.append("temperature","0");
-  const response=await fetch("http://127.0.0.1:"+port+"/inference",{
+  const response=await fetch("http://127.0.0.1:"+port+serverPrefix+"/inference",{
    method:"POST",body:data,signal:AbortSignal.timeout(90000)
   });
   if(!response.ok)throw Error("Whisper local HTTP "+response.status);
