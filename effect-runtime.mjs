@@ -7,7 +7,9 @@ import {chooseRequiredDiscards} from "./play-effects.mjs";
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
 const ownerName=p=>p==="ai"?"IA":"Joueur";
-const isTracked=t=>["beginning","ending","hold","conquer","play","die"].includes(t);
+// Most triggered abilities happen every time their condition occurs. Only
+// text explicitly saying once (or N times) per turn is limited.
+const isTracked=ability=>Number.isInteger(ability.perTurnLimit)&&ability.perTurnLimit>0;
 function eligibleSources(state,event){
  const {trigger,actor,source,field}=event;
  if(["play","move","die","attack","defend"].includes(trigger))return source?[source]:[];
@@ -26,11 +28,10 @@ function eligibleSources(state,event){
 function makePending(state,source,ability,actor,reason){
  state.pendingEffects??=[];
  if(state.pendingEffects.length>=24)throw Error("Trop d'effets en attente : résolution manuelle requise.");
- const existing=state.pendingEffects.find(x=>x.sourceUid===source.uid&&
-  x.trigger===ability.trigger&&x.text===ability.text&&x.turn===state.turn);
- if(existing)return;
+ // Two matching events can each create a pending ability on the same turn.
+ // Never silently coalesce them by source/text alone.
  state.pendingEffects.push({
-  id:"eff_"+(state.revision+1)+"_"+state.pendingEffects.length,
+  id:"eff_"+(state.revision+1)+"_"+(state.effectSerial||0)+"_"+state.pendingEffects.length,
   sourceUid:source.uid||"",cardName:String(source.name||"Carte"),
   player:actor,trigger:ability.trigger,turn:state.turn,optional:Boolean(ability.optional),
   text:String(ability.text||"").slice(0,500),
@@ -147,6 +148,7 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
  const {trigger,actor}=event;
  if(!["human","ai"].includes(actor)||!trigger)throw Error("Événement de capacité invalide.");
  state.pendingEffects??=[];state.effectMarks??=[];
+ state.effectSerial=(Number(state.effectSerial)||0)+1;
  const summaries=[];
  for(const source of eligibleSources(state,event)){
   const compiled=compileCardAbilities(source);
@@ -160,10 +162,19 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
-   const mark=state.turn+":"+actor+":"+trigger+":"+source.uid+":"+(event.field??"")+":"+ability.text;
-   if(isTracked(trigger)&&state.effectMarks.includes(mark))continue;
-   if(isTracked(trigger))state.effectMarks.push(mark);
-   if(state.effectMarks.length>500)state.effectMarks=state.effectMarks.slice(-250);
+   if(ability.condition==="legion"&&
+      !(Number(state.turnActions?.played?.[actor])>0))continue;
+   if(trigger==="ally-play"&&ability.playedType&&
+      ability.playedType!=="card"&&ability.playedType!==
+        String(event.source?.type||"").toLowerCase())continue;
+   if(isTracked(ability)){
+    const key=state.turn+":"+state.active+":"+actor+":"+
+      trigger+":"+source.uid+":"+(event.field??"")+":"+ability.text;
+    const number=state.effectMarks.filter(x=>x===key).length;
+    if(number>=ability.perTurnLimit)continue;
+    state.effectMarks.push(key);
+    if(state.effectMarks.length>600)state.effectMarks=state.effectMarks.slice(-350);
+   }
    if(!ability.supported){
     makePending(state,source,ability,actor,
      compiled.unsupported.find(x=>x.text===ability.text)?.reason);
