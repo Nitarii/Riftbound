@@ -30,6 +30,7 @@ function targetForReinforcement(view){
 }
 export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  if(!state?.started||state.active!=="ai")return {commands:[],state,summary:""};
+ if(state.finished)return {commands:[],state,summary:"Partie terminée",finished:true};
  if(state.pendingCombat)return {commands:[],state,summary:"Combat : réactions en attente.",waitingForCombat:true};
  if(state.pendingEffects?.length)return {commands:[],state,
    summary:"Effet à résoudre : "+state.pendingEffects[0].cardName,
@@ -66,6 +67,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   let moved=0;
   function moveUncontested(){
    for(const unit of own(view,"base").filter(c=>isUnit(c)&&!c.exhausted)){
+    if(view.finished)break;
     if(moved>=maxMoves)break;
     const field=targetForConquest(view)??targetForReinforcement(view);
     if(field===null)break; // Opponent controls/contests all fields: combat needs arbitration.
@@ -75,6 +77,8 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
    }
   }
   moveUncontested();
+  if(view.finished)return {commands,state:view,enacted,refused,finished:true,
+   summary:"Victoire : "+view.winner};
   // If both fields are occupied, evaluate an actual multi-unit assault. It
   // creates a showdown and pauses the AI turn for the human's reactions.
   function attackDefended(){
@@ -113,7 +117,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   }
   // Only units with fully known printed costs, including domain-coloured Power,
   // are eligible. Do not guess spells/gear/effects requiring custom timing.
-  for(let played=0;played<maxUnits;played++){
+  for(let played=0;played<maxUnits&&!view.finished;played++){
    const candidates=[...own(view,"hand"),...own(view,"champion")]
     .filter(c=>isPlayable(c))
     .map(c=>{
@@ -152,6 +156,8 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
   }
+  if(view.finished)return {commands,state:view,enacted,refused,finished:true,
+   summary:"Victoire : "+view.winner};
   if(!view.pendingCombat&&!view.pendingEffects?.length)attackDefended();
   const before=state.players.ai.score,after=view.players.ai.score;
   if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
@@ -171,6 +177,9 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
 }
 export function planSafeAITurn(state){return planAutonomousAITurn(state).commands;}
 export function describeAITurn(result,{english=false}={}){
+ if(result?.finished)return result.state?.winner==="ai"?
+  (english?"I have won the game.":"J'ai gagné la partie !"):
+  (english?"The player has won.":"Le joueur a gagné la partie !");
  if(!result?.commands?.length)return english?
   "I couldn't complete a safe turn; please check the battlefield and card rules.":
   "Je ne peux pas terminer mon tour de manière sûre : vérifie les cartes et les règles.";
