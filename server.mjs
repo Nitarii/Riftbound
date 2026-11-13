@@ -10,6 +10,7 @@ import os from "node:os";
 import * as sea from "node:sea";
 import {execFile} from "node:child_process";
 import {createState,applyCommand,COMMANDS} from "./core.mjs";
+import {inspectCards} from "./effect-engine.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
@@ -147,6 +148,7 @@ const guide={
  endpoints:{"GET /api/state":"State JSON, authenticated","GET /api/guide":"This guide, authenticated",
  "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
  "GET /api/decks":"Printed preconstructed deck recipes, authenticated",
+  "GET /api/effects/audit":"Whole-catalog effect coverage and unresolved card abilities, authenticated",
  "GET /api/messages?after=0":"Read physical player announcements and agent replies; poll every 2 seconds",
  "POST /api/messages":"Human chat message; JSON {text}, authenticated",
  "GET /api/ai/status":"Integrated model status, no credentials returned, LOCAL only",
@@ -197,9 +199,14 @@ async function executeGameCommand(input){
     format:"preconstructed",deckName:deck.label};
  }
  state=applyCommand(state,command);
- if(["start","next-turn"].includes(command.type))state=advanceMandatoryTurn(state);
+ if(["start","next-turn"].includes(command.type)||
+    command.type==="effect-confirm"&&!state.pendingEffects?.length&&state.phase==="Beginning")
+  state=advanceMandatoryTurn(state);
  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
- save();broadcast();return state;
+ save();broadcast();
+ if(input.type==="effect-confirm"&&state.active==="ai"&&!state.pendingEffects?.length)
+  queueMicrotask(()=>integratedAI.onHumanMessage("Effet de carte confirmé.",{actionApplied:false}));
+ return state;
 }
 const readMessages=after=>conversation.list(after);
 const receiveAgentMessage=text=>conversation.post("ai",text);
@@ -404,6 +411,14 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
   if(req.method==="GET"&&url.pathname==="/api/decks"){
     json(res,200,{decks:deckDescriptions()},req);return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/effects/audit"){
+    try{
+     const cards=await loadServerCatalog();
+     json(res,200,{...inspectCards(cards),pending:state.pendingEffects||[],
+      warning:"Seuls les effets réellement interprétés et vérifiés sont exécutés automatiquement."},req);
+    }catch(e){msg(res,503,String(e.message||e),req);}
+    return;
   }
   // The local authenticated UI controls the only public-facing gateway.
   // This control endpoint is NOT exposed by the restricted gateway.
