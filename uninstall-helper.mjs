@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import {spawn} from "node:child_process";
 import {setTimeout as sleep} from "node:timers/promises";
 import {inside,readMarker,OWNED_DIRS,OWNED_FILES,INSTALL_MARKER,
- legacyDataFolder} from "./portable.mjs";
+ legacyDataFolder,powershellEncoded} from "./portable.mjs";
 const SELF_ARG="--riftbound-uninstall-helper";
 const requestName="uninstall-request.json",statusName="uninstall-status.json";
 const goName="uninstall-go.signal";
@@ -138,17 +138,37 @@ async function clean(root){
  }
 }
 function scheduleTemporaryHelperRemoval(helperExe){
- // This one-time cmd script lives outside the selected install folder.
- // It deletes the helper only AFTER the running SEA image has exited.
+ // A running Windows .exe cannot delete itself. Launch a small, separate
+ // PowerShell command (NOT a .cmd stored in the directory being deleted).
+ // Its cwd and TEMP are outside the helper's own directory and the installed
+ // root, and it retries until Windows releases the executable image.
  try{
-  const parent=path.dirname(helperExe),bat=path.join(parent,"cleanup.cmd");
-  fs.writeFileSync(bat,
-   "@echo off\r\nping -n 5 127.0.0.1 >nul\r\n"+
-   'del /f /q "%~dp0RiftboundUninstall.exe" >nul 2>&1\r\n'+
-   'del /f /q "%~f0" >nul 2>&1\r\n'+
-   'rd "%~dp0" >nul 2>&1\r\n',{mode:0o600});
-  const child=spawn("cmd.exe",["/d","/c",bat],{
-   cwd:path.dirname(parent),windowsHide:true,detached:true,stdio:"ignore"});
+  const parent=path.dirname(helperExe);
+  const externalTemp=path.join(process.env.LOCALAPPDATA||
+   path.join(os.homedir(),"AppData","Local"),"Temp");
+  const quoted=s=>"'"+String(s).replace(/'/g,"''")+"'";
+  const script=[
+   "$ErrorActionPreference='SilentlyContinue'",
+   "$exe="+quoted(helperExe),
+   "$dir="+quoted(parent),
+   "for($i=0;$i -lt 120;$i++){",
+   "  if(Test-Path -LiteralPath $exe){Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue}",
+   "  if(!(Test-Path -LiteralPath $exe)){break}",
+   "  Start-Sleep -Milliseconds 250",
+   "}",
+   "if(!(Test-Path -LiteralPath $exe)){",
+   "  for($i=0;$i -lt 30;$i++){",
+   "    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue",
+   "    if(!(Test-Path -LiteralPath $dir)){break}",
+   "    Start-Sleep -Milliseconds 200",
+   "  }",
+   "}"
+  ].join("\n");
+  const child=spawn("powershell.exe",["-NoProfile","-NonInteractive",
+   "-EncodedCommand",powershellEncoded(script)],{
+   cwd:path.dirname(parent),windowsHide:true,detached:false,stdio:"ignore",
+   env:{...process.env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
+  });
   child.unref?.();
  }catch{}
 }
