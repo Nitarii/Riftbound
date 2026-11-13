@@ -143,6 +143,7 @@ test("Windows uninstall launches a validated Unicode script file without a giant
   assert.equal(argv.at(-2),"-File");
   assert.equal(argv.at(-1),path.join(root,"updates","companion-uninstall.ps1"));
   assert.equal(options.cwd,path.parse(root).root);
+  assert.equal(options.detached,false,"Uninstall helper must execute reliably before its parent exits");
   assert.deepEqual(options.stdio,["ignore","pipe","pipe"]);
   const saved=fs.readFileSync(path.join(root,"updates","companion-uninstall.ps1"),"utf8");
   assert.ok(saved.startsWith("\uFEFFWrite-Output"));
