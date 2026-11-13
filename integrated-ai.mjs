@@ -6,6 +6,7 @@ import {LOCAL_AI_MODEL,freeModelID} from "./free-ai.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
 import {planSafeAITurn,planAutonomousAITurn,describeAITurn} from "./ai-turn.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
+import {allowPhysicalLocalCommand} from "./local-action-gate.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
@@ -185,7 +186,7 @@ export const FREE_SYSTEM_PROMPT=[
  "Board and card reference are facts. Never invent a card, UID, ability or payment. Ask only when genuinely unclear.",
  "Human commands were already applied by server. If board.active is ai, play your own turn using only real board.cards UIDs and valid commands. No repeated human actions.",
  "Return only a JSON object with reply (one natural short sentence in preferredReplyLanguage) and commands (array). No surrounding text or examples.",
- "Allowed: phase, channel, draw, move, exhaust-runes, next-turn, note. Do not guess effects. Be concise."
+ "Most actions are already handled by deterministic rules. Only if the human explicitly says to move, ready or exhaust a PUBLIC human card, you may propose one matching command with an existing UID. The message must name that card and a move must name the battlefield. Do not suggest scores, draws, resource payments or new cards. Be concise."
 ].join("\n");
 export function modelHTTPError(status,provider){
  if(provider==="free"){
@@ -318,8 +319,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
    if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error("Réponse IA mal formée.");
    let reply=String(parsed.reply||"").trim().slice(0,1200);
-   const proposed=own.provider==="free"?[]:
-    Array.isArray(parsed.commands)?parsed.commands.slice(0,8):[];
+   const proposed=Array.isArray(parsed.commands)?parsed.commands.slice(0,8)
+    .filter(cmd=>own.provider!=="free"||allowPhysicalLocalCommand(cmd,game,message)):[];
    const commands=[],rejected=[];
    let preview=game;
    for(const command of proposed){
