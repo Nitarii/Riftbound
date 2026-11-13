@@ -4,6 +4,7 @@
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
 import {drawMainCards} from "./draw-rules.mjs";
+import {effectiveMight} from "./combat-engine.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
@@ -226,12 +227,22 @@ function applySteps(state,source,steps,actor,place,deckCard){
    logs.push("crée "+n+" jeton(s) "+step.tokenName+" ("+step.tokenMight+" Might)");
   }else if(step.kind==="damage-enemy"){
    const c=state.cards.find(c=>c.uid===step.targetUid);
+   if(!c||!unit(c)||!["base","battlefield"].includes(c.zone))
+    throw Error("La cible des dégâts a quitté le plateau.");
+   // An effect must not silently bypass Shield, printed stat modifiers, or
+   // death triggers. Defer to the shared combat stat computation.
    c.damage=(c.damage||0)+n;
-   const might=Number(c.might)||0;
-   if(might>0&&c.damage>=might){
+   const might=effectiveMight(c,"none",state);
+   if(might===null)throw Error("Might inconnue : dégâts non résolus.");
+   if(c.damage>=might){
+    const lastKnown={...c};
     c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
-   }
-   logs.push(n+" dégâts à "+c.name);
+    const triggered=processCardEvent(state,{
+     trigger:"die",actor:lastKnown.owner,source:lastKnown
+    },{place,deckCard});
+    logs.push(n+" dégâts à "+c.name+" (unité vaincue)");
+    if(triggered.length)logs.push(...triggered);
+   }else logs.push(n+" dégâts à "+c.name);
   }
  }
  return logs;
