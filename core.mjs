@@ -17,7 +17,7 @@ function shuffle(a) {
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0},pendingCombat:null,pendingEffects:[],effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],effectMarks:[],scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -60,6 +60,8 @@ export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=cp(old||createState()), c=command, type=string(c.type,40);
   s.pendingEffects??=[];s.effectMarks??=[];
+  s.turnActions??={channeled:0,drawn:0};
+  s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
   const p=c.player||"ai";
@@ -168,7 +170,7 @@ export function applyCommand(old, command) {
     }
     summary=(who==="ai"?"IA":"Joueur")+" : "+s.players[who].legend.name+" / "+s.players[who].champion.name;
   } else if(type==="start") {
-    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
+    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
     // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
@@ -178,13 +180,21 @@ export function applyCommand(old, command) {
     }
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
-    s.turnActions={channeled:0,drawn:0};
+    s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};
     s.scoredFields??={human:[],ai:[]};
     s.scoredFields[s.active]=[];
     // Awaken precedes Beginning. Ready the active player's cards, then
     // automatically mark obvious uncontested Hold scores; card effects stay manual.
     for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
     s.phase="Beginning";s.started=true;
+    // Temporary units die before beginning-of-turn Hold scoring.
+    const temporaryDeaths=[];
+    for(const card of s.cards.filter(x=>x.owner===s.active&&
+      ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
+     card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
+     temporaryDeaths.push(card.name);
+     processCardEvent(s,{trigger:"die",actor:card.owner,source:card},{place,deckCard});
+    }
     const holds=[];
     for(let i=0;i<s.battlefields.length;i++){
       if(battlefieldController(s,i)===s.active){
@@ -193,7 +203,8 @@ export function applyCommand(old, command) {
       }
     }
     summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
-     (holds.length?". "+holds.join(" · "):". Beginning résolu, phases restantes à jouer.");
+     (holds.length?". "+holds.join(" · "):". Beginning résolu, phases restantes à jouer.")+
+     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", ")+" détruite(s)":"");
     const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
     for(let i=0;i<s.battlefields.length;i++)if(battlefieldController(s,i)===s.active)
      triggered.push(...processCardEvent(s,{trigger:"hold",actor:s.active,field:i},{place,deckCard}));
@@ -219,6 +230,7 @@ export function applyCommand(old, command) {
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
     if(c.fromHand&&["base","battlefield"].includes(v.zone)){
      const triggered=processCardEvent(s,{trigger:"play",actor:p,source:v},{place,deckCard});
+     s.turnActions.played[p]=(s.turnActions.played[p]||0)+1;
      if(!s.pendingEffects.length)
       triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:v},{place,deckCard}));
      if(triggered.length)summary+=" · "+triggered.join(" · ");
@@ -235,7 +247,7 @@ export function applyCommand(old, command) {
     const restrictedText=String(v.text||"").replace(/^\[Accelerate\][^\n]*$/gim,"");
     if(/\b(?:play only|can't play|cannot play|you may only play|as an additional cost|must pay)\b/i.test(restrictedText))
      throw Error(v.name+" : condition ou coût supplémentaire non vérifiable. La carte reste en main.");
-    const onPlay=mandatoryPlayEffects(v);
+    const onPlay=mandatoryPlayEffects(v,{playedBefore:s.turnActions.played.ai});
     const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
     // Preflight card text before paying the runes. For unfamiliar abilities
     // the card is playable, but its trigger becomes an unresolved chain item.
@@ -274,6 +286,7 @@ export function applyCommand(old, command) {
     if(!accelerate&&!isGear&&!isSpell&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
+    s.turnActions.played.ai++;
     if(!s.pendingEffects.length)
      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},{place,deckCard}));
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
@@ -369,7 +382,7 @@ export function applyCommand(old, command) {
     v.zone=zone;v.battlefield=zone==="battlefield"?Math.max(0,Math.min(1,Number(c.battlefield)||0)):null;
     if(/unit/i.test(v.type||"")&&["base","battlefield"].includes(zone)){
       if(["hand","champion"].includes(origin))
-        v.exhausted=!/\baccelerate\b|enters? (?:the board )?ready/i.test(v.text||"");
+        v.exhausted=!entersNaturallyReady(v)||/\[Accelerate\]/i.test(v.text||"");
       else if(origin==="base"&&zone==="battlefield")v.exhausted=true;
     }
     if(typeof c.faceDown==="boolean")v.faceDown=c.faceDown;
