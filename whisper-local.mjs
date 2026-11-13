@@ -1,5 +1,5 @@
 // Free multilingual CPU speech recognizer, downloaded only after user consent.
-// All models, verified archives, WAV samples and output files stay under userData/speech.
+// The single Whisper Small model, verified archives and temporary WAV files stay under userData/speech.
 import fs,{createReadStream} from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -13,11 +13,9 @@ export const WHISPER_RELEASE="b5454";
 export const WHISPER_ARCHIVE="whisper-bin-x64.zip";
 export const WHISPER_ENGINE_URL="https://github.com/ggml-org/whisper.cpp/releases/download/"+WHISPER_RELEASE+"/"+WHISPER_ARCHIVE;
 export const WHISPER_ENGINE_SHA="6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb";
+export const WHISPER_MODEL="small";
 export const WHISPER_OPTIONS=Object.freeze({
- base:{label:"Whisper Base · multilingue, léger",file:"ggml-base.bin",
-  url:"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin?download=true",
-  sha256:"60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",bytes:148000000},
- small:{label:"Whisper Small · plus précis, plus lent",file:"ggml-small.bin",
+ small:{label:"Whisper Small · multilingue",file:"ggml-small.bin",
   url:"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true",
   sha256:"1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",bytes:488000000}
 });
@@ -77,7 +75,8 @@ export function createLocalWhisper({
  const root=path.join(userData,"speech"),engineDir=path.join(root,"engine"),
   downloads=path.join(root,"downloads"),models=path.join(root,"models"),temp=path.join(root,"temp");
  const stamp=path.join(engineDir,".verified.json"),preferences=path.join(root,".speech-preferences.json");
- let selected="base",running=null,job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false;
+ const selected=WHISPER_MODEL;
+ let job=null,transcribing=false,activeProc=null,extractProc=null,stopping=false;
  let enabled=true; // Preserve the existing hands-free default for current users.
  const ensureRunning=()=>{if(stopping)throw Error("Installation vocale interrompue : fermeture du compagnon.");};
  async function unpack(zip,dir,env){
@@ -93,7 +92,6 @@ export function createLocalWhisper({
  }
  try{
   const saved=JSON.parse(fs.readFileSync(preferences,"utf8"));
-  if(WHISPER_OPTIONS[saved.selected])selected=saved.selected;
   if(saved.enabled===false)enabled=false;
  }catch{}
  function savePreferences(){
@@ -117,11 +115,11 @@ export function createLocalWhisper({
    Object.entries(WHISPER_OPTIONS).map(([id,c])=>[id,{label:c.label,bytes:c.bytes,installed:installed(id)}])),
   running:Boolean(job)};}
  async function prepare(id){
-  if(!WHISPER_OPTIONS[id])throw Error("Modèle Whisper inconnu.");
+  if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
   if(platform!=="win32")throw Error("Whisper intégré est destiné au Windows x64.");
   const dirs=[root,downloads,models,temp,engineDir];
   dirs.forEach(dir=>fs.mkdirSync(dir,{recursive:true}));
-  const config=WHISPER_OPTIONS[id];selected=id;
+  const config=WHISPER_OPTIONS[id];
   const env={...process.env,TEMP:temp,TMP:temp,TMPDIR:temp};
   if(!findWhisper(engineDir)||!fs.existsSync(stamp)){
    info={phase:"engine",progress:0,error:"",message:"Téléchargement du moteur vocal officiel…"};
@@ -142,12 +140,14 @@ export function createLocalWhisper({
   ensureRunning();
   enabled=true;
   savePreferences();
-  info={phase:"ready",progress:100,error:"",message:"Whisper "+id+" prêt, 100 % local."};
+  // Old multilingual Base is obsolete and no longer selectable.
+  try{fs.rmSync(path.join(models,"ggml-base.bin"),{force:true});}catch{}
+  info={phase:"ready",progress:100,error:"",message:"Whisper Small prêt, 100 % local."};
  }
- function begin(id="base"){
+ function begin(id=WHISPER_MODEL){
   if(job)return status();
-  if(!WHISPER_OPTIONS[id])throw Error("Modèle Whisper inconnu.");
-  selected=id;stopping=false;
+  if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
+  stopping=false;
   const promise=prepare(id).catch(e=>{info={phase:"error",error:String(e.message||e).slice(0,250),
    message:"Installation vocale interrompue.",progress:0};}).finally(()=>{if(job===promise)job=null;});
   job=promise;return status();
