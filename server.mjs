@@ -596,8 +596,7 @@ server.listen(port,host,()=>{
   console.log("L'API principale est réservée à 127.0.0.1. Ne publie pas le jeton.");
   console.log("L'accès distant à une IA est DÉSACTIVÉ par défaut, et doit être démarré depuis le site.\n");
   if(packaged&&process.platform==="win32"){
-    console.log("Ouvre https://nitarii.github.io/Riftbound/ dans ton navigateur,");
-    console.log("puis clique sur « Autoriser la connexion locale » à l'étape 2.");
+    console.log("Le gestionnaire ouvre le plateau local en un clic, sans connexion manuelle.");
     console.log("Le programme n'ouvre plus un nouvel onglet automatiquement.");
     // The packaged executable opens the local management interface, where
     // the user can activate/disable AI, launch the site, update or uninstall.
