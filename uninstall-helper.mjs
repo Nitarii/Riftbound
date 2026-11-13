@@ -182,7 +182,7 @@ function startCleanupJanitor(helperDir,helperExe,helperPid,{env=process.env,spaw
   path.join(os.homedir(),"AppData","Local"),"Temp");
  const janitor=spawnImpl("powershell.exe",["-NoProfile","-NonInteractive",
   "-ExecutionPolicy","Bypass","-File",scriptFile],{
-  cwd:path.dirname(helperDir),windowsHide:true,detached:true,stdio:"ignore",
+  cwd:path.dirname(helperDir),windowsHide:true,detached:false,stdio:"ignore",
   env:{...env,TEMP:externalTemp,TMP:externalTemp,TMPDIR:externalTemp}
  });
  if(!validPid(janitor?.pid))throw Error("Impossible de démarrer le nettoyeur temporaire.");
