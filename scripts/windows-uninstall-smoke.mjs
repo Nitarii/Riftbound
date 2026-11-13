@@ -92,6 +92,14 @@ async function run({name,path:root,port,otherFile}){
   if(fs.existsSync(diag))console.error("Helper status:",fs.readFileSync(diag,"utf8"));
   const launchLog=path.join(root,"updates","uninstall-launch.log");
   if(fs.existsSync(launchLog))console.error("Helper launch:",fs.readFileSync(launchLog,"utf8"));
+  const updates=path.join(root,"updates");
+  if(fs.existsSync(updates)){
+   console.error("Updates files:",fs.readdirSync(updates));
+   for(const file of ["maintenance-output.log","companion-uninstall.ps1"]){
+    const full=path.join(updates,file);
+    if(fs.existsSync(full))console.error("File "+file+":",fs.readFileSync(full,"utf8").slice(0,1200));
+   }
+  }
   if(fs.existsSync(logPath))console.error("Server log:",fs.readFileSync(logPath,"utf8").slice(-3000));
   throw error;
  }finally{
