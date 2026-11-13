@@ -1938,3 +1938,17 @@ body:not(.home-visible) #game-app.history-collapsed{
  #card-dialog #detail-text{max-height:none}
  #card-dialog .card-dialog-header{padding:10px 12px}
 }
+
+
+/* Printed card text which requires a choice or a game rule not yet automated. */
+#pending-effect-panel[hidden]{display:none!important}
+#pending-effect-panel{
+ display:flex;justify-content:space-between;align-items:center;
+ gap:16px;flex-wrap:wrap;padding:12px 15px;margin:8px 0 12px;
+ background:#1d3039;border:1px solid #c49a58;border-radius:10px;
+}
+#pending-effect-panel .pending-effect-copy{flex:1 1 380px;min-width:0}
+#pending-effect-panel strong{color:#f2d78e;font-size:14px}
+#pending-effect-panel p{margin:5px 0;color:#f2eee4;font-size:13px;line-height:1.5;white-space:pre-wrap}
+#pending-effect-panel small{color:#b5c7cf;font-size:11px;line-height:1.4}
+#pending-effect-panel button{min-height:42px;max-width:100%;white-space:normal}
