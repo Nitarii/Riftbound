@@ -175,7 +175,7 @@ function scheduleTemporaryHelperRemoval(helperExe){
   ].join("\n");
   // Executing a parsed .ps1 with -File is reliable in Windows PowerShell
   // launched from SEA, unlike EncodedCommand which can exit without running.
-  fs.writeFileSync(cleanupFile,"\\uFEFF"+script,{encoding:"utf8",mode:0o600});
+  fs.writeFileSync(cleanupFile,"\uFEFF"+script,{encoding:"utf8",mode:0o600});
   const child=spawn("powershell.exe",["-NoProfile","-NonInteractive",
    "-ExecutionPolicy","Bypass","-File",cleanupFile],{
    cwd:path.dirname(parent),windowsHide:true,detached:false,stdio:"ignore",
