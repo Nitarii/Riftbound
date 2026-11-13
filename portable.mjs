@@ -8,8 +8,8 @@ import {buildUpdateScript,writeUpdateStatus} from "./update-transaction.mjs";
 export const INSTALL_MARKER=".riftbound-install.json";
 export const INSTALL_ID="org.nitarii.riftbound.portable";
 export const OWNED_DIRS=["free-opponent","speech","temp","downloads","updates"];
-export const OWNED_FILES=[".riftbound-local-state.json",".riftbound-conversation.json",
- ".riftbound-catalog-cache.json",".riftbound-ai-settings.json"];
+export const OWNED_FILES=[".riftbound-local-state.json",".riftbound-local-state.json.bak",
+ ".riftbound-conversation.json",".riftbound-catalog-cache.json",".riftbound-ai-settings.json"];
 const exePattern=/^RiftboundCompanion(?:-v\d+(?:\.\d+)*)?\.exe$/i;
 const resolved=p=>path.resolve(p);
 export const inside=(a,b)=>b===a||b.startsWith(a+path.sep);
