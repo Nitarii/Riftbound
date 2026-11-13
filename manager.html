@@ -72,6 +72,35 @@ footer{font-size:11px;line-height:1.65;color:#91a8b2;margin:20px 0 0}
 @media(max-width:740px){.process-grid{grid-template-columns:1fr}
  .process-description{min-height:0}.process-card{padding:11px}}
 @media(max-width:660px){.grid{grid-template-columns:1fr}section.wide{grid-column:auto}}
+
+/* Single purpose-first screen; maintenance stays accessible on demand. */
+main{display:flex;flex-direction:column}
+main>header{order:0;margin-bottom:12px}
+main>.lead{order:1;margin-bottom:8px}
+main>.status{order:2;margin-bottom:12px;padding:10px 13px}
+main>#startup-screen{order:3}
+main>#manager-dashboard{order:4}
+main>#process-dashboard{order:5;margin-top:12px}
+main>#update-diagnostics{order:6;margin-top:12px}
+main>footer{order:7}
+.manager-primary{text-align:center;padding:24px 20px}
+.manager-primary h2{font-size:25px}
+.manager-primary p{margin:4px 0 13px}
+.manager-primary .actions,.manager-models .actions{justify-content:center}
+.manager-play-button{font-size:17px;min-width:215px;padding:13px 18px}
+.manager-models{text-align:center}
+.manager-models p{margin:4px 0 12px}
+.manager-models .notice{min-height:0;padding-top:4px}
+.manager-models .notice:empty{display:none}
+.manager-advanced{border:1px solid #40535b;border-radius:12px;background:#10222e;padding:11px 15px}
+.manager-advanced>summary,#process-dashboard>summary{cursor:pointer;color:#ead29b;font-weight:750;font-size:15px;padding:4px}
+.manager-advanced-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:15px}
+.manager-advanced-body section{padding:14px}
+#process-dashboard:not([open]){padding:10px 15px}
+#process-dashboard[open]>summary{margin-bottom:11px}
+#process-dashboard .process-subtitle{margin-bottom:10px}
+#process-dashboard .process-description{min-height:0}
+@media(max-width:660px){.manager-advanced-body{grid-template-columns:1fr}.manager-play-button{width:100%}}
 </style>
 </head>
 <body>
@@ -205,7 +234,7 @@ function renderProcesses(data){
   w.active?"whisper-cli.exe en cours"+(w.pid?" · PID "+w.pid:""):
   w.installing?"Installation du modèle vocal en cours.":
   !w.enabled?"Micro local désactivé. Aucun modèle n'est chargé.":
-  w.installed?"Whisper "+(w.model||"base")+" installé : ne tourne que pendant la transcription.":
+  w.installed?"Whisper Small prêt : démarre uniquement quand tu parles.":
    "Aucun processus actif. Le modèle peut être installé ci-dessous.");
  $("process-whisper-stop").disabled=busy||!(w.active||w.enabled||w.installing);
  $("process-whisper-enable").hidden=!!w.enabled||!w.installed;
@@ -250,6 +279,9 @@ function renderStartup(data){
  const startup=$("startup-screen"),dashboard=$("manager-dashboard");
  const state=data.updateState||"checking";
  const blocked=!data.canLaunch;
+ const proc=$("process-dashboard");
+ if(blocked)proc.open=true;
+ else if(!proc.dataset.compacted){proc.open=false;proc.dataset.compacted="true";}
  startup.hidden=!blocked;
  dashboard.hidden=blocked;
  const title=$("startup-title"),message=$("startup-details");
@@ -308,15 +340,18 @@ async function refresh(){
   $("version").textContent="Version "+manager.version;
   $("connection").textContent=manager.canLaunch?
    "● Compagnon Windows prêt":"● Gestionnaire actif · plateau en attente";
-  showStatus("ai-info",ai.message+(ai.error?" · "+ai.error:""));
-  progress("ai-progress",ai);
-  $("ai-install").disabled=busy||!!ai.running||!!processes.qwen?.active||!manager.canLaunch;
-  $("ai-install").textContent=ai.installed?"Activer Qwen":"Installer / activer";
-  $("ai-stop").disabled=busy||!(processes.qwen?.active||processes.qwen?.enabled);
-  showStatus("speech-info",speech.message+(speech.error?" · "+speech.error:""));
-  progress("speech-progress",speech);
-  $("speech-install").disabled=busy||!!speech.running||!manager.canLaunch;
-  $("update-apply").disabled=!availableVersion||!!manager.updating;
+  const speechReady=Boolean(speech.installed&&speech.enabled);
+ const aiReady=Boolean(ai.ready&&processes.qwen?.active);
+ const modelsBusy=Boolean(ai.running||speech.running||busy);
+ showStatus("ai-info","IA · "+(ai.message||"En attente")+(ai.error?" · "+ai.error:""));
+ progress("ai-progress",ai);
+ showStatus("speech-info","Micro · "+(speech.message||"En attente")+(speech.error?" · "+speech.error:""));
+ progress("speech-progress",speech);
+ $("ai-install").disabled=!manager.canLaunch||modelsBusy||(aiReady&&speechReady);
+ $("ai-install").textContent=modelsBusy?"Installation en cours…":aiReady&&speechReady?"✓ IA et micro prêts":
+   aiReady?"Installer le micro":ai.installed?"Activer IA et micro":"Installer IA et micro";
+ $("ai-stop").disabled=busy||!(processes.qwen?.active||processes.qwen?.enabled);
+ $("update-apply").disabled=!availableVersion||!!manager.updating;
   $("open-site").disabled=!manager.canLaunch;
   $("open-local").disabled=!manager.canLaunch;
   progress("update-progress",manager);
@@ -380,9 +415,9 @@ $("manager-stop").onclick=()=>execute(async()=>{
  report("Arrêt du compagnon demandé, données conservées.");
 });
 $("ai-install").onclick=()=>execute(async()=>{
- if(!confirm("Installer/activer Qwen gratuitement dans ce dossier exclusivement ?\n"+root))return;
- const r=await api("/api/ai/free/install","POST",{model:"qwen3:0.6b",confirmFolder:root});
- report(r.message||"Installation IA démarrée.");
+ if(!confirm("Installer ou activer Qwen3 4B et Whisper Small dans ce dossier ?\n"+root))return;
+ const r=await api("/api/ai/free/install","POST",{model:"qwen3:4b-instruct-2507",confirmFolder:root});
+ report(r.message||"Installation IA et micro lancée.");
 });
 async function stopProcess(target){
  const result=await api("/api/manager/processes/stop","POST",{target});
@@ -402,11 +437,6 @@ $("process-whisper-enable").onclick=()=>execute(async()=>{
  report(result.message);renderProcesses(result);
 });
 $("ai-stop").onclick=()=>execute(()=>stopProcess("qwen"));
-$("speech-install").onclick=()=>execute(async()=>{
- if(!confirm("Installer Whisper dans ce dossier exclusivement ?\n"+root))return;
- await api("/api/speech/install","POST",{model:$("speech-model").value,confirmFolder:root});
- report("Installation Whisper lancée. Les fichiers restent dans "+root);
-});
 $("update-check").onclick=()=>execute(async()=>{
  const result=await api("/api/manager/update/check","POST");
  availableVersion=result.availableVersion||"";
@@ -426,6 +456,6 @@ $("uninstall").onclick=()=>execute(async()=>{
  await api("/api/manager/uninstall","POST",{confirm:"DELETE_RIFTBOUND_DATA",folder:root});
  report("Désinstallation lancée. Le compagnon va se fermer.");
 });
-refresh();setInterval(refresh,1500);
+refresh();setInterval(()=>{if(!document.hidden||awaitingUpdateRestart)refresh();},2500);
 </script>
 </body></html>
