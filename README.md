@@ -3,7 +3,17 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.32](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.32.exe)
+**Windows :** [Télécharger Riftbound Companion v0.33](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.33.exe)
+
+## v0.33 — Fiche d'effet affichée correctement et Shield conditionnel
+
+- Résout le bug d'affichage qui écrasait l'intégralité du playmat dans une colonne étroite lors de la présentation d'une capacité à confirmer. Les avis restent dans une fenêtre flottante centrée, limitée à l'écran, sans déplacer les zones du plateau.
+- Les capacités passives **I have [Shield N] while I'm at a battlefield with exactly X other units you control** sont reconnues comme des statistiques continues, **et non des effets à déclencher lorsque la carte est jouée**. Leur bonus s'applique seulement en défense et uniquement si le nombre d'autres unités alliées présentes sur ce champ correspond à la condition.
+- Les anciennes confirmations erronées pour cette famille d'effets sont nettoyées lors du chargement des sauvegardes, sans supprimer les confirmations de capacités réellement non automatisées.
+- Régression vérifiée sur l'annonce « je vais jouer Disciple of Shen pour 2 runes », sur les conditions de défense avec 0, 1 ou 2 alliés, et sur l'affichage d'un effet à confirmer aux résolutions PC et mobile.
+- Le CSS et le JavaScript du site possèdent désormais une version de cache explicite afin de charger les correctifs après une mise à jour.
+
+La reconnaissance de ce motif est générique : elle n'est pas codée en dur pour une référence de carte particulière. La couverture des effets complexes reste partielle et nécessite parfois un arbitrage manuel.
 
 ## v0.32 — Moteur de règles en développement
 La v0.32 regroupe les corrections apportées depuis la v0.31 : mots-clés et déclencheurs supplémentaires (Deathknell, Legion, Temporary, Vision), mise à jour des effets sur les runes, jetons, cibles, dégâts et bonus, gestion du Burn Out et de la victoire, déplacements standards et Ganking, vérification des coûts et réduction des actions inventées par le modèle conversationnel.

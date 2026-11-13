@@ -8,6 +8,7 @@ import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat} from "./combat-engine.mjs";
+import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
 const i18n={
@@ -84,6 +85,7 @@ try{onboarding=JSON.parse(localStorage.getItem(onboardingStorage))||{};}catch{on
 function saveOnboarding(){try{localStorage.setItem(onboardingStorage,JSON.stringify(onboarding));}catch{}}
 let wizardStep=Number.isInteger(onboarding.wizardStep)?Math.max(1,Math.min(4,onboarding.wizardStep)):1;
 let state;try{state=JSON.parse(localStorage.getItem(storage))||createState()}catch{state=createState()}
+state=migrateLegacyPassivePendingEffects(state);
 let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 let companionGate=null,companionGateBusy=false;
 const isLoopbackRelay=url=>/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(url||"");

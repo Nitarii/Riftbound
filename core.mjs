@@ -4,6 +4,7 @@ import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent} from "./effect-runtime.mjs";
 import {drawMainCards} from "./draw-rules.mjs";
+import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
@@ -59,7 +60,7 @@ function entersNaturallyReady(card){
 
 export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
-  const s=cp(old||createState()), c=command, type=string(c.type,40);
+  const s=migrateLegacyPassivePendingEffects(cp(old||createState())), c=command, type=string(c.type,40);
   s.pendingEffects??=[];s.effectMarks??=[];
   s.effectWork=0; // New action has its own bounded resolution budget.
   s.turnActions??={channeled:0,drawn:0};
