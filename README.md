@@ -3,7 +3,16 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.39](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.39.exe)
+**Windows :** [Télécharger Riftbound Companion v0.40](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.40.exe)
+
+## v0.40 — Fin des tours IA sans blocage
+
+- Correction du blocage en phase Main après « Je termine mon tour » : le moteur identifiait bien le tour de l'IA mais interrompait sa logique car la commande physique avait été appliquée.
+- Le moteur déterministe lance directement et sans requête Qwen les tours IA, y compris après la voix, le chat, le bouton « Tour suivant », une résolution d'effet ou le redémarrage d'un modèle local.
+- La conversation locale et ses délais réseau ne bloquent plus les actions de jeu. Lors du changement de tour, toute réponse Qwen obsolète en cours est annulée.
+- Les déclenchements multiples sont regroupés et validés par révision pour ne pas faire jouer deux fois l'IA, ni piocher ou canaliser des runes en double.
+- Si un effet ou un paiement est impossible à valider, le plateau n'est pas modifié de manière fictive : le compagnon affiche une explication.
+- Tests de régression pour le scénario réel du joueur (premier tour IA, trois runes, Main), une génération Qwen figée et les notifications de tour répétées.
 
 ## v0.39 — Voix, cartes, gestionnaire et profils matériels
 
