@@ -240,6 +240,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   lastAutonomousRevision=key;
   const own=config;
   autonomousRunning=true;
+  let committed=false;
   try{
    if(game.pendingEffects?.length){
     const pending=game.pendingEffects[0];
@@ -261,6 +262,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     return;
    }
    await applyBatch(plan.commands,game.revision);
+   committed=true;
    if(config===own&&getMessages(0).session===session)
     sendMessage(describeAITurn(plan,{english:false}));
    lastError="";
@@ -269,7 +271,13 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    if(config===own&&getMessages(0).session===session)
     sendMessage("⚠️ Tour automatique non appliqué : "+lastError+
      ". Les actions restent sous contrôle des règles.");
-  }finally{autonomousRunning=false;}
+  }finally{
+   autonomousRunning=false;
+   // applyBatch can schedule its notification while this runner is still
+   // awaiting its promise, so that notification gets coalesced and lost.
+   // Recheck after releasing the lock when a legal partial turn was committed.
+   if(committed&&config===own)queueMicrotask(()=>advanceTurnIfAI());
+  }
  }
  function advanceTurnIfAI(){
   const game=getState();

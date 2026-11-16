@@ -44,6 +44,11 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  const commands=[];let view=state;
  const enacted=[],refused=[];
  const apply=command=>{view=applyCommand(view,command);commands.push(command);};
+ // A trigger can suspend the turn halfway through channeling, drawing or moving.
+ // Preserve already legal actions instead of rolling back the complete batch.
+ const interrupted=()=>Boolean(view.finished||view.pendingCombat||view.pendingEffects?.length);
+ const partial=()=>({commands,state:view,enacted,refused,finished:!!view.finished,
+  summary:enacted.join(", ")});
  try{
   const first=view.firstPlayer||"human";
   const count=view.turn===1&&first!=="ai"?3:2;
@@ -54,12 +59,14 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
     const n=Math.min(count,left);
     apply({type:"channel",player:"ai",count:n});
     enacted.push("canalisé "+n+" runes");
+    if(interrupted())return partial();
    }
   }
   if(!view.turnActions?.drawn&&view.decks?.ai?.main?.length){
    apply({type:"phase",phase:"Draw"});
    apply({type:"draw",player:"ai",count:1});
    enacted.push("pioché 1 carte");
+   if(interrupted())return partial();
   }
   if(view.phase!=="Main")apply({type:"phase",phase:"Main"});
   // Ready units already in base are useful now. They should not wait forever
@@ -67,18 +74,18 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   let moved=0;
   function moveUncontested(){
    for(const unit of own(view,"base").filter(c=>isUnit(c)&&!c.exhausted)){
-    if(view.finished)break;
+    if(interrupted())break;
     if(moved>=maxMoves)break;
     const field=targetForConquest(view)??targetForReinforcement(view);
     if(field===null)break; // Opponent controls/contests all fields: combat needs arbitration.
     apply({type:"move",uid:unit.uid,zone:"battlefield",battlefield:field});
     enacted.push(unit.name+" → "+view.battlefields[field].card.name);
     moved++;
+    if(interrupted())break;
    }
   }
   moveUncontested();
-  if(view.finished)return {commands,state:view,enacted,refused,finished:true,
-   summary:"Victoire : "+view.winner};
+  if(interrupted())return partial();
   // If both fields are occupied, evaluate an actual multi-unit assault. It
   // creates a showdown and pauses the AI turn for the human's reactions.
   function attackDefended(){
@@ -165,9 +172,9 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
     (discarded.length?", puis défaussé "+discarded.join(", ")+" pour son effet":""));
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
+   if(interrupted())break;
   }
-  if(view.finished)return {commands,state:view,enacted,refused,finished:true,
-   summary:"Victoire : "+view.winner};
+  if(view.finished)return partial();
   if(!view.pendingCombat&&!view.pendingEffects?.length)attackDefended();
   const before=state.players.ai.score,after=view.players.ai.score;
   if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
