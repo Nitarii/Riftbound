@@ -211,8 +211,10 @@ async function executeGameCommand(input){
   state=advanceMandatoryTurn(state);
  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
  save();broadcast();
- if(input.type==="effect-confirm"&&state.active==="ai"&&!state.pendingEffects?.length)
-  queueMicrotask(()=>integratedAI.onHumanMessage("Effet de carte confirmé.",{actionApplied:false}));
+ // Every transition into AI control starts the deterministic turn immediately,
+ // including toolbar "Tour suivant", reactions and effect confirmations.
+ // The runner coalesces requests by state revision.
+ integratedAI.advanceTurnIfAI();
  return state;
 }
 const readMessages=after=>conversation.list(after);
@@ -225,7 +227,11 @@ function applyAgentBatch(actions,revision){
   next=applyCommand(next,cmd);
   if(["start","next-turn"].includes(cmd.type))next=advanceMandatoryTurn(next);
  }
- state=next;save();broadcast();return state;
+ state=next;save();broadcast();
+ // Some AI actions finish an effect or advance into another playable state.
+ // Re-evaluate only after the current batch has been committed.
+ queueMicrotask(()=>integratedAI.advanceTurnIfAI());
+ return state;
 }
 const integratedAI=createIntegratedAI({
  userData,getState:()=>state,applyBatch:applyAgentBatch,
@@ -320,6 +326,7 @@ const localFreeAI=createFreeLocalAI({
  onReady:async model=>{
   if(remoteAccess.status().active)throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
   integratedAI.configure({provider:"free",model,enabled:true});
+  integratedAI.advanceTurnIfAI();
  }
 });
 const speech=createLocalWhisper({userData});
