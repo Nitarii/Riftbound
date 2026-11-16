@@ -207,12 +207,14 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  fetchImpl=fetch,timeoutMs=45000}){
  const file=path.join(userData,".riftbound-ai-settings.json");
  let config=null,processing=false,lastError="",queue=Promise.resolve(),lastEffectPrompt="";
+ // Game turns are deterministic and MUST NOT be queued behind a slow model.
+ let autonomousRunning=false,lastAutonomousRevision="",liveChatAbort=null;
  try{const saved=JSON.parse(fs.readFileSync(file,"utf8"));
   if(saved?.provider)config=validateAIConfig(saved,saved);
  }catch{}
  const status=()=>({configured:!!config,enabled:!!config?.enabled,provider:config?.provider||"",
   model:config?.model||"",endpoint:config?.endpoint||"",hasKey:!!config?.apiKey,
-  processing,lastError});
+  processing:processing||autonomousRunning,lastError});
  function configure(input){
   const next=validateAIConfig(input,config||{});
   const temp=file+".tmp";
@@ -224,6 +226,59 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  function disable(){
   if(config)configure({...config,enabled:false});
   return status();
+ }
+ // Execute a real AI turn independently of any queued Qwen conversation.
+ // This is deliberately not a language-model request: the legal move planner
+ // checks payment, printed effects and combat before committing a batch.
+ async function runAutonomousTurn(){
+  if(autonomousRunning||!config?.enabled)return;
+  const game=getState();
+  if(!game?.started||game.finished||game.active!=="ai")return;
+  const session=getMessages(0).session;
+  const key=session+":"+game.revision;
+  if(lastAutonomousRevision===key)return;
+  lastAutonomousRevision=key;
+  const own=config;
+  autonomousRunning=true;
+  try{
+   if(game.pendingEffects?.length){
+    const pending=game.pendingEffects[0];
+    if(lastEffectPrompt!==key){
+     lastEffectPrompt=key;
+     sendMessage("Effet de "+pending.cardName+" à résoudre : "+pending.text+
+      ". Le plateau attend la résolution de cet effet.");
+    }
+    return;
+   }
+   if(game.pendingCombat){
+    sendMessage("Combat en cours : annonce une réaction ou passe la priorité pour le résoudre.");
+    return;
+   }
+   const plan=planAutonomousAITurn(game);
+   if(!plan.commands.length){
+    lastError=plan.error||plan.summary||"Tour IA bloqué par une règle ou un effet à résoudre.";
+    sendMessage("⚠️ "+lastError+" Aucun coup n'a été simulé.");
+    return;
+   }
+   await applyBatch(plan.commands,game.revision);
+   if(config===own&&getMessages(0).session===session)
+    sendMessage(describeAITurn(plan,{english:false}));
+   lastError="";
+  }catch(error){
+   lastError=String(error?.message||error).slice(0,250);
+   if(config===own&&getMessages(0).session===session)
+    sendMessage("⚠️ Tour automatique non appliqué : "+lastError+
+     ". Les actions restent sous contrôle des règles.");
+  }finally{autonomousRunning=false;}
+ }
+ function advanceTurnIfAI(){
+  const game=getState();
+  if(!config?.enabled||!game?.started||game.finished||game.active!=="ai")return false;
+  // Stop a conversational response from holding up the turn and from
+  // publishing obsolete information after the board has advanced.
+  liveChatAbort?.abort();
+  queueMicrotask(()=>{void runAutonomousTurn();});
+  return true;
  }
  async function respond(message,session,{actionApplied=false}={}){
   if(!config?.enabled||getMessages(0).session!==session)return;
@@ -298,9 +353,12 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    };
    const headers={"Content-Type":"application/json"};
    if(own.apiKey)headers.Authorization="Bearer "+own.apiKey;
+   const controller=new AbortController();
+   liveChatAbort=controller;
    const sendRequest=async body=>fetchImpl(own.endpoint+"/chat/completions",{
     method:"POST",headers,body:JSON.stringify(body),
-    signal:AbortSignal.timeout(free?75000:timeoutMs)
+    signal:AbortSignal.any([AbortSignal.timeout(free?20000:timeoutMs),
+     controller.signal])
    });
    let response=await sendRequest(payload);
    if(free&&[400,413,422].includes(response.status)&&!response.ok){
@@ -320,7 +378,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
       {role:"user",content:JSON.stringify(smallContext)}]
     });
    }
-   if(!stillCurrent())return;
+   if(!stillCurrent()||getState().revision!==revision)return;
    if(!response.ok)throw Error(modelHTTPError(response.status,own.provider));
    const packet=await response.json();
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
@@ -357,7 +415,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    }
    if(stillCurrent())sendMessage(groundedReply(reply,commands,game,english));
   }catch(e){
-   if(getMessages(0).session!==session||config!==own||!config?.enabled)return;
+   if(e?.name==="AbortError"||
+      getMessages(0).session!==session||config!==own||!config?.enabled)return;
    lastError=e?.name==="TimeoutError"?"Délai de réponse dépassé.":String(e?.message||e).slice(0,250);
    // Invalid JSON from a small language model must not freeze the AI turn.
    const current=getState();
@@ -383,8 +442,12 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }
  function onHumanMessage(text,{actionApplied=false}={}){
   if(!config?.enabled)return;
+  // A player can finish their turn by voice, text, or a board button.
+  // Do not enqueue the AI's turn behind any pending inference call.
+  if(advanceTurnIfAI())return;
   const session=getMessages(0).session;
-  queue=queue.then(()=>respond(text,session,{actionApplied})).catch(e=>{lastError=String(e?.message||e);processing=false;});
+  queue=queue.then(()=>respond(text,session,{actionApplied}))
+   .catch(e=>{lastError=String(e?.message||e);processing=false;});
  }
- return {configure,disable,status,onHumanMessage};
+ return {configure,disable,status,onHumanMessage,advanceTurnIfAI};
 }
