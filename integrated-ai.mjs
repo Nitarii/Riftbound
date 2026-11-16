@@ -306,24 +306,10 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     );
     return;
    }
-   if(actionApplied&&game.started)return; // The engine handles turn passing and other commands.
-   // The deterministic engine owns the AI's turn. A language model
-   // must not select imaginary payments, score without a capture, or end its
-   // turn before moving ready units onto a battlefield.
-   if(game.started&&game.active==="ai"){
-    const plan=planAutonomousAITurn(game);
-    if(!stillCurrent())return;
-    if(!plan.commands.length){
-     lastError=plan.error||"Tour IA impossible sans mouvement sûr.";
-     sendMessage("⚠️ "+lastError);return;
-    }
-    await applyBatch(plan.commands,revision);
-    if(stillCurrent()){
-     const english=detectMessageLanguage(message)==="en";
-     sendMessage(describeAITurn(plan,{english}));
-    }
-    return;
-   }
+   // Even a previously queued conversation must not run a competing turn.
+   // All AI moves pass through one revision-guarded deterministic runner.
+   if(game.started&&game.active==="ai"){advanceTurnIfAI();return;}
+   if(actionApplied&&game.started)return; // Physical action already applied.
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";
