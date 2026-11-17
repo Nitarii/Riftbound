@@ -3,7 +3,15 @@
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  
-**Windows :** [Télécharger Riftbound Companion v0.41](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.41.exe)
+**Windows :** [Télécharger Riftbound Companion v0.42](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.42.exe)
+
+## v0.42 — Règles du jeu RUP5 FR dans l'IA
+
+- Référence reconstruite à partir du livre français des règles de base RUP5 (**156 pages, édition 09/10/2026**). L'index contient plus de 50 résumés originaux avec les numéros de règles et leurs pages, sans republier le texte intégral du PDF protégé.
+- Sur chaque réponse de l'IA, récupération des règles pertinentes depuis les actions décrites et l'état du plateau, en plus du texte des cartes déjà indexé. L'IA peut citer les règles et doit donner la priorité aux textes de carte (002), aux interdictions (054) et aux effets réellement résolubles (055).
+- Les règles du duel (8 points et rune supplémentaire au deuxième joueur lors de sa première canalisation) sont partagées entre l'IA, le moteur et le suivi du tour.
+- L'API de référence locale (/api/ai/reference?q=...) rend les règles pertinentes vérifiables par numéro et page. La main physique du joueur demeure privée.
+- Régressions automatisées pour les règles, la confidentialité et l'économie des tours. Cette amélioration de connaissance n'implémente **pas encore tous les effets, mots-clés, couches, fenêtres de réaction ou interactions de chaque carte** : les effets non pris en charge exigent toujours arbitrage explicite.
 
 ## v0.41 — Fin des tours IA sans blocage
 

@@ -1,4 +1,5 @@
-// Compact knowledge retrieval for the free 0.6B local opponent.
+import {CORE_RULEBOOK,selectCoreRules} from "./rules-compendium.mjs";
+// Compact, versioned knowledge retrieval for local and optional AI opponents.
 // Our summaries are original, not a copy of Riot's copyrighted rules PDFs.
 // The official Rules Hub remains authoritative; card texts come from the
 // existing normalized catalogue and should be checked against current errata.
@@ -9,6 +10,7 @@ export const RULES_SOURCES=Object.freeze({
  status:"Règles de base et règles de tournoi datées du 9 octobre 2026 ; bannissements en construit mis à jour le 18 septembre 2026. Vérifier les changements sur le hub officiel.",
  effectiveDate:"2026-10-16",
  coreRevision:"2026-10-09",
+ coreEdition:"RUP5 FR",corePages:156,
  tournamentRevision:"2026-10-09"
 });
 const GUIDE=[
@@ -144,6 +146,7 @@ export function buildGameKnowledge(state,announcement,catalog=[],{
   if(truncated.includes(card.name))card.text+=" … [texte incomplet, consulter la carte officielle]";
  }
  return {
+  rulebook:{...CORE_RULEBOOK,relevant:selectCoreRules(announcement,{state,limit:ruleCount+2})},
   rules:{revision:RULES_SOURCES.coreRevision,source:RULES_SOURCES.rulesHub,
    notice:"Règles originales résumées, non exhaustives; le hub officiel et les errata prévalent.",
    quickReference:selectRules(announcement,ruleCount)},
@@ -156,7 +159,8 @@ export function buildGameKnowledge(state,announcement,catalog=[],{
  };
 }
 export function publicReference(query,catalog=[]){
- return {sources:RULES_SOURCES,quickRules:selectRules(query,6),
+ return {sources:RULES_SOURCES,rulebook:CORE_RULEBOOK,
+  indexedRules:selectCoreRules(query,{limit:8}),quickRules:selectRules(query,6),
   site:SITE_GUIDE,matches:searchRelevantCards(catalog,query,12),
   catalogCount:Array.isArray(catalog)?catalog.length:0};
 }
