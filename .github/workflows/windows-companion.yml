@@ -272,6 +272,15 @@ jobs:
           $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
           "$hash  RiftboundCompanion-v0.43.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.43.exe.sha256" -Encoding ascii -NoNewline
+      - name: Upload verified preview for review
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: riftbound-windows-preview
+          path: |
+            dist/RiftboundCompanion-v0.43.exe
+            dist/RiftboundCompanion-v0.43.exe.sha256
+          if-no-files-found: error
       - name: Publish one-file download to GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh

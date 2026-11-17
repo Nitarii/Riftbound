@@ -40,11 +40,15 @@ function makePending(state,source,ability,actor,reason){
   reason:String(reason||"Choix ou capacité non automatisée").slice(0,250)
  });
 }
-function selectTarget(state,kind,source,actor){
- const pool=state.cards.filter(c=>unit(c)&&["base","battlefield"].includes(c.zone));
+function canChooseUnit(card,kind,actor){
+ if(!card||!unit(card)||!["base","battlefield"].includes(card.zone)||card.faceDown||
+    card.owner!==actor&&card.counters?.tempShroud)return false;
  const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(kind);
  const friendly=kind==="buff-friendly";
- let eligible=pool.filter(c=>enemy?c.owner!==actor:friendly?c.owner===actor:true);
+ return enemy?card.owner!==actor:friendly?card.owner===actor:true;
+}
+function selectTarget(pool,kind,actor){
+ let eligible=pool;
  // For flexible choices prefer helpful actions over harming our own units.
  if(["damage-enemy","stun-unit","kill-unit"].includes(kind)){
   const hostile=eligible.filter(c=>c.owner!==actor);
@@ -104,12 +108,11 @@ function buildSteps(state,source,ability,actor,choices){
   }
   if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
        "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
-   const chosen=choices?.targetUid?state.cards.find(c=>c.uid===choices.targetUid):null;
-   const target=chosen||(actor==="ai"?selectTarget(state,step.kind,source,actor):null);
-   const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(step.kind);
-   const friendly=step.kind==="buff-friendly";
-   if(!target||!unit(target)||!["base","battlefield"].includes(target.zone)||
-      (enemy&&target.owner===actor)||(friendly&&target.owner!==actor))
+   const pool=state.cards.filter(card=>canChooseUnit(card,step.kind,actor));
+   if(!pool.length&&!choices?.targetUid)continue;
+   const target=choices?.targetUid?pool.find(c=>c.uid===choices.targetUid):
+    actor==="ai"?selectTarget(pool,step.kind,actor):null;
+   if(!target)
     return {reason:"Choisis une unité valide pour cet effet."};
    if(target.owner!==actor&&/\bdeflect\b/i.test(target.text||"")){
     if(actor!=="ai")

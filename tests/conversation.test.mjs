@@ -33,6 +33,25 @@ test("message queue enforces bounded text and roles and tracks agent polling",()
  chat.markAgentPoll();
  assert.ok(chat.list(0).agentSeenAt>0);
 });
+test("agent cursor waits for a physical announcement to reach a final board outcome",()=>{
+ const chat=createConversation();
+ const {session}=chat.list();
+ chat.post("ai","Ouverture");
+ const announcement=chat.post("human","Je passe mon tour.",{trackTable:true});
+ chat.post("ai","Un message suivant");
+ const pending=chat.list(0,{agent:true});
+ assert.equal(pending.lastId,1);
+ assert.deepEqual(pending.messages.map(m=>m.id),[1]);
+ assert.deepEqual(chat.list().messages.map(m=>m.id),[1,2,3]);
+ chat.markTable(announcement.id,session,{status:"applied",revision:23});
+ const next=chat.list(pending.lastId,{agent:true});
+ assert.deepEqual(next.messages.map(m=>m.id),[2,3]);
+ assert.deepEqual(next.messages[0].table,{status:"applied",revision:23});
+ chat.clear();
+ const fresh=chat.post("human","Tour 1",{trackTable:true});
+ chat.markTable(fresh.id,session,{status:"applied",revision:99});
+ assert.equal(chat.list(0,{agent:true}).messages.length,0);
+});
 test("bottom-right discussion, voice, Enter, end-turn and terrain detail are wired",()=>{
  const html=fs.readFileSync(new URL("../index.html",import.meta.url),"utf8");
  const app=fs.readFileSync(new URL("../app.mjs",import.meta.url),"utf8");

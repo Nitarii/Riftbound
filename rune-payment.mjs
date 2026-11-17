@@ -28,9 +28,10 @@ export function planRunePayment(state,owner,card){
  const poolEnergy=Math.min(energy,Math.max(0,Number(state?.energyPool?.[owner])||0));
  const fromRunes=energy-poolEnergy;
  if(ready.length<fromRunes)return {error:"Énergie insuffisante : "+energy+" nécessaires, "+ready.length+" runes prêtes."};
- const domains=cardPowerDomains(card);
+ const domains=card.anyPower?RUNE_DOMAINS:cardPowerDomains(card);
  if(power&&!domains.length)return {error:"Domaine du Power non identifié pour "+card.name+"."};
- const matching=all.filter(c=>domains.includes(runeDomain(c)));
+ const matching=all.filter(c=>(!card.runeUid||card.runeUid===c.uid)&&
+  (card.anyPower||domains.includes(runeDomain(c))));
  if(matching.length<power)
   return {error:"Power insuffisant ("+domains.join("/")+") : "+power+
    " demandé(s), "+matching.length+" rune(s) de ce domaine."};

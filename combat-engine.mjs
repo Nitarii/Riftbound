@@ -34,9 +34,10 @@ function shieldBonus(card,role,state){
 }
 export function effectiveMight(card,role="none",state=null){
  if(!isUnit(card))return null;
- const printed=Number(card.counters?.baseMight??card.might);
- if((card.counters?.baseMight??card.might)==null||!Number.isFinite(printed))return null;
  const counters=card.counters||{};
+ const base=counters.tempBaseMight??counters.baseMight??card.might;
+ const printed=Number(base);
+ if(base==null||!Number.isFinite(printed))return null;
  const otherUnits=card.zone==="battlefield"&&state?.cards.filter(c=>c.uid!==card.uid&&isUnit(c)&&
    c.owner===card.owner&&c.zone==="battlefield"&&c.battlefield===card.battlefield).length;
  const gearMight=(state?.cards.filter(g=>g.attachedTo===card.uid&&handHammer(g)).length||0)*

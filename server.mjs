@@ -169,7 +169,7 @@ const guide={
  "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
  "GET /api/decks":"Printed preconstructed deck recipes, authenticated",
   "GET /api/effects/audit":"Whole-catalog effect coverage and unresolved card abilities, authenticated",
- "GET /api/messages?after=0":"Read physical player announcements and agent replies; poll every 2 seconds",
+ "GET /api/messages?after=0":"Poll announcements and replies. In remote mode, table.status and table.revision report local handling.",
  "POST /api/messages":"Human chat message; JSON {text}, authenticated",
  "GET /api/ai/status":"Integrated model status, no credentials returned, LOCAL only",
  "GET /api/ai/reference?q=...":"Riot rule references, site operating guide and matching card effects, LOCAL only",
@@ -177,13 +177,22 @@ const guide={
  "POST /api/ai/disable":"Stop generating model responses; LOCAL only",
  "GET /api/ai/free/status":"Free local CPU model installation progress; LOCAL only",
  "POST /api/ai/free/install":"One-click local Qwen3 4B + Whisper Small installer; LOCAL only",
- "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
+ "POST /api/command":"One JSON command with optional ifRevision and commandId. Returns a state and receipt.",
+ "POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
  "select-precon":{type:"select-precon",id:"random",note:"Valid ids are in GET /api/decks. The server separates chosen champion before drawing."},
  "setup-human|setup-ai":{legend:{name:"Shen, Eye of Twilight",type:"Legend"},champion:{name:"Shen",type:"Unit"},battlefield:{name:"Grove of the God-Willow",type:"Battlefield"},main:"required array for setup-ai",runes:"required array for setup-ai"},
  start:{type:"start",player:"human"},
  "next-turn":{type:"next-turn"},
+ "play-paid":{type:"play-paid",uid:"AI hand or champion UID",battlefield:"optional controlled battlefield index"},
+ cast:{type:"cast",player:"ai",uid:"AI spell UID",targetUid:"unit UID",flow:"true for a supported spell in your trash",
+  hidden:"true for a supported spell in your hidden zone"},
+ hide:{type:"hide",player:"ai",uid:"AI card with Hidden",battlefield:0,runeUid:"optional rune UID to recycle"},
+ "play-hidden":{type:"play-hidden",player:"ai",uid:"ready hidden unit UID"},
+ "chain-pass":{type:"chain-pass",player:"ai"},
+ "combat-attack":{type:"combat-attack",player:"ai",battlefield:0,uids:["ready unit UID"]},
+ "combat-pass":{type:"combat-pass",player:"ai"},
  phase:{type:"phase",phase:"Main"},
  add:{type:"add",player:"ai",zone:"base",card:{name:"Card Name",type:"Unit",image:"optional HTTPS image URL"}},
  move:{type:"move",uid:"read from state.cards",zone:"battlefield",battlefield:0},
@@ -326,16 +335,23 @@ let pendingHumanAction=null;
 let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=text=>{
- const entry=conversation.post("human",text);
+ const entry=conversation.post("human",text,{trackTable:true});
  const receivedRevision=state.revision;
  const receivedSession=conversation.list(0).session;
+ let outcome="delegated";
+ const mark=()=>{
+  try{conversation.markTable(entry.id,receivedSession,{status:outcome,revision:state.revision});}
+  catch(error){console.warn("Suivi du message non sauvegardé :",error.message);}
+ };
  if(/^(?:reprends|reprendre|resume)[.! ]*$/i.test(entry.text)){
+  outcome="unchanged";mark();
   receiveAgentMessage("Partie à la révision "+state.revision+". "+state.message);
   integratedAI.advanceTurnIfAI();
   return entry;
  }
  if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(entry.text)&&pendingCompound){
   pendingCompound=null;
+  outcome="unchanged";mark();
   receiveAgentMessage("Suite de l'annonce mise en pause. La chaîne reste au même état.");
   return entry;
  }
@@ -347,6 +363,7 @@ const receiveHumanMessage=text=>{
    .toLowerCase().replace(/[.!?]+$/g,"").trim();
   const barePlay=/^(?:(?:et|and)\s+)?(?:(?:je|j'|i)\s+)?(?:joue|jouer|pose|play|playing|place|mets)\s*(?:une?\s+carte|a\s+card)?$/i.test(normalized);
   if(barePlay){
+   outcome="clarification";
    pendingSpokenPlay={revision:state.revision,time:Date.now(),prefix:english?"I play ":"Je joue "};
    receiveAgentMessage(english?"I heard 'I play'. Which card?":
     "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
@@ -356,7 +373,7 @@ const receiveHumanMessage=text=>{
   // even when the remote catalog is unavailable or expired.
   let catalog=catalogCache||[];
   if(!catalog.length&&(pendingSpokenPlay||pendingHumanAction||
-     /\b(?:joue|jouer|defausse|pose|play|place|resonating strike)\b/i.test(normalized))){
+     /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike)\b/i.test(normalized))){
    try{catalog=await loadServerCatalog();}catch{}
    if(conversation.list(0).session!==receivedSession)return;
   }
@@ -371,10 +388,12 @@ const receiveHumanMessage=text=>{
   if(pendingHumanAction){
    const answer=resolveCardClarification(pendingHumanAction,entry.text,catalog,state,{english});
    if(answer.status==="waiting"){
+    outcome="clarification";
     receiveAgentMessage(answer.message);
     return;
    }
    if(answer.status==="cancel"){
+    outcome="unchanged";
     pendingHumanAction=null;
     receiveAgentMessage(answer.message);
     return;
@@ -386,6 +405,7 @@ const receiveHumanMessage=text=>{
   }
   const plan=planPlayerSequence(announcement,state,catalog);
   if(plan.needsClarification){
+   outcome="clarification";
    pendingHumanAction=makeCardClarification({
     announcement,query:plan.needsClarification.query,
     revision:state.revision,catalog
@@ -395,20 +415,25 @@ const receiveHumanMessage=text=>{
    return;
   }
   if(plan.error){
+   outcome="rejected";
    receiveAgentMessage(english?plan.errorEN:plan.error);
    return;
   }
   if(plan.recognized&&!plan.commands?.length){
+   outcome="unchanged";
    receiveAgentMessage(english?"Already reflected on the board.":"Cette action est déjà prise en compte sur le plateau.");
    return;
   }
-  if(!plan.recognized&&/\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
+  if(!plan.recognized&&!remoteAccess.status().active&&
+     /\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
+   outcome="clarification";
    receiveAgentMessage(english?"I heard a card play, but the name or target is incomplete. Repeat the card name. No change was made.":
     "J'ai entendu une annonce de carte, mais je n'ai pas pu identifier une action complète. Répète le nom de la carte. Le plateau n'a pas changé.");
    return;
   }
   if(plan.commands?.length){
    if(receivedRevision!==state.revision){
+    outcome="rejected";
     receiveAgentMessage(english?"The board changed before I could apply that announcement. Repeat it in the current window; no action was applied.":
      "Le plateau a changé depuis ton annonce. Répète-la dans la fenêtre actuelle ; aucune action n’a été appliquée.");
     return;
@@ -417,22 +442,27 @@ const receiveHumanMessage=text=>{
    try{
     if(plan.afterChain)pendingCompound={action:plan.afterChain,session:conversation.list(0).session};
     applyAgentBatch(plan.commands,revision,"announcement");
+    outcome="applied";
     receiveAgentMessage(state.message+(plan.afterChain?" · Le déplacement suivra la résolution du sort.":""));
    }
    catch(e){
+    outcome="rejected";
     if(plan.afterChain)pendingCompound=null;
     receiveAgentMessage((english?"Action not applied: ":"Action non appliquée : ")+String(e.message||e).slice(0,180));
     return;
    }
   }
   integratedAI.onHumanMessage(announcement,{actionApplied:Boolean(plan.recognized||plan.commands?.length)});
- }).catch(e=>receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180)));
+ }).catch(e=>{
+  outcome="review";
+  receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180));
+ }).finally(mark);
  return entry;
 };
 const localFreeAI=createFreeLocalAI({
  userData,
  onReady:async model=>{
-  if(remoteAccess.status().active)throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
+  if(remoteOpponentSelected())throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
   integratedAI.configure({provider:"free",model,enabled:true});
   integratedAI.advanceTurnIfAI();
  }
@@ -478,10 +508,31 @@ const remoteAccess=createRemoteAccess({
  getCatalog:loadServerCatalog,
  getDecks:deckDescriptions,
  getGuide:()=>guide,
- getMessages:readMessages,
+ getMessages:after=>conversation.list(after,{agent:true}),
  sendMessage:receiveAgentMessage,
  markAgentPoll:()=>conversation.markAgentPoll()
 });
+let remoteStart=null;
+function remoteOpponentSelected(){
+ return Boolean(remoteStart||remoteAccess.status().active);
+}
+function startRemoteOpponent(){
+ if(remoteStart)return remoteStart;
+ if(remoteAccess.status().active)return Promise.resolve(remoteAccess.status(true));
+ const wasLocal=integratedAI.status().enabled;
+ if(wasLocal)integratedAI.disable();
+ remoteStart=remoteAccess.start().then(session=>{
+  localFreeAI.stop();
+  return session;
+ },error=>{
+  if(wasLocal){
+   integratedAI.enable();
+   resumeLocalOpponent();
+  }
+  throw error;
+ }).finally(()=>{remoteStart=null;});
+ return remoteStart;
+}
 const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,remoteAccess});
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
@@ -589,7 +640,7 @@ const server=http.createServer(async(req,res)=>{
     json(res,200,{...localFreeAI.status(),rulesOnly:integratedAI.status().rulesOnly},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/rules/activate"){
-   if(!manager.status().canLaunch||remoteAccess.status().active){
+   if(!manager.status().canLaunch||remoteOpponentSelected()){
     msg(res,409,"Vérifie le compagnon et coupe le relais distant avant d’activer l’adversaire local.",req);return;
    }
    try{
@@ -601,7 +652,7 @@ const server=http.createServer(async(req,res)=>{
    return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/free/install"){
-    if(remoteAccess.status().active){
+    if(remoteOpponentSelected()){
       msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;
     }
     const existing=integratedAI.status();
@@ -738,7 +789,7 @@ const server=http.createServer(async(req,res)=>{
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){
-    if(remoteAccess.status().active){msg(res,409,"Coupe d'abord l'accès IA distant pour éviter deux adversaires simultanés.",req);return;}
+    if(remoteOpponentSelected()){msg(res,409,"Coupe d'abord l'accès IA distant pour éviter deux adversaires simultanés.",req);return;}
     try{const settings=await body(req);json(res,200,integratedAI.configure(settings),req);}
     catch(e){msg(res,400,e.message,req);}return;
   }
@@ -751,8 +802,7 @@ const server=http.createServer(async(req,res)=>{
     json(res,200,remoteAccess.status(true),req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/remote/start"){
-    if(integratedAI.status().enabled){msg(res,409,"Désactive d'abord l'IA intégrée pour éviter deux adversaires.",req);return;}
-    try{json(res,200,await remoteAccess.start(),req);}
+    try{json(res,200,await startRemoteOpponent(),req);}
     catch(e){msg(res,503,e.message,req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/remote/stop"){

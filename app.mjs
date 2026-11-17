@@ -302,12 +302,19 @@ function renderPendingEffects(){
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
   (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
  $("pending-effect-description").textContent=pending.text;
- $("pending-effect-reason").textContent=pending.reason+
-  " · Applique l'effet réel et les choix nécessaires avant de confirmer.";
+ $("pending-effect-confirm").textContent=pending.trigger==="hidden-reveal"?"Indiquer la carte":"Confirmer l’effet";
+ $("pending-effect-reason").textContent=pending.reason+(pending.trigger==="hidden-reveal"?
+  " · Annonce « Je révèle » suivi du nom de la carte.":
+  " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
+ if(pending.trigger==="hidden-reveal"){
+  $("notes").value="Je révèle ";
+  $("notes").focus();
+  return;
+ }
  const confirmed=confirm("As-tu réellement résolu l'effet de "+pending.cardName+
   " ?\\n"+pending.text+"\\n\\nConfirmer ne simule aucun effet : le plateau attend ta résolution physique.");
  if(confirmed)dispatch({type:"effect-confirm",id:pending.id,confirm:true});
@@ -355,7 +362,8 @@ function render(){
      holder.textContent=controller==="human"?"● JOUEUR":controller==="ai"?"● IA":contested?"● CONTESTÉ":"";
     }
     $("bf-image-"+i).innerHTML=cardHTML(b.card);
-    $("units-"+i).innerHTML=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i).map(c=>cardHTML(c)).join("");
+    $("units-"+i).innerHTML=state.cards.filter(c=>["battlefield","hidden","hidden-reveal"].includes(c.zone)&&
+     c.battlefield===i).map(c=>cardHTML(c)).join("");
   });
   renderCombatPanel();
   renderPendingEffects();
@@ -440,6 +448,11 @@ document.addEventListener("click",e=>{
   const tile=e.target.closest(".card-tile");
   if(tile?.dataset.uid){
     const c=state.cards.find(c=>c.uid===tile.dataset.uid);
+    if(c?.faceDown&&c.zone==="hidden"&&c.owner==="human"){
+     notify("Pour jouer cette carte, annonce « Je révèle [nom] à "+state.battlefields[c.battlefield]?.card?.name+" ».");
+     return;
+    }
+    if(c?.faceDown&&["hidden","hidden-reveal"].includes(c.zone))return;
     if(c&&!(c.zone==="hand"&&c.owner==="ai")){showInstance(c);return;}
   }
   const result=e.target.closest("[data-code]");
@@ -1209,15 +1222,16 @@ function agentPromptText(includeAccess=true){
     "Aucune console distante n'est activée. Ne prétends pas être connecté.",
   "Si tu as un navigateur interactif, ouvre la console agent pour consulter le plateau et commander les cartes.",
   "API : GET /api/guide, GET /api/state, GET /api/messages?after=0, POST /api/messages {text}, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
-  "La chatbox du joueur envoie ses textes et transcriptions vocales dans GET /api/messages. Relis-la régulièrement en augmentant after avec le dernier id.",
-  "Réponds au joueur par POST /api/messages avec le JSON {\"text\":\"Ta réponse\"}, puis utilise POST /api/command pour afficher les déplacements et autres changements réels.",
+  "Les messages du joueur comprennent le résultat table.status. applied ou unchanged signifie que le plateau est déjà à jour. delegated signifie que le compagnon te laisse interpréter l’annonce. En cas de clarification ou de rejet, lis le message et coordonne-toi avec le joueur.",
+  "Relis régulièrement GET /api/messages en passant le dernier lastId dans after. Réponds au joueur via POST /api/messages avec {\"text\":\"Ta réponse\"}.",
+  "Pour jouer, utilise les commandes documentées dans /api/guide. Ajoute ifRevision avec la dernière révision lue et vérifie le reçu et l’état retournés.",
   "Le bouton « Passer mon tour » fait avancer le plateau et envoie une annonce dans les messages.",
   "Documentation standard de l'API pour les agents compatibles : "+(connected?base+"/openapi.json":"URL distante indisponible"),
   connected?"Authentification de CETTE session : Authorization: Bearer "+remoteSession.agentToken:
     "Aucun jeton temporaire disponible. Propose des commandes JSON au joueur si tu n'as pas d'accès direct.",
   "Si tu es autorisé et capable d'envoyer des requêtes HTTP, commence par GET /api/guide puis GET /api/state. Utilise la console web sinon.",
   "Si l'IA n'est pas configurée, choisis un deck : POST /api/command {\"type\":\"select-precon\",\"id\":\"random\"}.",
-  "À chaque changement, annonce les cartes réellement jouées, leurs effets vérifiés, puis envoie les commandes de placement correspondantes.",
+  "Utilise play-paid, cast et combat-attack pour les actions de jeu. Passe avec chain-pass ou combat-pass selon la fenêtre. Annonce au joueur les effets et cartes qui apparaissent dans l’état renvoyé.",
   "Ne confonds pas ce compagnon de suivi avec un arbitre automatique complet des règles.",
   "Si ton environnement n'a ni navigateur agent ni outil HTTP, dis-le clairement et donne des commandes à copier manuellement.",
   "N'expose pas ces informations en public et ne les publie pas sur GitHub."

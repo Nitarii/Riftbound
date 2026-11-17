@@ -224,10 +224,15 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   try{fs.writeFileSync(temp,JSON.stringify(next),{mode:0o600});fs.renameSync(temp,file);
    if(process.platform!=="win32")fs.chmodSync(file,0o600);
   }finally{try{fs.unlinkSync(temp);}catch{}}
+  liveChatAbort?.abort();
   config=next;lastError="";return status();
  }
  function disable(){
   if(config)configure({...config,enabled:false});
+  return status();
+ }
+ function enable(){
+  if(config)configure({...config,enabled:true});
   return status();
  }
  async function chooseAssault(game,own){
@@ -492,5 +497,5 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   queue=queue.then(()=>respond(text,session,{actionApplied}))
    .catch(e=>{lastError=String(e?.message||e);processing=false;});
  }
- return {configure,disable,status,onHumanMessage,advanceTurnIfAI};
+ return {configure,disable,enable,status,onHumanMessage,advanceTurnIfAI};
 }

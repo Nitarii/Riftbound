@@ -6,7 +6,7 @@ import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight} from "./combat-engine.mjs";
-import {verifiedSpell} from "./verified-cards.mjs";
+import {verifiedSpell,hiddenDisciple} from "./verified-cards.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const isPlayable=c=>/^(unit|gear|spell)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
@@ -30,12 +30,29 @@ function targetForReinforcement(view){
   .filter(x=>x.enemy===0&&x.friendly>0)
   .sort((a,b)=>a.friendly-b.friendly||a.i-b.i)[0]?.i??null;
 }
+function concealedDefender(state){
+ const fight=state.pendingCombat;
+ if(fight?.kind!=="combat"||fight.attacker!=="human")return null;
+ const slot=own(state,"hidden").find(c=>c.battlefield===fight.battlefield&&hiddenDisciple(c));
+ if(!slot)return null;
+ const command={type:"play-hidden",player:"ai",uid:slot.uid};
+ try{
+  const before=previewCombat(state,fight.battlefield,fight.attacker,fight.orders);
+  const next=applyCommand(state,command);
+  const after=previewCombat(next,fight.battlefield,fight.attacker,fight.orders);
+  if(!before.ready||!after.ready)return null;
+  if(before.winner==="human"&&after.winner!=="human"||after.dead.some(uid=>
+     !before.dead.includes(uid)&&state.cards.some(card=>card.uid===uid&&card.owner==="human")))
+    return command;
+ }catch{}
+ return null;
+}
 export function planAIChainAction(state){
  const chain=state.spellChain;
  if(state.pendingEffects?.length)return null;
  if(!chain){
   if(state.pendingCombat?.focus!=="ai"||state.pendingCombat.passes.ai)return null;
-  return removalSpell(state)?.command??{type:"combat-pass",player:"ai"};
+  return removalSpell(state)?.command??concealedDefender(state)??{type:"combat-pass",player:"ai"};
  }
  if(chain.priority!=="ai")return null;
  const top=chain.items.at(-1);
@@ -48,21 +65,28 @@ export function planAIChainAction(state){
    try{applyCommand(state,command);return command;}catch{}
   }
  }
- return {type:"chain-pass",player:"ai"};
+ return concealedDefender(state)??{type:"chain-pass",player:"ai"};
 }
 function removalSpell(state){
- const spells=own(state,"hand").filter(c=>verifiedSpell(c)?.damage);
+ const spells=[...own(state,"hand"),...own(state,"trash")].filter(c=>{
+  const rule=verifiedSpell(c);
+  return (rule?.damage||rule?.killAtMost!==undefined)&&(c.zone==="hand"||rule.flow);
+ });
  let best=null;
  for(const spell of spells){
   const rule=verifiedSpell(spell);
-  const discard=chooseRequiredDiscards(state,spell.uid,1)?.[0];
+  const discard=rule.discardDamage?chooseRequiredDiscards(state,spell.uid,1)?.[0]:null;
   for(const unit of state.cards.filter(c=>c.owner==="human"&&c.zone==="battlefield"&&isUnit(c)&&!c.faceDown)){
    const might=effectiveMight(unit,"none",state);
    if(might==null)continue;
    const need=might-(unit.damage||0)+(unit.counters.preventDamage||0);
-   if(need>rule.damage&&(!discard||need>rule.discardDamage))continue;
+   const after=rule.disempower?{...unit,counters:{...unit.counters,
+    empowered:Math.max(0,(unit.counters?.empowered||0)-1)}}:unit;
+   const needsDiscard=rule.damage!==undefined&&need>rule.damage;
+   if(needsDiscard&&(!discard||need>rule.discardDamage))continue;
+   if(rule.killAtMost!==undefined&&effectiveMight(after,"none",state)>rule.killAtMost)continue;
    const command={type:"cast",player:"ai",uid:spell.uid,targetUid:unit.uid,
-    ...(need>rule.damage?{discardUid:discard}:{})};
+    ...(spell.zone==="trash"?{flow:true}:{}),...(needsDiscard?{discardUid:discard}:{})};
    try{
     applyCommand(state,command);
     const value=might*2-(command.discardUid?3:0);
@@ -71,6 +95,30 @@ function removalSpell(state){
   }
  }
  return best;
+}
+function readyForConquest(state){
+ if(targetForConquest(state)===null)return null;
+ const exhausted=own(state,"base").filter(c=>isUnit(c)&&c.exhausted&&c.might!=null)
+  .sort((a,b)=>b.might-a.might);
+ if(!exhausted.length)return null;
+ for(const spell of [...own(state,"hand"),...own(state,"trash")]){
+  const rule=verifiedSpell(spell);
+  if(!rule?.ready||spell.zone==="trash"&&!rule.flow)continue;
+  const command={type:"cast",player:"ai",uid:spell.uid,targetUid:exhausted[0].uid,
+   ...(spell.zone==="trash"?{flow:true}:{})};
+  try{applyCommand(state,command);return {command,name:spell.name,target:exhausted[0].name};}catch{}
+ }
+ return null;
+}
+function concealForDefense(state){
+ const slot=own(state,"hand").find(hiddenDisciple);
+ const rune=own(state,"runes").find(c=>c.exhausted);
+ if(!slot||!rune)return null;
+ const field=emptyBattlefieldTargets(state).find(f=>f.friendly===1&&!f.enemy&&
+   !state.cards.some(c=>c.zone==="hidden"&&c.battlefield===f.i));
+ if(!field)return null;
+ const command={type:"hide",player:"ai",uid:slot.uid,battlefield:field.i,runeUid:rune.uid};
+ try{applyCommand(state,command);return command;}catch{return null;}
 }
 export function enumerateAIAssaults(view,{limit=5,searchBudget=90}={}){
  if(!view.started||view.active!=="ai"||view.phase!=="Main"||view.finished||
@@ -249,6 +297,14 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
   }
   if(view.finished)return partial();
   if(!view.pendingCombat&&!view.pendingEffects?.length)attackDefended();
+  if(!interrupted()){
+   const spell=readyForConquest(view);
+   if(spell){
+    apply(spell.command);
+    enacted.push("lancé "+spell.name+" sur "+spell.target);
+    return partial();
+   }
+  }
   if(!interrupted())moveUncontested(true);
   const before=state.players.ai.score,after=view.players.ai.score;
   if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
@@ -257,6 +313,11 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    refused.push("Les champs sont défendus : un combat avec réactions doit être résolu avant de compter une conquête.");
   }
   if(!view.pendingCombat&&!view.pendingEffects?.length){
+   const concealed=concealForDefense(view);
+   if(concealed){
+    apply(concealed);
+    enacted.push("caché une carte à "+view.battlefields[concealed.battlefield].card.name);
+   }
    apply({type:"phase",phase:"Ending"});
    if(!view.pendingEffects?.length)apply({type:"next-turn"});
   }

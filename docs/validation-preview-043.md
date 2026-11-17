@@ -15,12 +15,13 @@ Le dépôt conserve l’interface, le relais local, le gestionnaire Windows et l
 | Parcours | Résultat |
 | --- | --- |
 | 300 duels à cartes synthétiques, opposition passive, occupation ou pression | 300 terminés, 0 blocage/commande invalide ; 270 victoires IA (70/100 contre la politique de pression) |
-| 120 duels des listes Shen et Zed de Vendetta, avec le catalogue de référence | 120 terminés, 0 blocage/commande invalide, 107 victoires IA (28/40 contre la politique de pression), dont 12 résolutions de sorts sur ce parcours |
+| 120 duels des listes Shen et Zed de Vendetta, avec le catalogue de référence | 120 terminés, 0 blocage/commande invalide, 108 victoires IA (29/40 contre la politique de pression) et 18 résolutions de sorts |
 | Choix de stratégie par le moteur seul | moyenne d’environ 1 à 2,5 ms par décision selon le parcours, sur la machine d’essai |
 | Qwen3.5 9B sur RX 7900 XT, Vulkan | démarrage env. 2,9 s ; décision JSON d’essai env. 2,2 s |
 | Qwen3 4B en mode CPU, quatre threads, sur Ryzen 7 7800X3D | démarrage env. 2,1 s ; décision JSON d’essai env. 1,1 s |
 | Whisper Small + Piper SIWIS en local | Piper a produit le WAV en env. 3,0 s ; Whisper a transcrit en env. 3,2 s depuis un démarrage à froid |
 | Windows et interface | Binaire autonome vérifié, mise à jour et restauration testées, désinstallation limitée aux fichiers gérés, disposition vérifiée de 390 × 844 à 1 792 × 900 |
+| Agent distant | Tunnel HTTPS réel testé depuis l’exécutable Windows sur une partie synthétique. Prise de relais après le mode local, annonces traitées avec leur révision, commandes et reçus, main propre de l’agent, carte physique cachée, réponse et fermeture du tunnel |
 
 L’audio était une phrase **synthétique**, pas un enregistrement au microphone. La transcription `Je joue Disciple of Shen pour De Rune.` est maintenant incluse dans un test jusqu’à la commande de jeu. Les chiffres Qwen mesurent une requête courte d’essai, sans extrapolation aux autres PC ni aux conversations longues.
 
@@ -33,12 +34,12 @@ Les adversaires des simulations sont des politiques reproductibles, pas des joue
     node scripts/simulate-duels.mjs 40 "chemin-vers-cards.json"
     node scripts/audit-card-effects.mjs --file "chemin-vers-cards.json"
 
-Sous Windows, avec les installations déjà présentes, le script `scripts/check-local-models.mjs` prend le chemin du client et facultativement un WAV mono PCM. Ajouter `--cpu` pour tester Qwen 4B sans GPU. Il écrit uniquement sous `dist/model-smoke`. Le script `scripts/check-preview-http.mjs` vérifie le vrai exécutable Windows dans un dossier d’essai, avec un adversaire sans Qwen, l’annulation, la confrontation, les doublons, la concurrence et la confidentialité.
+Sous Windows, avec les installations déjà présentes, le script `scripts/check-local-models.mjs` prend le chemin du client et facultativement un WAV mono PCM. Ajouter `--cpu` pour tester Qwen 4B sans GPU. Il écrit uniquement sous `dist/model-smoke`. Le script `scripts/check-preview-http.mjs` vérifie le vrai exécutable Windows dans un dossier d’essai, avec un adversaire sans Qwen, l’annulation, la confrontation, les doublons, la concurrence et la confidentialité. Le script `scripts/check-remote-preview.mjs` teste le même exécutable par un tunnel HTTPS temporaire, avec une table synthétique.
 
 ## Ce qu’il reste à valider
 
 - Faire une partie complète avec le vrai deck physique et plusieurs échantillons micro, dont un accent français naturel, un environnement bruyant et des interruptions. Aucun test de cette nature n’a encore été réalisé.
-- Étendre la chaîne aux capacités et aux autres cartes. Hidden, Flow, certaines activations, le choix des effets multiples et plusieurs interactions de terrain sont encore incomplets. Le code expose la limite au lieu de prétendre avoir résolu l’effet.
+- Étendre la chaîne aux capacités et aux autres cartes. L’aperçu traite depuis la zone cachée Disciple of Shen et Resonating Strike. Flux est disponible pour Lacerate, Dragon Form, Perfect Execution et Twilight Shroud. Les autres cartes à jouer depuis ces zones, certaines activations, le choix des effets multiples et plusieurs interactions de terrain demandent encore un arbitrage.
 - Mesurer le comportement sur d’autres machines : le mode CPU a été essayé sur le même PC, pas sur un second appareil ni un processeur de génération plus ancienne. Vérifier aussi le rythme de la synthèse sur les PC modestes.
 - L’annulation locale est limitée à la session courante et ne peut pas retirer une révélation déjà vue. Une reprise après redémarrage conserve le plateau, mais pas la pile d’annulation ni une suite vocale composée encore en attente.
 - Le test de désinstallation a supprimé les fichiers de l’installation et conservé les fichiers tiers. L’assistant temporaire Windows peut rester dans le dossier Temp ; ce mécanisme existant n’a pas été corrigé dans l’aperçu.

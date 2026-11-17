@@ -28,6 +28,7 @@ async function call(route,method="GET",data){
  return result;
 }
 function showState(state){
+ if(lastState&&state.revision<lastState.revision)return;
  lastState=state;
  const human=state.players?.human||{},ai=state.players?.ai||{};
  $("stats").replaceChildren();
@@ -43,7 +44,7 @@ function showState(state){
   if(card.zone==="hand"&&card.owner==="human")continue;
   if(card.zone==="hand"&&card.owner==="ai"&&card.faceDown)continue;
   const li=document.createElement("li");
-  li.textContent=[card.owner==="ai"?"IA":"Joueur",card.name||"Carte inconnue",
+  li.textContent=[card.owner==="ai"?"IA":"Joueur",card.name||(card.faceDown?"Carte cachée":"Carte inconnue"),
    card.zone,card.uid||"",card.exhausted?"épuisé":""].filter(Boolean).join(" · ");
   list.append(li);
  }
@@ -59,7 +60,9 @@ async function refresh(){
 }
 async function command(data){
  try{
-  const response=await call("/api/command","POST",data);
+  const response=await call("/api/command","POST",{
+   ...data,ifRevision:data.ifRevision??lastState?.revision,commandId:data.commandId??crypto.randomUUID()
+  });
   showState(response.state);
  }catch(e){message(e.message,true);}
 }
@@ -83,12 +86,18 @@ $("pickdeck").onclick=()=>{
 };
 $("scoreplus").onclick=()=>command({type:"score",player:$("player").value,value:1});
 $("scoreminus").onclick=()=>command({type:"score",player:$("player").value,value:-1});
-let agentChatCursor=0,agentChatEntries=[],agentChatBusy=false;
+let agentChatCursor=0,agentChatEntries=[],agentChatBusy=false,agentChatSession=null;
 async function refreshAgentChat(){
  if(agentChatBusy)return;
  agentChatBusy=true;
  try{
-  const result=await call("/api/messages?after="+agentChatCursor);
+  let result=await call("/api/messages?after="+agentChatCursor);
+  if(agentChatSession&&result.session!==agentChatSession){
+   agentChatCursor=0;
+   agentChatEntries=[];
+   result=await call("/api/messages?after=0");
+  }
+  agentChatSession=result.session;
   const known=new Set(agentChatEntries.map(x=>x.id));
   for(const entry of result.messages||[]){
    if(!entry||!Number.isInteger(entry.id)||!["human","ai"].includes(entry.role))continue;
@@ -101,7 +110,11 @@ async function refreshAgentChat(){
    const bubble=document.createElement("div");
    bubble.className="agent-chat-entry "+(entry.role==="ai"?"from-agent":"from-human");
    const header=document.createElement("small");
-   header.textContent=(entry.role==="ai"?"IA":"Joueur")+" · "+new Date(entry.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+   const tableLabels={applied:"sur le plateau",unchanged:"déjà pris en compte",delegated:"à interpréter",
+    clarification:"attend une précision",rejected:"action refusée",review:"à vérifier"};
+   const table=tableLabels[entry.table?.status];
+   header.textContent=(entry.role==="ai"?"IA":"Joueur")+" · "+new Date(entry.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})+
+    (table?" · "+table:"");
    const text=document.createElement("p");text.textContent=entry.text;
    bubble.append(header,text);list.append(bubble);
   }

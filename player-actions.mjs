@@ -2,7 +2,7 @@
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
-import {verifiedSpell,soulspinner} from "./verified-cards.mjs";
+import {verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
@@ -110,6 +110,46 @@ export function spokenField(state,phrase){
 export function planTargetedPlay(text,state,catalog){
  // Preserve the target and battlefield as separate choices, with no model guessing.
  const board=state.cards.filter(c=>["base","battlefield"].includes(c.zone)&&/^unit$/i.test(c.type)&&!c.faceDown);
+ const hide=text.match(/^(?:je cache une carte|i hide a card)\s+(?:au|a|sur|at|on)\s+(.+?)(?:\s+(?:en recyclant|avec|using)\s+(?:une rune |a rune )?([a-z]+))?$/);
+ if(hide){
+  const field=spokenField(state,hide[1]);
+  if(field===null)return fail("Choisis le champ où cacher une carte, sans donner son nom.",
+   "Name the battlefield where you are hiding a card. Keep the card name private.");
+  let runeUid;
+  if(hide[2]){
+   const domain=Object.hasOwn(domainNames,hide[2])?domainNames[hide[2]]:null;
+   const selected=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&
+    domain&&runeDomain(c)===domain).sort((a,b)=>Number(b.exhausted)-Number(a.exhausted))[0];
+   if(!selected)return fail("Identifie sur le plateau la rune que tu recycles pour cacher.",
+    "Identify the rune you are recycling to hide.");
+   runeUid=selected.uid;
+  }
+  return {type:"hide",player:"human",battlefield:field,runeUid};
+ }
+ const hiddenPlay=text.match(/^(?:je revele|je joue|i reveal|i play)\s+(.+?)(?:\s+(?:cachee?|face cachee|from hidden))\s+(?:au|a|at|from)\s+(.+?)(?:\s+(?:sur|avec|moving|on)\s+(.+))?$/)||
+  text.match(/^(?:je revele|i reveal)\s+(.+?)\s+(?:au|a|at|from)\s+(.+?)(?:\s+(?:sur|avec|moving|on)\s+(.+))?$/);
+ if(hiddenPlay){
+  const field=spokenField(state,hiddenPlay[2]);
+  const slot=state.cards.find(c=>c.owner==="human"&&c.zone==="hidden"&&c.faceDown&&c.battlefield===field);
+  if(!slot)return fail("Précise le champ de ta carte cachée.","Specify the battlefield of your hidden card.");
+  const card=findAnnouncedCard(catalog,hiddenPlay[1]);
+  if(!card)return unknownCard(catalog,hiddenPlay[1]);
+  if(!verifiedSpell(card))return {type:"play-hidden",player:"human",uid:slot.uid,card};
+  const target=hiddenPlay[3]&&spokenPublicTarget(board.filter(c=>c.owner==="human"),hiddenPlay[3]);
+  if(!target)return fail("Indique l’unité à déplacer vers le champ de ton sort caché.",
+   "Name the unit moving to the battlefield of your hidden spell.");
+  return {type:"cast",player:"human",uid:slot.uid,hidden:true,battlefield:field,targetUid:target.uid,card};
+ }
+ const flow=text.match(/^(?:je (?:joue|lance)|i (?:play|cast))\s+(.+?)\s+(?:depuis (?:ma|la) defausse|par flux|from (?:my|the) trash|with flow)\s+(?:sur|on)\s+(.+)$/);
+ if(flow){
+  const trash=state.cards.filter(c=>c.owner==="human"&&c.zone==="trash"&&verifiedSpell(c)?.flow);
+  const source=findAnnouncedCard(trash,flow[1]);
+  const target=spokenPublicTarget(board,flow[2]);
+  if(!source||!target)return fail("Indique un sort avec Flux dans ta défausse et une cible visible.",
+   "Name a supported Flow spell from your trash and its visible target.");
+  const instance=trash.find(c=>printedCode(c)===printedCode(source));
+  return {type:"cast",player:"human",uid:instance.uid,flow:true,targetUid:target.uid};
+ }
  const transfer=text.match(/^(?:je joue )?resonating strike\s*(?:je deplace|pour deplacer|sur)\s+(.+?)(?:\s+de\s+.+?)?\s+(?:vers|au|sur|a)\s+(.+?)(?:\s+\+?2.*)?$/);
  if(transfer){
   const card=findAnnouncedCard(catalog,"Resonating Strike");
@@ -174,6 +214,14 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  }
  const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(?:\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
+ if(waiting?.trigger==="hidden-reveal"){
+  const reveal=text.match(/^(?:je revele|i reveal)\s+(.+)$/);
+  if(reveal){
+   const card=findAnnouncedCard(catalog,reveal[1]);
+   if(!card)return unknownCard(catalog,reveal[1]);
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};
+  }
+ }
  if(declaredDiscard&&waiting?.player==="human"&&waiting.choice?.kind==="discard-draw"){
   const card=findAnnouncedCard(catalog,declaredDiscard[1]);
   if(!card)return unknownCard(catalog,declaredDiscard[1]);
