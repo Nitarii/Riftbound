@@ -1,6 +1,7 @@
 // Free, version-locked local inference choices. All downloads are SHA-256 verified.
 // Keep Qwen3 4B for low-end machines; 9B is opt-in and retains the 4B weights.
 import {execFileSync} from "node:child_process";
+import {totalmem} from "node:os";
 export const DEFAULT_LOCAL_MODEL="qwen3:4b-instruct-2507";
 export const ADVANCED_LOCAL_MODEL="qwen3.5:9b-q4km";
 export const LOCAL_MODELS=Object.freeze({
@@ -47,16 +48,17 @@ export function hasDiscreteWindowsGPU({platform=process.platform,exec=execFileSy
 // dedicated families and their minimum known VRAM instead of assuming 4 GB.
 function knownVRAM(name){
  const s=String(name||"").toLowerCase();
+ if(/(?:laptop|mobile)/.test(s)&&/(?:rtx\s*3060|rtx\s*4050)/.test(s))return 6;
  if(/(?:rx\s*7900\s*xtx|rtx\s*4090)/.test(s))return 24;
  if(/rx\s*7900\s*xt(?!x)/.test(s))return 20;
- if(/(?:rx\s*7800\s*xt|rtx\s*4080|rtx\s*5080|arc\s*a770)/.test(s))return 16;
- if(/(?:rtx\s*4070|rtx\s*5070|rx\s*7700\s*xt|rtx\s*3060\b)/.test(s))return 12;
- if(/(?:rtx\s*4060|rtx\s*5060|rx\s*7600|rx\s*6600|rtx\s*3070|rtx\s*3080)/.test(s))return 8;
+ if(/(?:rx\s*7800\s*xt|rtx\s*5080)/.test(s))return 16;
+ if(/(?:rtx\s*4080|rx\s*7700\s*xt)/.test(s))return 12;
+ if(/(?:rtx\s*40[67]0|rtx\s*50[67]0|rx\s*7600|rx\s*6600|rtx\s*30[678]0|arc\s*a770)/.test(s))return 8;
  return 0;
 }
 export function recommendLocalProfile({ramGB=0,gpus=[]}={}){
  const g=(gpus||[]).map(x=>typeof x==="string"?{name:x}:x).filter(x=>
-  /(?:nvidia|geforce|rtx|gtx|radeon\s+rx|intel\s+arc)/i.test(x.name||""));
+  /(?:nvidia|geforce|rtx|gtx|radeon\s+(?:rx|pro)|\barc(?:\(tm\))?\s+[ab]\d{3})/i.test(x?.name||""));
  const best=g.map(gpu=>({
   name:String(gpu.name||"").slice(0,120),
   vramGB:Math.max(knownVRAM(gpu.name),Number(gpu.vramGB)||0)
@@ -69,6 +71,7 @@ export function recommendLocalProfile({ramGB=0,gpus=[]}={}){
   gpuName:best?.name||"",
   vramGB:best?.vramGB||0,
   ramGB:Number(ramGB)||0,
+  context:modelContext(advanced?ADVANCED_LOCAL_MODEL:DEFAULT_LOCAL_MODEL,best?"vulkan":"cpu",Number(ramGB),best?.vramGB),
   reason:advanced?"GPU dédié avec au moins 8 Go de VRAM et mémoire suffisante.":
    "Modèle plus léger recommandé pour conserver une bonne réactivité."
  };
@@ -90,7 +93,12 @@ export function detectRecommendedLocalProfile({platform=process.platform,exec=ex
     Number(g.AdapterRAM||g.adapterRAM)/1_073_741_824:0
   }));
   return recommendLocalProfile({ramGB:Number(data.ramBytes||0)/1_073_741_824,gpus});
- }catch{return recommendLocalProfile({});}
+ }catch{return recommendLocalProfile({ramGB:totalmem()/1_073_741_824});}
+}
+export function modelContext(model,backend,ramGB=0,vramGB=0){
+ if(backend==="vulkan")return vramGB>=12?8192:vramGB>=6?4096:2048;
+ if(ramGB>=24)return model===ADVANCED_LOCAL_MODEL?4096:8192;
+ return ramGB>=12?4096:2048;
 }
 export function backendCandidates(choice,{gpuAvailable=false}={}){
  checkBackend(choice);

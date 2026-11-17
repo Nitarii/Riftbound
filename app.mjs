@@ -113,7 +113,7 @@ for(const id of ["manager-open","manager-open-play","version-open-manager"]){
  $(id)?.addEventListener("click",openCompanionManager);
 }
 $("version-download").href=DOWNLOAD_URL;
-const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
+const save=()=>{if(!state.decks)return;try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Thumbnail requests reduce bandwidth; full-resolution art remains available in the detail view.
 function imageForDisplay(url,large=false){
@@ -171,14 +171,34 @@ window.addEventListener("resize",()=>requestAnimationFrame(adjustRuneCards),{pas
 function renderCombatPanel(){
  const panel=$("combat-panel"),battle=state.pendingCombat,attackBtn=$("combat-attack-button");
  if(!panel)return;
+ const chain=state.spellChain;
+ if(chain){
+  panel.hidden=false;attackBtn.hidden=true;
+  $("combat-choices").hidden=true;
+  $("combat-pass-button").hidden=chain.priority!=="human";
+  $("combat-effects-button").hidden=true;
+  $("combat-order-button").hidden=true;
+  $("combat-title").textContent=uiLanguage==="en"?"SPELL CHAIN":"CHAÎNE DE SORTS";
+  $("combat-details").textContent=chain.priority==="human"?
+   "À toi : joue une Réaction ou passe la priorité.":"Priorité à l’IA.";
+  $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
+   const info=document.createElement("div"),spell=state.cards.find(c=>c.uid===item.uid);
+   const target=state.cards.find(c=>c.uid===item.targetUid);
+   info.textContent=(spell?.name||"Sort")+" → "+(target?.name||"cible absente")+
+    (item.damage?" · "+item.damage+" dégâts":"");
+   if(spell){info.className="clickable";info.onclick=()=>showInstance(spell);}
+   return info;
+  }));
+  return;
+ }
  const canAttack=state.started&&state.active==="human"&&state.phase==="Main"&&
   state.cards.some(c=>c.owner==="human"&&c.zone==="base"&&
    /^unit$/i.test(c.type||"")&&!c.exhausted);
  panel.hidden=!battle&&!canAttack;
  attackBtn.hidden=!!battle;attackBtn.disabled=!canAttack;
- $("combat-pass-button").hidden=!battle||battle.passes?.human;
+ $("combat-pass-button").hidden=!battle||battle.passes?.human||(battle.focus??"human")!=="human"||!!state.pendingEffects?.length;
  $("combat-effects-button").hidden=!battle||!battle.warnings?.length||battle.confirmedEffects;
- $("combat-order-button").hidden=!battle;
+ $("combat-order-button").hidden=!battle||battle.kind==="conquest";
  if(!battle){
   $("combat-title").textContent=uiLanguage==="en"?"BATTLEFIELDS":"CHAMPS DE BATAILLE";
   $("combat-details").textContent=uiLanguage==="en"?
@@ -188,14 +208,21 @@ function renderCombatPanel(){
  }
  $("combat-choices").hidden=true;
  $("combat-title").textContent="⚔ "+(state.battlefields[battle.battlefield]?.card?.name||"Combat");
+ if(battle.kind==="conquest"){
+  $("combat-preview").textContent="";
+  $("combat-details").textContent="Confrontation sans combat. "+
+   ((battle.focus??"human")==="human"?"Focalisation au joueur. ":"Focalisation à l’IA. ")+
+   "Le contrôle et les points seront confirmés à la clôture.";
+  return;
+ }
  let result;
  try{result=previewCombat(state,battle.battlefield,battle.attacker,battle.orders);}
  catch(e){result={ready:false,error:e.message};}
  $("combat-preview").textContent=result.ready?
   result.attackingMight+" Might ATK / "+result.defendingMight+" Might DEF":
   result.error||"Dégâts à vérifier";
- const waiting=battle.passes?.human?
-  "Réaction du joueur passée. ":"Réactions possibles : annonce un effet, puis passe. ";
+ const waiting=(battle.focus??"human")==="human"?
+  "À toi : annonce une réaction ou passe. ":"Focalisation à l’IA. ";
  const risk=(battle.warnings||[]).length?
    "Vérification avant résolution : "+battle.warnings.join(" · "):
    "Attribution des dégâts simultanée, Tank et Backline respectés.";
@@ -234,7 +261,7 @@ function selectCombatTargets(){
  container.append(confirm);container.hidden=false;
 }
 $("combat-attack-button").onclick=selectCombatTargets;
-$("combat-pass-button").onclick=()=>dispatch({type:"combat-pass",player:"human"});
+$("combat-pass-button").onclick=()=>dispatch({type:state.spellChain?"chain-pass":"combat-pass",player:"human"});
 $("combat-effects-button").onclick=()=>{
  if(!state.pendingCombat)return;
  const warnings=state.pendingCombat.warnings||[];
@@ -303,7 +330,10 @@ function render(){
     const piles=$(p+"-decks");
     if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" '+((p!==state.active||state.turnActions?.drawn||player.deckCount===0)?"disabled ":"")+'title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+
       '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" '+((p!==state.active||state.turnActions?.channeled||player.runeCount===0)?"disabled ":"")+'title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
-    for(const z of ["legend","champion"]){$(p+"-"+z).innerHTML=cardHTML(state.cards.find(c=>c.owner===p&&c.zone===z)||player[z]);}
+    for(const z of ["legend","champion"]){
+     const inZone=state.cards.find(c=>c.owner===p&&c.zone===z);
+     $(p+"-"+z).innerHTML=cardHTML(inZone||(z==="champion"&&state.started?null:player[z]));
+    }
     const cards=z=>state.cards.filter(c=>c.owner===p&&c.zone===z);
     $(p+"-hand").innerHTML=p==="human"?
       Array.from({length:Math.min(12,Math.max(0,player.handCount))},(_,i)=>
@@ -360,9 +390,10 @@ async function dispatch(command){
   }
   try{
     if(relay){
-      const res=await fetch(relay.url+"/api/command",{...localFetchOptions(relay.url),method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(command)});
+      const envelope={...command,ifRevision:state.revision,commandId:crypto.randomUUID()};
+      const res=await fetch(relay.url+"/api/command",{...localFetchOptions(relay.url),method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(envelope)});
       const reply=await res.json();if(!res.ok)throw Error(reply.error||"Erreur du relais");
-      state=reply.state;lastSync=state.revision;render();
+      if(reply.state.revision>=state.revision){state=reply.state;lastSync=state.revision;render();}
     }else{undo.push(structuredClone(state));undo=undo.slice(-50);state=applyCommand(state,command);render();}
     if(command.type==="reset"||command.type==="start")resetChatView();
     notify(state.message);
@@ -776,6 +807,27 @@ function showVoiceDraft(transcript){
 voiceController=createLocalVoiceConversation({
  onState:voiceUI,onPreview:showVoiceDraft,
  onTranscript:handleVoiceTranscript,
+ playLocalVoice:async(text,signal)=>{
+  if(!relay)return false;
+  const active=AbortSignal.any([signal,AbortSignal.timeout(45000)]);
+  const response=await fetch(relay.url+"/api/speech/synthesis",{
+   ...localFetchOptions(relay.url),method:"POST",signal:active,
+   headers:{Authorization:"Bearer "+relay.token,"Content-Type":"application/json"},
+   body:JSON.stringify({text})
+  });
+  if(!response.ok)return false;
+  const src=URL.createObjectURL(await response.blob());
+  const audio=new Audio(src);
+  try{
+   await new Promise((resolve,reject)=>{
+    audio.onended=resolve;audio.onerror=reject;
+    if(active.aborted){reject(active.reason);return;}
+    active.addEventListener("abort",()=>{audio.pause();reject(active.reason);},{once:true});
+    audio.play().catch(reject);
+   });
+   return true;
+  }finally{audio.pause();URL.revokeObjectURL(src);}
+ },
  sendAudio:async blob=>{
   if(!relay)throw Error("Relais local déconnecté.");
   const response=await fetch(relay.url+"/api/speech/transcribe",{
@@ -1323,7 +1375,10 @@ $("manual-apply").onclick=async()=>{
  notify(applied+" commande(s) de l'IA appliquée(s).");
 };
 
-$("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
+$("undo").onclick=()=>{if(relay){
+ if(confirm("Annuler la dernière transaction du plateau ? Remets aussi les cartes physiques dans leur état précédent. Les cartes déjà révélées restent connues."))void dispatch({type:"undo"});
+ return;
+}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
 $("reset").onclick=async()=>{
  if(!confirm("Effacer la partie en cours ?"))return;
  if(await dispatch({type:"reset"})){resetChatView();showHome();}
@@ -1360,6 +1415,10 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
+ if(!state.decks){
+  try{state=JSON.parse(localStorage.getItem(storage))||createState();}catch{state=createState();}
+  render();
+ }
  remoteSession=null;integratedAIStatus=null;freeAIInfo=null;clearManualPrompt();updateRemoteUI();renderFreeAI();
  resetChatView();aiDisplay("Serveur déconnecté.");notify("Relais déconnecté.");renderWelcome();
 }

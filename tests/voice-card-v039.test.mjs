@@ -32,7 +32,7 @@ test("real punctuation at the end of Whisper's card name does not swallow an ann
  let s=prepare();
  const plan=planHumanAnnouncement("Je joue Disciple of Shen.",s,cards);
  assert.equal(plan.error,undefined,plan.error);
- assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Disciple of Shen"),
+ assert.ok(plan.commands.some(c=>c.type==="play-physical"&&c.card.name==="Disciple of Shen"),
   "Announced card must be added to the base, not sent to the JSON model");
  for(const command of plan.commands)s=applyCommand(s,command);
  assert.ok(s.cards.some(c=>c.owner==="human"&&c.zone==="base"&&c.name==="Disciple of Shen"));

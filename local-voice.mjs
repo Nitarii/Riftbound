@@ -28,7 +28,7 @@ export const audioRms=samples=>Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/Math
 export function createLocalVoiceConversation({
  mediaDevices=navigator.mediaDevices,AudioContextCtor=window.AudioContext||window.webkitAudioContext,
  synthesis=window.speechSynthesis,Utterance=window.SpeechSynthesisUtterance,
- onTranscript=()=>{},onPreview=()=>{},onState=()=>{},sendAudio,
+ onTranscript=()=>{},onPreview=()=>{},onState=()=>{},sendAudio,playLocalVoice=null,
  silenceMs=480,threshold=.012
 }={}){
  let enabled=false,hidden=false,phase="off",detail="",speaking=false,speechEnabled=true;
@@ -36,6 +36,11 @@ export function createLocalVoiceConversation({
  let speechStart=0,lastVoice=0,buffer=[],preRoll=[],busy=false,utterances=[],currentSpeech=null;
  let queue=[],captureId=0,voicedMs=0,consecutiveVoice=0,noiseFloor=.003;
  let drainPromise=null;
+ let speechAbort=null;
+ function cancelSpeech(){
+  speechAbort?.abort();speechAbort=null;
+  try{synthesis?.cancel();}catch{}
+ }
  const state=()=>({enabled,phase,detail,speaking,listening:Boolean(enabled&&!hidden&&!speaking),
   speechEnabled,available:!!mediaDevices?.getUserMedia,noSpeech:0});
  const emit=(p=phase,d=detail)=>{phase=p;detail=d;onState(state());};
@@ -146,32 +151,49 @@ export function createLocalVoiceConversation({
   stream?.getTracks().forEach(track=>track.stop());
   try{ctx?.close();}catch{}
   stream=null;ctx=null;source=null;output=null;processor=null;
-  clearBuffers();utterances=[];currentSpeech=null;
-  if(synthesis)try{synthesis.cancel();}catch{}
+  clearBuffers();utterances=[];clearTimeout(currentSpeech?.timer);currentSpeech=null;
+  cancelSpeech();
   speaking=false;emit("off","Micro local désactivé.");
  }
  async function flush(){if(speechStart&&buffer.length)await finalize();if(drainPromise)await drainPromise;}
- function playNext(){
-  if(!enabled||speaking||!utterances.length||!speechEnabled||!synthesis||!Utterance)return;
+ async function playNext(){
+  if(!enabled||speaking||!utterances.length||!speechEnabled)return;
   const text=utterances.shift();
-  const utterance=new Utterance(text);
-  utterance.lang=locale;utterance.rate=1.05;
-  speaking=true;currentSpeech=utterance;emit("speaking","Réponse vocale de l'IA…");
+  const turn={};
+  speechAbort=new AbortController();
+  speaking=true;currentSpeech=turn;emit("speaking","Réponse vocale de l'IA…");
   const done=()=>{
-   if(currentSpeech!==utterance)return;
-   currentSpeech=null;speaking=false;
+   if(currentSpeech!==turn)return;
+   currentSpeech=null;clearTimeout(turn.timer);speaking=false;speechAbort=null;
    if(utterances.length)playNext();else if(enabled)emit("listening","Micro local actif.");
   };
+  if(playLocalVoice&&locale==="fr-FR"){
+   const signal=speechAbort.signal;
+   try{if(await playLocalVoice(text,signal)){done();return;}}
+   catch{}
+   if(signal.aborted||currentSpeech!==turn)return;
+  }
+  if(!synthesis||!Utterance){done();return;}
+  const utterance=new Utterance(text);
+  utterance.lang=locale;utterance.rate=1.02;
+  const local=(synthesis.getVoices?.()||[]).filter(v=>v.localService&&
+    String(v.lang).toLowerCase().startsWith(locale.slice(0,2)));
+  const voice=local.find(v=>/natural|naturel|neural/i.test(v.name))||local[0];
+  if(!voice){done();return;}
+  utterance.voice=voice;
   utterance.onend=done;utterance.onerror=done;
+  turn.timer=setTimeout(()=>{if(currentSpeech===turn){cancelSpeech();done();}},45000);
   try{synthesis.speak(utterance);}catch{done();}
  }
  function speak(text){
   if(!enabled||!speechEnabled)return false;
-  utterances.push(String(text).slice(0,850));playNext();return true;
+  utterances.push(String(text).slice(0,850));utterances=utterances.slice(-4);playNext();return true;
  }
  function setSpeechEnabled(value){
   speechEnabled=Boolean(value);
-  if(!speechEnabled){utterances=[];try{synthesis?.cancel();}catch{}speaking=false;currentSpeech=null;}
+  if(!speechEnabled){
+   utterances=[];clearTimeout(currentSpeech?.timer);currentSpeech=null;cancelSpeech();speaking=false;
+  }
   emit();
  }
  function setHidden(value){

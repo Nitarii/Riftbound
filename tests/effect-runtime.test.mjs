@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
 import {advanceMandatoryTurn} from "../turn-upkeep.mjs";
 const card=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:1,...extra});
 function setup(){
@@ -67,6 +68,9 @@ test("on-conquer ability on the unit is applied after a genuine score",()=>{
  const bird=s.cards.find(c=>c.name==="Victory Bird");
  const before=s.players.ai.deckCount;
  s=applyCommand(s,{type:"move",uid:bird.uid,zone:"battlefield",battlefield:0});
+ assert.equal(s.players.ai.score,0);
+ assert.equal(s.players.ai.deckCount,before);
+ s=passShowdown(s);
  assert.equal(s.players.ai.score,1);
  assert.equal(s.players.ai.deckCount,before-1);
 });

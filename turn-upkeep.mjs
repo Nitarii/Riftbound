@@ -5,19 +5,19 @@ import {applyCommand} from "./core.mjs";
 
 export function advanceMandatoryTurn(state){
  if(!state?.started||state.finished||!["human","ai"].includes(state.active))return state;
+ if(["Main","Ending"].includes(state.phase))return state;
  if(state.pendingCombat||state.pendingEffects?.length)return state;
  let next=state,who=state.active;
  const wanted=duelOpeningRuneCount(state,who);
- if(!next.turnActions?.channeled){
+ if(!next.turnActions?.channeled&&!next.turnActions?.channelAttempted){
   const remaining=who==="ai"?next.decks.ai.runes.length:next.players.human.runeCount;
   next=applyCommand(next,{type:"phase",phase:"Channel"});
   if(remaining>0)next=applyCommand(next,{type:"channel",player:who,count:Math.min(wanted,remaining)});
  }
- if(!next.turnActions?.drawn){
-  const remaining=who==="ai"?next.decks.ai.main.length:next.players.human.deckCount;
+ if(!next.turnActions?.drawn&&!next.turnActions?.drawAttempted){
   next=applyCommand(next,{type:"phase",phase:"Draw"});
-  if(remaining>0)next=applyCommand(next,{type:"draw",player:who,count:1});
-  if(next.pendingEffects?.length)return next;
+  next=applyCommand(next,{type:"draw",player:who,count:1});
+  if(next.pendingEffects?.length||next.finished)return next;
  }
  if(!next.pendingCombat&&!next.pendingEffects?.length&&next.phase!=="Main")next=applyCommand(next,{type:"phase",phase:"Main"});
  // Keep the reducer's exact revision and resource changes, but display a

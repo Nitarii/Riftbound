@@ -1,0 +1,168 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {createState,applyCommand} from "../core.mjs";
+import {planPlayerSequence} from "../player-sequence.mjs";
+import {planAutonomousAITurn,planAIChainAction} from "../ai-turn.mjs";
+import {battlefieldController} from "../battlefield-rules.mjs";
+import {effectiveMight,previewCombat} from "../combat-engine.mjs";
+import {advanceMandatoryTurn} from "../turn-upkeep.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
+
+const card=(name,code,type="Unit",energy=0,might=2,extra={})=>({name,code,type,energy,might,...extra});
+const witness=card("Mournful Witness","VEN-028","Unit",2,2);
+const disciple=card("Disciple of Shen","VEN-117","Unit",2,1,{
+ text:"I have [Shield 3] while I'm at a battlefield with exactly one other unit you control."});
+const sacred=card("Sacred Protector","VEN-129","Unit",4,6,{power:1,domains:["Order"]});
+const discipline=card("Discipline","OGN-058","Spell",2);
+const ruthless=card("Ruthless Strike","VEN-008","Spell",3);
+const ki=card("Ki Barrier","VEN-126","Spell",2,null,{power:1,domains:["Order"]});
+const strike=card("Resonating Strike","VEN-034","Spell",2,null,{power:1,domains:["Calm"]});
+const ambush=card("Soulspinner","VEN-123","Unit",3,3);
+const hammer=card("Hand Hammer","VEN-027","Gear",2,1);
+const blade=card("Blade Twirler","VEN-002","Unit",4,4);
+const assassin=card("Shadow Assassin","VEN-013","Unit",5,5);
+const rune=domain=>card(domain+" Rune","R-"+domain,"Rune",0,null,{domains:[domain]});
+const grove=card("Grove of the God-Willow","OGN-280","Battlefield",0,null,{text:"When you hold here, draw 1."});
+const zaun=card("Zaun Warrens","OGN-298","Battlefield");
+const catalog=[witness,disciple,sacred,discipline,ruthless,ki,strike,hammer,ambush];
+const get=(s,name)=>s.cards.find(c=>c.name===name);
+const add=(s,player,value,zone="base",battlefield)=>applyCommand(s,{type:"add",player,card:value,zone,battlefield});
+const pass=(s,player)=>applyCommand(s,{type:"chain-pass",player});
+function table(active="human"){
+ let s=createState({seed:41});
+ s=applyCommand(s,{type:"setup-human",legend:card("Shen","legend","Legend"),
+  champion:card("Shen Chosen","champion"),battlefield:grove});
+ s=applyCommand(s,{type:"setup-ai",legend:card("Zed","zed","Legend"),champion:assassin,
+  battlefield:zaun,main:Array.from({length:12},(_,i)=>card("Deck "+i,"deck-"+i,"Unit",9)),
+  runes:Array.from({length:12},()=>rune("Fury")),mainIncludesChampion:false});
+ s=applyCommand(s,{type:"start",player:active});
+ return applyCommand(s,{type:"phase",phase:"Main"});
+}
+test("spoken French card names and an explicit payment reach the board or fail atomically",()=>{
+ let s=table();
+ s=add(add(s,"human",rune("Order"),"runes"),"human",rune("Calm"),"runes");
+ const invalid=planPlayerSequence("Je joue Disciple of Shen pour trois runes.",s,catalog);
+ assert.ok(invalid.error);
+ assert.deepEqual(invalid.commands,[]);
+ const play=planPlayerSequence("Je joue Disciple of Shen pour deux runes.",s,catalog);
+ assert.ok(!play.error,play.error);
+ const next=play.commands.reduce(applyCommand,s);
+ assert.equal(get(next,disciple.name).exhausted,true);
+ assert.equal(next.players.human.handCount,s.players.human.handCount-1);
+ assert.equal(next.cards.filter(c=>c.zone==="runes"&&c.exhausted).length,2);
+ assert.deepEqual(planPlayerSequence("Je joue Disciple of Shen pour De Rune.",s,catalog).commands,play.commands);
+ const fuzzy=planPlayerSequence("Je joue Mountful Winters.",s,catalog);
+ assert.ok(!fuzzy.error,fuzzy.error);
+ assert.equal(fuzzy.commands.at(-1).card.name,witness.name);
+});
+test("R02 stages Discipline and keeps the announced attack until two passes resolve the spell",()=>{
+ let s=table();
+ s=add(add(s,"human",rune("Order"),"runes"),"human",rune("Calm"),"runes");
+ s=add(s,"human",witness);
+ s=add(s,"ai",card("Twilight Reveler","VEN-096","Unit",3,3),"battlefield",0);
+ const plan=planPlayerSequence("Je joue Discipline sur Mournful Witness et avec Witness j’attaque le Grove.",s,catalog);
+ assert.ok(!plan.error,plan.error);
+ assert.deepEqual(plan.commands.map(c=>c.type),["cast"]);
+ assert.ok(plan.afterChain);
+ const before=s.players.human.deckCount;
+ s=plan.commands.reduce(applyCommand,s);
+ assert.equal(get(s,"Discipline").zone,"chain");
+ assert.throws(()=>applyCommand(s,plan.afterChain),/chaîne/);
+ s=pass(pass(s,"human"),"ai");
+ assert.equal(s.players.human.deckCount,before-1);
+ assert.equal(s.turnActions.drawn,0);
+ s=applyCommand(s,plan.afterChain);
+ assert.equal(previewCombat(s,0,"human").attackingMight,4);
+ s=passShowdown(s);
+ assert.equal(get(s,witness.name).counters.empowered,1);
+});
+test("Ruthless Strike pays optional discard before reaching the chain; Ki Barrier resolves above it",()=>{
+ let s=table("ai");
+ for(let i=0;i<3;i++)s=add(s,"ai",rune("Fury"),"runes");
+ for(let i=0;i<2;i++)s=add(s,"human",card("Rune physique","PHYSICAL-RUNE","Rune"),"runes");
+ s=add(s,"human",witness,"battlefield",0);
+ s=add(s,"ai",ruthless,"hand");
+ s=add(s,"ai",card("Gust Monk","VEN-101"),"hand");
+ const uid=get(s,ruthless.name).uid,targetUid=get(s,witness.name).uid;
+ const action={type:"cast",player:"ai",uid,targetUid,discardUid:get(s,"Gust Monk").uid};
+ assert.throws(()=>applyCommand(s,{...action,discardUid:targetUid}),/Défausse/);
+ assert.equal(get(s,"Gust Monk").zone,"hand");
+ s=applyCommand(s,action);
+ assert.equal(get(s,"Gust Monk").zone,"trash");
+ assert.equal(s.spellChain.items[0].damage,5);
+ s=pass(s,"ai");
+ const before=s.players.human.runeCount;
+ const voice=planPlayerSequence("J’ai deux runes d’ordre pas épuisées, je joue Key Barrière.",s,catalog);
+ assert.ok(!voice.error,voice.error);
+ assert.equal(voice.commands.at(-1).card.name,"Ki Barrier");
+ s=voice.commands.reduce(applyCommand,s);
+ assert.equal(s.players.human.runeCount,before+1);
+ assert.equal(s.cards.filter(c=>c.zone==="runes"&&c.owner==="human").length,1);
+ assert.equal(s.cards.find(c=>c.zone==="runes"&&c.owner==="human").exhausted,true);
+ s=pass(pass(s,"human"),"ai");
+ assert.equal(get(s,witness.name).counters.preventDamage,7);
+ s=pass(pass(s,"ai"),"human");
+ assert.equal(s.spellChain,null);
+ assert.equal(get(s,witness.name).damage,0);
+ assert.equal(get(s,witness.name).counters.preventDamage,2);
+});
+test("R19 Resonating Strike preserves identity and readiness, changing the defense from 1 to 12",()=>{
+ let s=table("ai");
+ s=add(add(s,"human",rune("Calm"),"runes"),"human",rune("Order"),"runes");
+ s=add(s,"human",disciple,"battlefield",0);
+ s=add(s,"human",sacred,"battlefield",1);
+ s=add(s,"ai",blade);s=add(s,"ai",assassin);
+ const uid=get(s,sacred.name).uid;
+ const cards=s.players.ai.deckCount;
+ s=applyCommand(s,{type:"combat-attack",player:"ai",battlefield:0,
+  uids:[get(s,blade.name).uid,s.cards.find(c=>c.name===assassin.name&&c.zone==="base").uid]});
+ assert.equal(s.players.ai.deckCount,cards-1,"Burn is not a draw");
+ assert.equal(s.turnActions.drawn,0);
+ assert.equal(previewCombat(s,0,"ai").defendingMight,1);
+ s=applyCommand(s,planAIChainAction(s));
+ const voice=planPlayerSequence("Resonating Strike : je déplace Sacred Protector de Zaun au Grove, +2.",s,catalog);
+ assert.ok(!voice.error,voice.error);
+ assert.equal(voice.commands.length,1);
+ s=voice.commands.reduce(applyCommand,s);
+ s=pass(pass(s,"human"),"ai");
+ assert.equal(get(s,sacred.name).uid,uid);
+ assert.equal(get(s,sacred.name).exhausted,false);
+ assert.equal(previewCombat(s,0,"ai").attackingMight,9);
+ assert.equal(previewCombat(s,0,"ai").defendingMight,12);
+ s=passShowdown(s);
+ assert.equal(s.players.ai.score,0);
+ assert.equal(battlefieldController(s,0),"human");
+ assert.equal(get(s,sacred.name).zone,"battlefield");
+});
+test("Shen hold ability counts only units and the hold draw does not replace the turn draw",()=>{
+ let s=table("ai");
+ const shen=card("Shen, Scourge of Shadows","VEN-042","Unit",5,6,{
+  text:"When I hold, if there is exactly one other unit you control here, draw 1."});
+ s=add(s,"human",shen,"battlefield",1);
+ s=add(s,"human",hammer,"battlefield",1);
+ const before=s.players.human.handCount;
+ let t=advanceMandatoryTurn(applyCommand(s,{type:"next-turn"}));
+ assert.equal(t.players.human.handCount,before+1);
+ t=advanceMandatoryTurn(applyCommand(add(s,"human",sacred,"battlefield",1),{type:"next-turn"}));
+ assert.equal(t.players.human.handCount,before+2);
+ assert.equal(t.turnActions.drawn,1);
+ assert.equal(t.pendingEffects.length,0);
+});
+test("move and attachment share the same stable unit; combat strategy contests the winning hold",()=>{
+ let s=table();
+ s=add(s,"human",rune("Calm"),"runes");
+ s=add(s,"human",witness);s=add(s,"human",hammer);
+ s=applyCommand(s,{type:"equip",player:"human",uid:get(s,hammer.name).uid,targetUid:get(s,witness.name).uid});
+ s=applyCommand(s,{type:"move",uid:get(s,witness.name).uid,zone:"battlefield",battlefield:0});
+ assert.equal(get(s,hammer.name).battlefield,0);
+ assert.equal(effectiveMight(get(s,witness.name),"none",s),3);
+ s=passShowdown(s);
+ s=applyCommand(s,{type:"score",player:"human",set:true,value:7});
+ s=applyCommand(s,{type:"phase",phase:"Ending"});
+ s=advanceMandatoryTurn(applyCommand(s,{type:"next-turn"}));
+ s=add(s,"ai",card("Counterattack","test-counter","Unit",0,8));
+ const plan=planAutonomousAITurn(s);
+ const command=plan.commands.find(c=>c.type==="move"||c.type==="combat-attack");
+ assert.equal(command?.type,"combat-attack");
+ assert.equal(command.battlefield,0);
+});

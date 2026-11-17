@@ -13,6 +13,8 @@ jobs:
       - name: Verify JavaScript syntax
         run: |
           node --check core.mjs
+          node --check verified-cards.mjs
+          node --check piper-local.mjs
           node --check draw-rules.mjs
           node --check priority-chain.mjs
           node --check effect-engine.mjs
@@ -55,6 +57,8 @@ jobs:
           node --check remote.mjs
       - name: Run reducer tests
         run: node --test tests/*.test.mjs
+      - name: Simulate 90 reproducible duels
+        run: node scripts/simulate-duels.mjs 30
       - name: Audit current card corpus (non-blocking; never claim complete fidelity)
         if: github.event_name == 'pull_request'
         continue-on-error: true

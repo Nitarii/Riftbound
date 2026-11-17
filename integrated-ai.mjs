@@ -4,7 +4,8 @@ import path from "node:path";
 import {applyCommand} from "./core.mjs";
 import {LOCAL_AI_MODEL,freeModelID} from "./free-ai.mjs";
 import {buildGameKnowledge} from "./game-knowledge.mjs";
-import {planSafeAITurn,planAutonomousAITurn,describeAITurn} from "./ai-turn.mjs";
+import {planSafeAITurn,planAutonomousAITurn,describeAITurn,enumerateAIAssaults,planAIChainAction} from "./ai-turn.mjs";
+import {ADVANCED_LOCAL_MODEL} from "./local-ai-profiles.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 import {allowPhysicalLocalCommand} from "./local-action-gate.mjs";
 
@@ -33,13 +34,15 @@ export function validateAIConfig(input,previous={}){
  const apiKey=supplied||(provider===previous.provider?previous.apiKey:"")||"";
  if(["openai","compatible"].includes(provider)&&!apiKey)
   throw Error("Clé API requise : un abonnement ChatGPT ne comprend pas les crédits API.");
- return {provider,model,endpoint,apiKey,enabled:input.enabled!==false};
+ return {provider,model,endpoint,apiKey,enabled:input.enabled!==false,
+  ...(provider==="free"&&input.rulesOnly===true?{rulesOnly:true}:{})};
 }
 const shortCard=c=>c?{code:c.code,name:c.name,type:c.type}:null;
 export function modelBoardState(state){
  return {
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
   firstPlayer:state.firstPlayer,turnActions:state.turnActions,pendingEffects:(state.pendingEffects||[]).slice(0,5),
+  spellChain:state.spellChain||null,
   started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
    human:{legend:shortCard(state.players.human.legend),champion:shortCard(state.players.human.champion),
@@ -204,7 +207,7 @@ export function modelHTTPError(status,provider){
  return "HTTP "+status+" du fournisseur. Vérifie sa configuration et sa disponibilité.";
 }
 export function createIntegratedAI({userData,getState,applyBatch,sendMessage,getMessages,getCatalog,
- fetchImpl=fetch,timeoutMs=45000}){
+ fetchImpl=fetch,timeoutMs=45000,tacticalBudgetMs=Number(process.env.RIFTBOUND_TACTICAL_MS??3000)}){
  const file=path.join(userData,".riftbound-ai-settings.json");
  let config=null,processing=false,lastError="",queue=Promise.resolve(),lastEffectPrompt="";
  // Game turns are deterministic and MUST NOT be queued behind a slow model.
@@ -214,7 +217,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }catch{}
  const status=()=>({configured:!!config,enabled:!!config?.enabled,provider:config?.provider||"",
   model:config?.model||"",endpoint:config?.endpoint||"",hasKey:!!config?.apiKey,
-  processing:processing||autonomousRunning,lastError});
+  rulesOnly:!!config?.rulesOnly,processing:processing||autonomousRunning,lastError});
  function configure(input){
   const next=validateAIConfig(input,config||{});
   const temp=file+".tmp";
@@ -227,13 +230,40 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   if(config)configure({...config,enabled:false});
   return status();
  }
+ async function chooseAssault(game,own){
+  const budget=Number.isFinite(tacticalBudgetMs)?Math.max(0,Math.min(4000,tacticalBudgetMs)):0;
+  if(!budget||own.rulesOnly||own.provider!=="free"||own.model!==ADVANCED_LOCAL_MODEL)return null;
+  const ranked=enumerateAIAssaults(game,{limit:4});
+  if(ranked.length<2||ranked[0].projectedWin)return null;
+  // Qwen can choose among close, already simulated alternatives; it cannot
+  // produce arbitrary commands or sacrifice an available immediate win.
+  const choices=ranked.filter(x=>x.value>=ranked[0].value-6&&x.deniesHold===ranked[0].deniesHold);
+  if(choices.length<2)return null;
+  const signal=AbortSignal.timeout(budget);
+  try{
+   const result=await fetchImpl(own.endpoint+"/chat/completions",{method:"POST",
+    headers:{"Content-Type":"application/json"},signal,body:JSON.stringify({
+     model:own.model,temperature:0,max_tokens:40,chat_template_kwargs:{enable_thinking:false},
+     response_format:{type:"json_object"},messages:[
+      {role:"system",content:"Choisis le meilleur assaut légal de Riftbound. Les dégâts indiqués supposent aucune réaction. Priorité à la victoire, au maintien et aux échanges favorables. Réponds uniquement par {\"choice\": un entier de la liste}."},
+      {role:"user",content:JSON.stringify({score:{ai:game.players.ai.score,human:game.players.human.score},
+       choices:choices.map(({command,value,...option},i)=>({id:i,...option}))})}
+     ]})});
+   if(!result.ok)return null;
+   const json=await result.json();
+   const index=extractJSON(json.choices?.[0]?.message?.content).choice;
+   return Number.isInteger(index)?choices[index]?.command??null:null;
+  }catch{return null;}
+ }
  // Execute a real AI turn independently of any queued Qwen conversation.
  // This is deliberately not a language-model request: the legal move planner
  // checks payment, printed effects and combat before committing a batch.
  async function runAutonomousTurn(){
   if(autonomousRunning||!config?.enabled)return;
   const game=getState();
-  if(!game?.started||game.finished||game.active!=="ai")return;
+  if(!game?.started||game.finished||
+     (game.spellChain?game.spellChain.priority!=="ai":
+      game.active!=="ai"&&game.pendingCombat?.focus!=="ai"))return;
   const session=getMessages(0).session;
   const key=session+":"+game.revision;
   if(lastAutonomousRevision===key)return;
@@ -251,11 +281,22 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     }
     return;
    }
+   if(game.spellChain||game.pendingCombat?.focus==="ai"){
+    const action=planAIChainAction(game);
+    if(action){
+     const updated=await applyBatch([action],game.revision);
+     committed=true;
+     if(config===own&&getMessages(0).session===session)sendMessage(updated?.message??getState().message);
+    }
+    return;
+   }
    if(game.pendingCombat){
     sendMessage("Combat en cours : annonce une réaction ou passe la priorité pour le résoudre.");
     return;
    }
-   const plan=planAutonomousAITurn(game);
+   const preferredAssault=await chooseAssault(game,own);
+   if(config!==own||getState().revision!==game.revision||getMessages(0).session!==session)return;
+   const plan=planAutonomousAITurn(game,{preferredAssault});
    if(!plan.commands.length){
     lastError=plan.error||plan.summary||"Tour IA bloqué par une règle ou un effet à résoudre.";
     sendMessage("⚠️ "+lastError+" Aucun coup n'a été simulé.");
@@ -276,12 +317,14 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    // applyBatch can schedule its notification while this runner is still
    // awaiting its promise, so that notification gets coalesced and lost.
    // Recheck after releasing the lock when a legal partial turn was committed.
-   if(committed&&config===own)queueMicrotask(()=>advanceTurnIfAI());
+   if(config===own&&(committed||getState().revision!==game.revision))queueMicrotask(()=>advanceTurnIfAI());
   }
  }
  function advanceTurnIfAI(){
   const game=getState();
-  if(!config?.enabled||!game?.started||game.finished||game.active!=="ai")return false;
+  if(!config?.enabled||!game?.started||game.finished||
+     (game.spellChain?game.spellChain.priority!=="ai":
+      game.active!=="ai"&&game.pendingCombat?.focus!=="ai"))return false;
   // Stop a conversational response from holding up the turn and from
   // publishing obsolete information after the board has advanced.
   liveChatAbort?.abort();
@@ -305,12 +348,14 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     }
     return;
    }
+   if(game.spellChain){
+    if(stillCurrent()&&!actionApplied)sendMessage("La chaîne attend une Réaction ou un passage de priorité.");
+    return;
+   }
    if(game.pendingCombat){
-    // The local opponent has already passed priority in the base combat
-    // engine. Never call Qwen to fabricate a reaction or to skip the user's.
-    if(stillCurrent())sendMessage(
+    if(stillCurrent()&&!actionApplied)sendMessage(
      "Confrontation en cours sur "+game.battlefields[game.pendingCombat.battlefield]?.card?.name+
-     ". Je passe ma réaction. Tu peux annoncer un effet puis passer, ou utiliser les boutons Combat."
+     ". Utilise la priorité affichée pour annoncer une réaction ou passer."
     );
     return;
    }
@@ -318,6 +363,10 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    // All AI moves pass through one revision-guarded deterministic runner.
    if(game.started&&game.active==="ai"){advanceTurnIfAI();return;}
    if(actionApplied&&game.started)return; // Physical action already applied.
+   if(own.rulesOnly){
+    if(stillCurrent())sendMessage("Le moteur de jeu est actif. Pour les réponses de conversation, active Qwen depuis le gestionnaire. État : "+game.message);
+    return;
+   }
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";

@@ -6,6 +6,7 @@ import path from "node:path";
 import {createState,applyCommand} from "../core.mjs";
 import {planAutonomousAITurn} from "../ai-turn.mjs";
 import {createIntegratedAI} from "../integrated-ai.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
 
 const card=(name,extras={})=>({name,type:"Unit",energy:0,power:0,might:2,...extras});
 function setup(){
@@ -66,6 +67,11 @@ test("after explicit effect confirmation, AI resumes safely and ends its turn",a
   assert.equal(ai.advanceTurnIfAI(),true);
   await flush();
   assert.ok(batches>=2);
+  for(let i=0;i<3&&s.active==="ai"&&s.pendingCombat;i++){
+   s=passShowdown(s);
+   ai.advanceTurnIfAI();
+   await flush();
+  }
   assert.equal(s.pendingEffects.length,0);
   assert.equal(s.active,"human");
   assert.ok(s.cards.find(c=>c.name==="Reserve Scout").zone==="battlefield");

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
 import {advanceMandatoryTurn} from "../turn-upkeep.mjs";
 import {planAutonomousAITurn} from "../ai-turn.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
 const card=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:3,...extra});
 function start(index){
  let s=createState();
@@ -30,6 +31,7 @@ test("deterministic opponent can complete 8 physical-board matches without illeg
   let s=start(i),steps=0;
   check(s);
   while(!s.finished&&steps<55){
+   if(s.pendingCombat){s=passShowdown(s);check(s);steps++;continue;}
    if(s.active==="ai"){
     const plan=planAutonomousAITurn(s,{maxUnits:3,maxMoves:5});
     assert.equal(plan.error,undefined,"AI action failed: "+plan.error);

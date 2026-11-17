@@ -23,6 +23,7 @@ import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
 import {createLocalWhisper,WHISPER_MODEL} from "./whisper-local.mjs";
+import {createLocalPiper} from "./piper-local.mjs";
 import {createPortableManager,CURRENT_VERSION} from "./portable-manager.mjs";
 import {createProcessDashboard} from "./process-dashboard.mjs";
 import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
@@ -50,7 +51,9 @@ if(portable){
  Object.assign(process.env,portableEnvironment(userData));
  // Existing v0.19 users: move only recognized companion files from old AppData
  // to the explicitly selected location, without overriding newer files.
- try{moveLegacyFiles(legacyDataFolder(),userData);}catch(error){
+ try{if(process.env.RIFTBOUND_PORTABLE_TEST!=="1"&&process.env.RIFTBOUND_TEST_NO_MIGRATION!=="1")
+  moveLegacyFiles(legacyDataFolder(),userData);
+ }catch(error){
   console.warn("Anciennes données non migrées :",error.message);
  }
 }
@@ -67,11 +70,11 @@ const isAllowedLocalOrigin=origin=>/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
 
 const catalogFile=path.join(userData,".riftbound-catalog-cache.json");
 let catalogCache=null,catalogTime=0,catalogPending=null;
+try{
+ const saved=JSON.parse(fs.readFileSync(catalogFile,"utf8"));
+ if(Array.isArray(saved?.cards)&&saved.cards.length>500){catalogCache=saved.cards;catalogTime=saved.updatedAt||0;}
+}catch{}
 async function loadServerCatalog(force=false) {
-  if(!catalogCache)try{
-    const saved=JSON.parse(fs.readFileSync(catalogFile,"utf8"));
-    if(Array.isArray(saved?.cards)&&saved.cards.length>500){catalogCache=saved.cards;catalogTime=saved.updatedAt||0;}
-  }catch{}
   if(!force&&catalogCache&&Date.now()-catalogTime<24*3600*1000)return catalogCache;
   if(catalogPending)return catalogPending;
   catalogPending=(async()=>{
@@ -103,10 +106,10 @@ for(const filename of [stateFile,backupStateFile]){
   if(validSavedState(candidate)){state=migrateLegacyPassivePendingEffects(candidate);primaryStateHealthy=filename===stateFile;break;}
  }catch{}
 }
-function save(){
+function save(next=state){
  const temp=stateFile+"."+crypto.randomBytes(6).toString("hex")+".tmp";
  try{
-  fs.writeFileSync(temp,JSON.stringify(state),{flag:"wx",mode:0o600});
+  fs.writeFileSync(temp,JSON.stringify(next),{flag:"wx",mode:0o600});
   if(primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
   fs.renameSync(temp,stateFile);
   primaryStateHealthy=true;
@@ -135,8 +138,18 @@ function authorized(req){
   return a.length===b.length&&crypto.timingSafeEqual(a,b);
 }
 function msg(res,status,text,req){json(res,status,{error:text},req);}
+function sharedState(view=state,{agent=false}={}){
+ const {rng,cardSerial,decks,...publicView}=view;
+ const cards=view.cards.flatMap(c=>{
+  if(c.zone==="deck"||c.zone==="rune-deck"||c.owner==="human"&&c.zone==="hand")return [];
+  if(c.owner==="ai"&&c.zone==="hand"&&!agent||c.faceDown&&(!agent||c.owner==="human"))
+   return [{uid:c.uid,owner:c.owner,zone:c.zone,battlefield:c.battlefield,faceDown:true}];
+  return [c];
+ });
+ return {...publicView,cards};
+}
 function broadcast(){
-  const payload="data: "+JSON.stringify({state})+"\n\n";
+ const payload="data: "+JSON.stringify({state:sharedState()})+"\n\n";
   for(const c of clients){try{c.write(payload);}catch{clients.delete(c);}}
 }
 function body(req){
@@ -191,11 +204,56 @@ const guide={
 const deckDescriptions=()=>PRECONS.map(p=>({id:p.id,label:p.label,source:p.source,
  mainSize:p.main.reduce((sum,[,n])=>sum+n,0),runeSize:p.runes.reduce((sum,[,n])=>sum+n,0),
  battlefields:p.battlefields}));
-async function executeGameCommand(input){
+const recentCommands=new Map();
+const checkpoints=[];
+let pendingCompound=null;
+function ensureRevision(revision){
+ if(Number.isInteger(revision)&&revision!==state.revision)
+  throw Error("Version obsolète; recharge /api/state");
+}
+function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",remember=true}={}){
+ const previous=state;
+ const receipt={id,status:"applied",origin,before:previous.revision,after:next.revision,
+  actions:commands.map(c=>c.type),result:next.message};
+ next.history=(next.history||[]).map((event,index)=>index===0?{...event,commandId:id,origin}:event);
+ save(next);
+ if(remember){
+  checkpoints.push({state:previous,receipt});
+  if(checkpoints.length>30)checkpoints.shift();
+ }
+ state=next;broadcast();
+ if(previous.spellChain&&!next.spellChain&&pendingCompound){
+  const {action,session}=pendingCompound;
+  pendingCompound=null;
+  if(next.active==="human"&&!next.pendingCombat&&!next.pendingEffects.length&&!next.finished&&
+     conversation.list(0).session===session){
+   const revision=next.revision;
+   queueMicrotask(()=>{
+    try{applyAgentBatch([action],revision,"voice-follow-up");receiveAgentMessage(state.message);}
+    catch(error){receiveAgentMessage("Suite de l'annonce non appliquée : "+error.message);}
+   });
+  }else receiveAgentMessage("La suite de l’annonce n’a pas été exécutée. Annonce de nouveau le déplacement quand la fenêtre le permet.");
+ }
+ return receipt;
+}
+async function executeGameCommand(input,{origin="local",withReceipt=false}={}){
  // Shared between local authenticated server and restricted remote agent gateway.
  if(!manager.status().canLaunch)throw Error("Mets à jour ou vérifie le compagnon avant de modifier la partie.");
- if(Number.isInteger(input.ifRevision)&&input.ifRevision!==state.revision)
-  throw Error("Version obsolète; recharge /api/state");
+ if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Commande JSON invalide.");
+ const requestId=typeof input.commandId==="string"?input.commandId:null;
+ if(requestId&&!/^[A-Za-z0-9_-]{8,80}$/.test(requestId))throw Error("Identifiant de commande invalide.");
+ const commandKey=requestId&&origin+":"+requestId;
+ const signature=JSON.stringify(input);
+ function replay(){
+  const stored=commandKey&&recentCommands.get(commandKey);
+  if(!stored)return null;
+  if(stored.signature!==signature)throw Error("Identifiant déjà utilisé pour une autre commande.");
+  return withReceipt?{state,receipt:{...stored.receipt,status:"duplicate"}}:state;
+ }
+ const duplicate=replay();
+ if(duplicate)return duplicate;
+ const revision=state.revision;
+ ensureRevision(input.ifRevision);
  let command=input;
  if(input.type==="select-precon"){
    const cards=await loadServerCatalog();
@@ -204,30 +262,51 @@ async function executeGameCommand(input){
     battlefield:deck.battlefield,battlefields:deck.battlefields,
     main:deck.main,runes:deck.runes,mainIncludesChampion:true,
     format:"preconstructed",deckName:deck.label};
+   const retry=replay();
+   if(retry)return retry;
+   ensureRevision(revision);
  }
- state=applyCommand(state,command);
- if(["start","next-turn"].includes(command.type)||
-    command.type==="effect-confirm"&&!state.pendingEffects?.length&&state.phase==="Beginning")
-  state=advanceMandatoryTurn(state);
- if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
- save();broadcast();
+ let next,receipt;
+ if(command.type==="undo"){
+  if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
+  const checkpoint=checkpoints.at(-1);
+  if(!checkpoint)throw Error("Aucune transaction de cette session à annuler.");
+  const restored=structuredClone(checkpoint.state);
+  restored.revision=state.revision+1;
+  restored.message="Transaction annulée : "+checkpoint.receipt.result;
+  restored.history=[{revision:restored.revision,at:new Date().toISOString(),
+   text:restored.message,undoOf:checkpoint.receipt.id},...restored.history].slice(0,120);
+  pendingCompound=null;
+  receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
+  checkpoints.pop();
+ }else{
+  next=applyCommand(state,command);
+  if(["start","next-turn","effect-confirm"].includes(command.type))next=advanceMandatoryTurn(next);
+  if(input.type==="reset")pendingCompound=null;
+  receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
+  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;checkpoints.length=0;}
+ }
+ if(commandKey){
+  recentCommands.set(commandKey,{receipt,signature});
+  if(recentCommands.size>256)recentCommands.delete(recentCommands.keys().next().value);
+ }
  // Every transition into AI control starts the deterministic turn immediately,
  // including toolbar "Tour suivant", reactions and effect confirmations.
  // The runner coalesces requests by state revision.
- integratedAI.advanceTurnIfAI();
- return state;
+ if(command.type!=="undo")integratedAI.advanceTurnIfAI();
+ return withReceipt?{state,receipt}:state;
 }
 const readMessages=after=>conversation.list(after);
 const receiveAgentMessage=text=>conversation.post("ai",text);
-function applyAgentBatch(actions,revision){
+function applyAgentBatch(actions,revision,origin="ai"){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
  let next=state;
  for(const cmd of actions){
   next=applyCommand(next,cmd);
-  if(["start","next-turn"].includes(cmd.type))next=advanceMandatoryTurn(next);
+  if(["start","next-turn","effect-confirm"].includes(cmd.type))next=advanceMandatoryTurn(next);
  }
- state=next;save();broadcast();
+ commitGame(next,{commands:actions,origin});
  // Some AI actions finish an effect or advance into another playable state.
  // Re-evaluate only after the current batch has been committed.
  queueMicrotask(()=>integratedAI.advanceTurnIfAI());
@@ -235,7 +314,7 @@ function applyAgentBatch(actions,revision){
 }
 const integratedAI=createIntegratedAI({
  userData,getState:()=>state,applyBatch:applyAgentBatch,
- sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:loadServerCatalog
+ sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:async()=>catalogCache||[]
 });
 // This release defaults to a strictly free local opponent. Old paid-provider
 // profiles are left on disk for migration but never auto-start after upgrade.
@@ -248,9 +327,20 @@ let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Wi
 let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=text=>{
  const entry=conversation.post("human",text);
+ const receivedRevision=state.revision;
+ const receivedSession=conversation.list(0).session;
+ if(/^(?:reprends|reprendre|resume)[.! ]*$/i.test(entry.text)){
+  receiveAgentMessage("Partie à la révision "+state.revision+". "+state.message);
+  integratedAI.advanceTurnIfAI();
+  return entry;
+ }
+ if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(entry.text)&&pendingCompound){
+  pendingCompound=null;
+  receiveAgentMessage("Suite de l'annonce mise en pause. La chaîne reste au même état.");
+  return entry;
+ }
  humanAnnouncements=humanAnnouncements.catch(()=>{}).then(async()=>{
-  let catalog=[];
-  try{catalog=await loadServerCatalog();}catch{}
+  if(conversation.list(0).session!==receivedSession)return;
   let announcement=entry.text;
   const english=detectMessageLanguage(entry.text)==="en";
   const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
@@ -261,6 +351,14 @@ const receiveHumanMessage=text=>{
    receiveAgentMessage(english?"I heard 'I play'. Which card?":
     "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
    return;
+  }
+  // Passing priority and other public board commands must remain responsive
+  // even when the remote catalog is unavailable or expired.
+  let catalog=catalogCache||[];
+  if(!catalog.length&&(pendingSpokenPlay||pendingHumanAction||
+     /\b(?:joue|jouer|defausse|pose|play|place|resonating strike)\b/i.test(normalized))){
+   try{catalog=await loadServerCatalog();}catch{}
+   if(conversation.list(0).session!==receivedSession)return;
   }
   if(pendingSpokenPlay){
    const previous=pendingSpokenPlay;pendingSpokenPlay=null;
@@ -310,9 +408,19 @@ const receiveHumanMessage=text=>{
    return;
   }
   if(plan.commands?.length){
+   if(receivedRevision!==state.revision){
+    receiveAgentMessage(english?"The board changed before I could apply that announcement. Repeat it in the current window; no action was applied.":
+     "Le plateau a changé depuis ton annonce. Répète-la dans la fenêtre actuelle ; aucune action n’a été appliquée.");
+    return;
+   }
    const revision=state.revision;
-   try{applyAgentBatch(plan.commands,revision);}
+   try{
+    if(plan.afterChain)pendingCompound={action:plan.afterChain,session:conversation.list(0).session};
+    applyAgentBatch(plan.commands,revision,"announcement");
+    receiveAgentMessage(state.message+(plan.afterChain?" · Le déplacement suivra la résolution du sort.":""));
+   }
    catch(e){
+    if(plan.afterChain)pendingCompound=null;
     receiveAgentMessage((english?"Action not applied: ":"Action non appliquée : ")+String(e.message||e).slice(0,180));
     return;
    }
@@ -330,8 +438,10 @@ const localFreeAI=createFreeLocalAI({
  }
 });
 const speech=createLocalWhisper({userData});
+const piper=createLocalPiper({userData});
 let serverClosing=false;
 function shutdownAll(){
+ piper.stop();
  if(serverClosing)return;
  serverClosing=true;
  try{remoteAccess.stop();}catch{}
@@ -360,8 +470,11 @@ const manager=createPortableManager({
 });
 const remoteAccess=createRemoteAccess({
  userData,
- getState:()=>state,
- performCommand:executeGameCommand,
+ getState:()=>sharedState(state,{agent:true}),
+ performCommand:async input=>{
+  const result=await executeGameCommand(input,{origin:"remote",withReceipt:true});
+  return {...result,state:sharedState(result.state,{agent:true})};
+ },
  getCatalog:loadServerCatalog,
  getDecks:deckDescriptions,
  getGuide:()=>guide,
@@ -374,7 +487,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","rules-compendium.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","rules-compendium.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","turn-upkeep.mjs","verified-cards.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
@@ -406,7 +519,7 @@ const server=http.createServer(async(req,res)=>{
     tickets.delete(ticket);
     headers(res,req);
     res.writeHead(200,{"Content-Type":"text/event-stream; charset=utf-8","Cache-Control":"no-store","Connection":"keep-alive"});
-    res.write("data: "+JSON.stringify({state})+"\n\n");clients.add(res);
+    res.write("data: "+JSON.stringify({state:sharedState()})+"\n\n");clients.add(res);
     const heart=setInterval(()=>{try{res.write(":keepalive\n\n");}catch{}},15000);
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
@@ -431,7 +544,7 @@ const server=http.createServer(async(req,res)=>{
   // Allow reading and maintenance during updates, but never start or mutate a
   // physical game from an unverified or confirmed outdated Windows executable.
   if(req.method==="POST"&&["/api/messages","/api/command",
-      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe",
+      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe","/api/speech/synthesis",
       "/api/remote/start"].includes(url.pathname)&&
      !manager.status().canLaunch){
    msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
@@ -448,7 +561,7 @@ const server=http.createServer(async(req,res)=>{
       json(res,200,{ok:true,message:entry},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }
-  if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
+  if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state:sharedState()},req);return;}
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
   if(req.method==="GET"&&url.pathname==="/api/decks"){
     json(res,200,{decks:deckDescriptions()},req);return;
@@ -473,7 +586,19 @@ const server=http.createServer(async(req,res)=>{
     json(res,200,integratedAI.status(),req);return;
   }
   if(req.method==="GET"&&url.pathname==="/api/ai/free/status"){
-    json(res,200,localFreeAI.status(),req);return;
+    json(res,200,{...localFreeAI.status(),rulesOnly:integratedAI.status().rulesOnly},req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/ai/rules/activate"){
+   if(!manager.status().canLaunch||remoteAccess.status().active){
+    msg(res,409,"Vérifie le compagnon et coupe le relais distant avant d’activer l’adversaire local.",req);return;
+   }
+   try{
+    localFreeAI.stop();
+    const active=integratedAI.configure({provider:"free",model:LOCAL_AI_MODEL,enabled:true,rulesOnly:true});
+    integratedAI.advanceTurnIfAI();
+    json(res,200,active,req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/free/install"){
     if(remoteAccess.status().active){
@@ -549,7 +674,7 @@ const server=http.createServer(async(req,res)=>{
     catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="GET"&&url.pathname==="/api/speech/status"){
-    json(res,200,{...speech.status(),folder:userData},req);return;
+    json(res,200,{...speech.status(),synthesis:piper.status(),folder:userData},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/install"){
     try{
@@ -561,6 +686,21 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/speech/warm"){
    try{json(res,202,speech.warm(),req);}
    catch(e){msg(res,400,String(e.message||e),req);}
+   return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/speech/synthesis"){
+   json(res,200,piper.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/speech/synthesis"){
+   if(!piper.status().installed){msg(res,404,"Voix Piper indisponible.",req);return;}
+   try{
+    const input=await body(req);
+    if(typeof input?.text!=="string")throw Error("Texte de synthèse requis.");
+    const wav=await piper.synthesize(input.text);
+    headers(res,req);
+    res.writeHead(200,{"Content-Type":"audio/wav","Cache-Control":"no-store"});
+    res.end(wav);
+   }catch(error){msg(res,400,error.message,req);}
    return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/transcribe"){
@@ -575,7 +715,7 @@ const server=http.createServer(async(req,res)=>{
      }
      // Speech must never wait on a remote card-catalog refresh. Use the
      // current table and the already cached catalogue, entirely offline.
-     const visible=state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai");
+     const visible=state.cards.filter(c=>!c.faceDown&&!["hand","deck","rune-deck"].includes(c.zone));
      const known=Array.isArray(catalogCache)?catalogCache:[];
      const seen=new Set(),cards=[];
      for(const card of [...visible,...known]){
@@ -635,9 +775,9 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/command"){
     try{
       const input=await body(req);
-      const updated=await executeGameCommand(input);
-      json(res,200,{ok:true,state:updated},req);
-    }catch(e){msg(res,400,e.message,req);}return;
+      const updated=await executeGameCommand(input,{withReceipt:true});
+      json(res,200,{ok:true,...updated,state:sharedState(updated.state)},req);
+    }catch(e){json(res,400,{ok:false,error:e.message,receipt:{status:"rejected",revision:state.revision}},req);}return;
   }
   msg(res,404,"Endpoint inconnu",req);
 });
@@ -658,7 +798,8 @@ function resumeLocalOpponent(){
  if(manager.status().canLaunch&&integratedAI.status().provider==="free"&&
     integratedAI.status().enabled){
   // Reuse installed weights; a confirmed outdated build must not run the model.
-  localFreeAI.resume(integratedAI.status().model);
+  integratedAI.advanceTurnIfAI();
+  if(!integratedAI.status().rulesOnly)localFreeAI.resume(integratedAI.status().model);
  }
 }
 server.listen(port,host,()=>{

@@ -1,7 +1,7 @@
 // Multi-action narration with safe battlefield movements.
 // Existing physical cards are identified by name, never by a guessed UID.
 import {applyCommand} from "./core.mjs";
-import {normalizePlayerAnnouncement,planHumanAnnouncement} from "./player-actions.mjs";
+import {normalizePlayerAnnouncement,planHumanAnnouncement,spokenField,spokenPublicTarget,planTargetedPlay} from "./player-actions.mjs";
 import {combatVoicePlan} from "./combat-voice.mjs";
 
 const normalize=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
@@ -19,16 +19,17 @@ function pickField(state,spoken){
  if(/^(?:champ de bataille|battlefield|terrain|field)$/.test(simple))return null;
  const matched=(state.battlefields||[]).map((f,i)=>({i,name:normalize(f.card?.name||"")}))
   .filter(f=>f.name&&(f.name===simple||f.name.includes(simple)||simple.includes(f.name)));
- return matched.length===1?matched[0].i:null;
+ return matched.length===1?matched[0].i:spokenField(state,spoken);
 }
 function pickReadyUnit(state,spoken){
  const q=strip(spoken).replace(/^unit[eé]?\s+/,"").trim();
  if(!q)return {error:"Nom d'unité manquant."};
  const pool=state.cards.filter(c=>c.owner==="human"&&c.zone==="base"&&/unit/i.test(c.type||""));
- const found=pool.filter(c=>{
+ let found=pool.filter(c=>{
   const name=normalize(c.name||"");
   return name===q||name.includes(q)||q.split(" ").sort().join(" ")===name.split(" ").sort().join(" ");
  });
+ if(!found.length){const match=spokenPublicTarget(pool,q);if(match)found=[match];}
  if(found.length===0)return {error:"Aucune unité « "+q+" » n'est présente dans ta base. Joue-la d'abord en base avant de la déplacer."};
  if(found.length!==1)return {error:"Plusieurs unités correspondent à « "+q+" » dans ta base. Sélectionne la carte exacte sur le plateau."};
  if(found[0].exhausted)return {error:found[0].name+" est épuisé(e) et ne peut pas se déplacer normalement."};
@@ -78,8 +79,30 @@ export function planPlayerSequence(message,state,catalog=[]){
  const text=normalizePlayerAnnouncement(message).slice(0,1200);
  if(!text||!state?.started)return {commands:[],recognized:false};
  // Questions and speculative statements remain conversational.
- if(/[?]/.test(String(message))||/^(?:si je|if i|can i|est ce que|comment|how|pourquoi|why)\b/.test(text))
+ if(/[?]/.test(String(message))||/^(?:si je|if i|can i|could i|should i|puis je|je peux|peux je|est ce que|comment|how|pourquoi|why)\b/.test(text)||
+    /\b(?:ne (?:veux|vais|deplace|joue) pas|je (?:ne )?veux pas|do not|don't)\b/.test(text))
   return {commands:[],recognized:false};
+ const compound=text.match(/^(.+?)\s+(?:et|puis)\s+avec\s+(.+?)\s+j'\s*attaque\s+(.+)$/);
+ if(compound){
+  const first=planTargetedPlay(compound[1],state,catalog);
+  if(first?.error)return first;
+  if(first?.type==="cast"){
+   const field=pickField(state,compound[3]),selected=pickReadyUnit(state,compound[2]);
+   if(field===null||selected.error)return {recognized:true,commands:[],
+    error:selected.error||"Précise le champ à attaquer.",errorEN:"Specify the ready attacker and battlefield."};
+   try{
+    const staged=applyCommand(state,first);
+    return {recognized:true,commands:[first],summary:staged.message,
+     afterChain:{type:"combat-attack",player:"human",uids:[selected.unit.uid],battlefield:field}};
+   }catch(error){return {recognized:true,commands:[],error:error.message,errorEN:error.message};}
+  }
+ }
+ if(planTargetedPlay(text,state,catalog)||state.spellChain||state.pendingEffects?.length)
+  return planHumanAnnouncement(message,state,catalog);
+ if(/^(?:je (?:joue|pose)|i play)\b/.test(text)&&/\s+(?:a|au)\s+/.test(text)){
+  const play=planHumanAnnouncement(message,state,catalog);
+  if(play.commands?.some(c=>c.type==="play-physical"&&Number.isInteger(c.battlefield)))return play;
+ }
  const movement=extractMovement(text);
  if(!movement)return planBaseSequence(message,state,catalog);
  if(state.active!=="human")return {commands:[],recognized:true,error:"Ce n'est pas ton tour.",errorEN:"It's not your turn."};
@@ -96,7 +119,7 @@ export function planPlayerSequence(message,state,catalog=[]){
   errorEN:"Ambiguous battlefield: specify the actual battlefield name."};
  const chosen=pickReadyUnit(preview,movement.unit);
  if(chosen.error)return {commands:[],recognized:true,error:chosen.error,errorEN:chosen.error};
- if(!preview.turnActions?.channeled||!preview.turnActions?.drawn){
+ if(preview.phase!=="Main"&&(!preview.turnActions?.channeled||!preview.turnActions?.drawn)){
   return {commands:[],recognized:true,error:"Annonce d'abord la canalisation et la pioche normales de ce tour.",
    errorEN:"First announce this turn's channeling and standard draw."};
  }

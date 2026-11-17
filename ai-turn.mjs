@@ -5,7 +5,8 @@ import {applyCommand} from "./core.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
-import {previewCombat} from "./combat-engine.mjs";
+import {previewCombat,effectiveMight} from "./combat-engine.mjs";
+import {verifiedSpell} from "./verified-cards.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const isPlayable=c=>/^(unit|gear|spell)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
@@ -29,9 +30,96 @@ function targetForReinforcement(view){
   .filter(x=>x.enemy===0&&x.friendly>0)
   .sort((a,b)=>a.friendly-b.friendly||a.i-b.i)[0]?.i??null;
 }
-export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
+export function planAIChainAction(state){
+ const chain=state.spellChain;
+ if(state.pendingEffects?.length)return null;
+ if(!chain){
+  if(state.pendingCombat?.focus!=="ai"||state.pendingCombat.passes.ai)return null;
+  return removalSpell(state)?.command??{type:"combat-pass",player:"ai"};
+ }
+ if(chain.priority!=="ai")return null;
+ const top=chain.items.at(-1);
+ const target=state.cards.find(c=>c.uid===top.targetUid&&c.owner==="ai"&&
+   ["base","battlefield"].includes(c.zone));
+ if(target&&top.damage>0&&top.damage+(target.damage||0)-(target.counters.preventDamage||0)>=
+    (effectiveMight(target,"none",state)??Infinity)){
+  for(const card of own(state,"hand").filter(c=>verifiedSpell(c)?.prevention)){
+   const command={type:"cast",player:"ai",uid:card.uid,targetUid:target.uid};
+   try{applyCommand(state,command);return command;}catch{}
+  }
+ }
+ return {type:"chain-pass",player:"ai"};
+}
+function removalSpell(state){
+ const spells=own(state,"hand").filter(c=>verifiedSpell(c)?.damage);
+ let best=null;
+ for(const spell of spells){
+  const rule=verifiedSpell(spell);
+  const discard=chooseRequiredDiscards(state,spell.uid,1)?.[0];
+  for(const unit of state.cards.filter(c=>c.owner==="human"&&c.zone==="battlefield"&&isUnit(c)&&!c.faceDown)){
+   const might=effectiveMight(unit,"none",state);
+   if(might==null)continue;
+   const need=might-(unit.damage||0)+(unit.counters.preventDamage||0);
+   if(need>rule.damage&&(!discard||need>rule.discardDamage))continue;
+   const command={type:"cast",player:"ai",uid:spell.uid,targetUid:unit.uid,
+    ...(need>rule.damage?{discardUid:discard}:{})};
+   try{
+    applyCommand(state,command);
+    const value=might*2-(command.discardUid?3:0);
+    if(!best||value>best.value)best={command,value,name:spell.name,target:unit.name};
+   }catch{}
+  }
+ }
+ return best;
+}
+export function enumerateAIAssaults(view,{limit=5,searchBudget=90}={}){
+ if(!view.started||view.active!=="ai"||view.phase!=="Main"||view.finished||
+    view.pendingCombat||view.spellChain||view.pendingEffects?.length)return [];
+ const ready=own(view,"base").filter(c=>isUnit(c)&&!c.exhausted&&c.might!=null)
+  .sort((a,b)=>(effectiveMight(b,"attack",view)||0)-(effectiveMight(a,"attack",view)||0)).slice(0,7);
+ const fields=emptyBattlefieldTargets(view).filter(x=>x.enemy>0);
+ const enemyWinNext=view.players.human.score+fields.length>=8;
+ const options=[];
+ let tested=0;
+ // Test diverse groups rather than just successively larger prefixes.
+ for(let size=1;size<=ready.length;size++){
+  for(let mask=1;mask<1<<ready.length;mask++){
+   const units=ready.filter((_,i)=>mask&(1<<i));
+   if(units.length!==size)continue;
+   for(const field of fields){
+    if(tested++>=searchBudget)break;
+    const command={type:"combat-attack",player:"ai",battlefield:field.i,uids:units.map(c=>c.uid)};
+    try{
+     const hypothetical=applyCommand(view,command);
+     if(hypothetical.pendingEffects?.length||hypothetical.pendingCombat?.warnings?.length)continue;
+     const preview=previewCombat(hypothetical,field.i,"ai");
+     if(!preview.ready)continue;
+     const losses=preview.damage.filter(c=>c.dead);
+     const opponentLoss=losses.filter(c=>c.owner==="human").reduce((n,c)=>n+6+c.might,0);
+     const friendlyLoss=losses.filter(c=>c.owner==="ai").reduce((n,c)=>n+7+c.might,0);
+     const conquer=preview.winner==="ai";
+     const deniesHold=preview.survivors.defender===0;
+     const projectedWin=conquer&&!field.scored&&view.players.ai.score>=7&&
+      view.battlefields.every((_,i)=>i===field.i||view.scoredFields?.ai?.includes(i));
+     const value=(projectedWin?300:0)+(conquer?70:0)+(deniesHold&&enemyWinNext?110:0)+
+      opponentLoss-friendlyLoss-units.length*2;
+     if(value>0&&(conquer||opponentLoss>0))options.push({command,value,
+      battlefield:view.battlefields[field.i].card.name,units:units.map(c=>c.name),
+      attack:preview.attackingMight,defend:preview.defendingMight,
+      losses:{human:losses.filter(c=>c.owner==="human").length,ai:losses.filter(c=>c.owner==="ai").length},
+      projectedWin,deniesHold});
+    }catch{}
+   }
+   if(tested>=searchBudget)break;
+  }
+  if(tested>=searchBudget)break;
+ }
+ return options.sort((a,b)=>b.value-a.value).slice(0,limit);
+}
+export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssault=null}={}){
  if(!state?.started||state.active!=="ai")return {commands:[],state,summary:""};
  if(state.finished)return {commands:[],state,summary:"Partie terminée",finished:true};
+ if(state.spellChain)return {commands:[],state,waitingForChain:true,summary:"Chaîne en cours."};
  if(state.pendingCombat)return {commands:[],state,summary:"Combat : réactions en attente.",waitingForCombat:true};
  if(state.pendingEffects?.length)return {commands:[],state,
    summary:"Effet à résoudre : "+state.pendingEffects[0].cardName,
@@ -47,12 +135,12 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  const apply=command=>{view=applyCommand(view,command);commands.push(command);};
  // A trigger can suspend the turn halfway through channeling, drawing or moving.
  // Preserve already legal actions instead of rolling back the complete batch.
- const interrupted=()=>Boolean(view.finished||view.pendingCombat||view.pendingEffects?.length);
+ const interrupted=()=>Boolean(view.finished||view.pendingCombat||view.spellChain||view.pendingEffects?.length);
  const partial=()=>({commands,state:view,enacted,refused,finished:!!view.finished,
   summary:enacted.join(", ")});
  try{
   const count=duelOpeningRuneCount(view,"ai");
-  if(!view.turnActions?.channeled){
+  if(view.phase!=="Main"&&!view.turnActions?.channeled&&!view.turnActions?.channelAttempted){
    const left=view.decks?.ai?.runes?.length||0;
    if(left>0){
     apply({type:"phase",phase:"Channel"});
@@ -62,7 +150,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
     if(interrupted())return partial();
    }
   }
-  if(!view.turnActions?.drawn&&view.decks?.ai?.main?.length){
+  if(view.phase!=="Main"&&!view.turnActions?.drawn&&!view.turnActions?.drawAttempted){
    apply({type:"phase",phase:"Draw"});
    apply({type:"draw",player:"ai",count:1});
    enacted.push("pioché 1 carte");
@@ -72,11 +160,11 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   // Ready units already in base are useful now. They should not wait forever
   // while the AI continues playing new units into base.
   let moved=0;
-  function moveUncontested(){
+  function moveUncontested(reinforce=false){
    for(const unit of own(view,"base").filter(c=>isUnit(c)&&!c.exhausted)){
     if(interrupted())break;
     if(moved>=maxMoves)break;
-    const field=targetForConquest(view)??targetForReinforcement(view);
+    const field=targetForConquest(view)??(reinforce?targetForReinforcement(view):null);
     if(field===null)break; // Opponent controls/contests all fields: combat needs arbitration.
     apply({type:"move",uid:unit.uid,zone:"battlefield",battlefield:field});
     enacted.push(unit.name+" → "+view.battlefields[field].card.name);
@@ -84,44 +172,29 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
     if(interrupted())break;
    }
   }
+  const opponentNextScore=view.players.human.score+
+   view.battlefields.filter((_,i)=>battlefieldController(view,i)==="human").length;
+  if(opponentNextScore>=8&&attackDefended(true))return partial();
   moveUncontested();
   if(interrupted())return partial();
+  const removal=removalSpell(view);
+  if(removal){
+   apply(removal.command);
+   enacted.push("lancé "+removal.name+" sur "+removal.target);
+   return partial();
+  }
   // If both fields are occupied, evaluate an actual multi-unit assault. It
   // creates a showdown and pauses the AI turn for the human's reactions.
-  function attackDefended(){
-   const ready=own(view,"base").filter(c=>isUnit(c)&&!c.exhausted&&
-    Number.isFinite(Number(c.might))&&c.might!==null).slice(0,8);
-   if(!ready.length)return false;
-   const fields=emptyBattlefieldTargets(view).filter(x=>x.enemy>0);
-   const options=[];
-   for(const field of fields){
-    // Start with one unit and expand up to all available attackers. Compare
-    // simulated simultaneous combat damage (no reactions assumed).
-    const ranked=[...ready].sort((a,b)=>(Number(b.might)||0)-(Number(a.might)||0));
-    for(let size=1;size<=ranked.length;size++){
-     const units=ranked.slice(0,size);
-     try{
-      const hypothetical=applyCommand(view,{type:"combat-attack",player:"ai",
-       battlefield:field.i,uids:units.map(u=>u.uid)});
-      const preview=previewCombat(hypothetical,field.i,"ai");
-      if(!preview.ready)continue;
-      const enemyDead=preview.damage.filter(c=>c.owner==="human"&&c.dead).length;
-      const ownDead=preview.damage.filter(c=>c.owner==="ai"&&c.dead).length;
-      const worth=(preview.winner==="ai"?100:0)+enemyDead*9-ownDead*6-units.length;
-      if(enemyDead||preview.winner==="ai")options.push({field:field.i,units,worth,preview});
-     }catch{}
-    }
-   }
-   options.sort((a,b)=>b.worth-a.worth||a.units.length-b.units.length);
-   const best=options[0];
+  function attackDefended(urgent=false){
+   const options=enumerateAIAssaults(view).filter(x=>!urgent||x.deniesHold);
+   const best=options.find(x=>preferredAssault&&JSON.stringify(x.command)===JSON.stringify(preferredAssault))||options[0];
    if(!best)return false;
-   apply({type:"combat-attack",player:"ai",battlefield:best.field,
-    uids:best.units.map(x=>x.uid)});
-   enacted.push("attaqué "+view.battlefields[best.field].card.name+" avec "+
-    best.units.map(x=>x.name).join(", ")+" ("+
-    best.preview.attackingMight+" Might contre "+best.preview.defendingMight+" avant réactions)");
+   apply(best.command);
+   enacted.push("attaqué "+best.battlefield+" avec "+
+    best.units.join(", ")+" ("+best.attack+" contre "+best.defend+" avant réactions)");
    return true;
   }
+  if(attackDefended())return partial();
   // Only units with fully known printed costs, including domain-coloured Power,
   // are eligible. Do not guess spells/gear/effects requiring custom timing.
   for(let played=0;played<maxUnits&&!view.finished;played++){
@@ -176,6 +249,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
   }
   if(view.finished)return partial();
   if(!view.pendingCombat&&!view.pendingEffects?.length)attackDefended();
+  if(!interrupted())moveUncontested(true);
   const before=state.players.ai.score,after=view.players.ai.score;
   if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
   const contested=emptyBattlefieldTargets(view).every(f=>f.enemy>0);
@@ -201,6 +275,7 @@ export function describeAITurn(result,{english=false}={}){
   "I couldn't complete a safe turn; please check the battlefield and card rules.":
   "Je ne peux pas terminer mon tour de manière sûre : vérifie les cartes et les règles.";
  const actions=result.enacted||[];
+ if(result.state?.spellChain)return "J'ai "+actions.join(", ")+". La carte est sur la chaîne, en attente de résolution.";
  const notes=result.refused||[];
  if(result.state?.pendingEffects?.length){
   const pending=result.state.pendingEffects[0];
@@ -211,6 +286,8 @@ export function describeAITurn(result,{english=false}={}){
    ". Effet déclenché de "+pending.cardName+" : "+pending.text+
    ". Il doit être résolu avant de poursuivre.";
  }
+ if(result.state?.pendingCombat?.kind==="conquest")return "J'ai "+actions.join(", ")+
+  ". Confrontation ouverte : le point sera compté après les réactions.";
  if(result.state?.pendingCombat)return english?
   "I "+(actions.length?actions.join(", "):"declared an attack")+
    ". Combat showdown is open. You may play a reaction or pass; no damage has been dealt yet.":

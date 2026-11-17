@@ -25,7 +25,9 @@ export function planRunePayment(state,owner,card){
   return {error:"Coût de carte incomplet : énergie ou Power inconnus."};
  const all=(state?.cards||[]).filter(c=>c.owner===owner&&c.zone==="runes");
  const ready=all.filter(c=>!c.exhausted);
- if(ready.length<energy)return {error:"Énergie insuffisante : "+energy+" nécessaires, "+ready.length+" runes prêtes."};
+ const poolEnergy=Math.min(energy,Math.max(0,Number(state?.energyPool?.[owner])||0));
+ const fromRunes=energy-poolEnergy;
+ if(ready.length<fromRunes)return {error:"Énergie insuffisante : "+energy+" nécessaires, "+ready.length+" runes prêtes."};
  const domains=cardPowerDomains(card);
  if(power&&!domains.length)return {error:"Domaine du Power non identifié pour "+card.name+"."};
  const matching=all.filter(c=>domains.includes(runeDomain(c)));
@@ -37,8 +39,8 @@ export function planRunePayment(state,owner,card){
  const sortedMatching=[...matching].sort((a,b)=>Number(a.exhausted)-Number(b.exhausted));
  const recycle=sortedMatching.slice(0,power);
  const forEnergy=[...recycle.filter(c=>!c.exhausted),...ready.filter(c=>!recycle.some(r=>r.uid===c.uid))]
-  .slice(0,energy);
- if(forEnergy.length!==energy)return {error:"Impossible de régler l'énergie exacte."};
- return {energy,power,domains,exhaustUids:forEnergy.map(c=>c.uid),
+  .slice(0,fromRunes);
+ if(forEnergy.length!==fromRunes)return {error:"Impossible de régler l'énergie exacte."};
+ return {energy,poolEnergy,power,domains,exhaustUids:forEnergy.map(c=>c.uid),
   recycleUids:recycle.map(c=>c.uid)};
 }

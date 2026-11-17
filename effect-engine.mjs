@@ -1,4 +1,6 @@
-// Card-driven ability compiler. No card name, set number or precon is hardcoded.
+// Card-driven ability compiler with explicit handlers for verified exceptions.
+import {verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,
+ shadowDisciple,zedChampion,zedLegend,thresholdOfGray} from "./verified-cards.mjs";
 // Unsupported instructions are reported, never treated as resolved.
 const normalize=x=>String(x||"").replace(/\r/g,"").replace(/[’‘]/g,"'").replace(/[–—]/g,"-").trim();
 const toCount=x=>({one:1,two:2,three:3,a:1,an:1,un:1,une:1,deux:2,trois:3})[String(x).toLowerCase()]??Number(x);
@@ -52,13 +54,16 @@ const AMOUNT="(?:\\d{1,2}|one|two|three|a|an|un|une|deux|trois)";
 const patterns=[
  ["discard",new RegExp("^(?:discard|d[ée]fausse(?:r|z|s)?)\\s+("+AMOUNT+")(?:\\s+cards?)?$","i")],
  ["draw",new RegExp("^(?:draw|pioche(?:r|z|s)?)\\s+("+AMOUNT+")(?:\\s+cards?)?$","i")],
+ ["burn",/^\[Burn (\d+)\](?:\s*\([^)]*\))?$/i],
+ ["score",/^you score (\d+) points?$/i],
+ ["ready-friendly",/^ready another friendly unit$/i],
  ["ready-runes",new RegExp("^(?:ready|redresse(?:r|z|s)?)\\s+("+AMOUNT+")\\s+(?:(?:of )?(?:your|friendly|mes|vos)\\s+)?runes?$","i")],
  ["exhaust-runes",new RegExp("^(?:exhaust|[ée]puise(?:r|z|s)?)\\s+("+AMOUNT+")\\s+(?:(?:of )?(?:your|friendly)\\s+)?runes?$","i")],
  ["heal-self",new RegExp("^(?:heal|remove)\\s+("+AMOUNT+")\\s+damage\\s+(?:from|on)\\s+(?:me|this unit|this card)$","i")],
  ["self-buff",new RegExp("^(?:i get|i gain|get|gain)\\s*\\+("+AMOUNT+")\\s+(?:might|\\{might\\})(?:\\s+this turn)?$","i")],
  ["damage-enemy",new RegExp("^deal\\s+("+AMOUNT+")\\s+damage\\s+to\\s+(?:(?:an?|one|target)\\s+)?enemy\\s+unit$","i")],
  ["buff-friendly",new RegExp("^give\\s+(?:another\\s+)?friendly\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
- ["buff-unit",new RegExp("^give\\s+(?:a|another)\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
+ ["buff-unit",new RegExp("^give\\s+(?:a|another)\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\}|\\[S\\])\\s+this\\s+turn$","i")],
  ["stun-enemy",/^(?:stun)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
  ["stun-unit",/^(?:stun)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
  ["kill-enemy",/^(?:kill|destroy)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
@@ -70,6 +75,7 @@ const patterns=[
 ];
 function parseInstructions(raw){
  let expr=normalize(raw)
+  .replace(/(\[Burn \d+\])\.?\s*\(Put the top [^)]*\)/gi,"$1")
   .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
   .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
@@ -104,6 +110,16 @@ function parseInstructions(raw){
 export function compileCardAbilities(card){
  const type=String(card?.type||"").toLowerCase();
  const abilities=[],unsupported=[],continuous=[];
+ if(zedChampion(card)){
+  abilities.push({trigger:"conquer",text:"Jeton Shadow Clone de conquête",supported:true,
+   steps:[{kind:"shadow-clone",count:1}]});
+  unsupported.push({trigger:"activation",text:"Échange de positions de Zed et du Clone",reason:"Compétence activée non automatisée"});
+  return {abilities,unsupported,continuous};
+ }
+ if(zedLegend(card))return {abilities,continuous,unsupported:[
+  {trigger:"activation",text:"Défausse et pioche en dépensant Empowered",reason:"Compétence activée non automatisée"}]};
+ if([verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,shadowDisciple,thresholdOfGray]
+    .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){
   const passiveShield=conditionalShieldRule(line);
@@ -160,6 +176,9 @@ export function compileCardAbilities(card){
     continue;
    }
   }
+  const condition=trigger==="hold"&&/^if there is exactly one other unit you control here,\s*/i.test(body)?
+   "one-other-unit":null;
+  if(condition)body=body.replace(/^if there is exactly one other unit you control here,\s*/i,"");
   const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
   const {steps,reason}=parseInstructions(body);
   // Match event card type rather than firing "play a unit" when a spell
@@ -170,7 +189,7 @@ export function compileCardAbilities(card){
   const limit=/\b(?:once|first time)(?:\s+each|\s+this|\s+a)?\s+turn\b/i.test(line)?1:
    Number(/\b(?:twice|two times)\s+(?:each|this)\s+turn\b/i.test(line)?2:0);
   const ability={trigger,text:line,optional,steps,supported:!reason,
-   ...(dependent?{condition:dependent}:{}),...(keyword?{keyword}:{}),
+   ...(dependent||condition?{condition:dependent||condition}:{}),...(keyword?{keyword}:{}),
    ...(playedType?{playedType}:{}),...(limit?{perTurnLimit:limit}:{})};
   abilities.push(ability);
   if(reason)unsupported.push({trigger,text:line,reason});

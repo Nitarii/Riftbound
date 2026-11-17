@@ -157,11 +157,11 @@ export function createRemoteAccess({
     }
     // In a physical game the agent must never reset the player's session or
     // rewrite the player's private setup through remote access.
-    if(["reset","setup-human"].includes(input.type)){
+    if(["reset","setup-human","undo"].includes(input.type)){
       send(res,403,{error:"Cette action appartient au joueur local"});return;
     }
-    const state=await performCommand(input);
-    send(res,200,{ok:true,state});return;
+    const result=await performCommand(input);
+    send(res,200,{ok:true,...(result?.receipt?result:{state:result})});return;
    }
    send(res,404,{error:"Route distante indisponible"});return;
   }catch(e){send(res,400,{error:e.message||"Erreur de commande"});}

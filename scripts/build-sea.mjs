@@ -9,6 +9,7 @@ for(const name of ["index.html","manager.html","style.css","app.mjs","release-po
  if(!fs.existsSync(path.join(root,name)))throw Error("Asset missing: "+name);
  assets[name]=path.join(root,name);
 }
+assets["verified-cards.mjs"]=path.join(root,"verified-cards.mjs");
 // Bundle a compressed copy of the official cloudflared Windows client.
 // Compression happens once on CI, not when the player starts a game.
 const tunnelBinary=path.join(dist,"cloudflared.exe");

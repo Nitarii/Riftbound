@@ -3,7 +3,7 @@
 // This is not the complete Riot chain/priority/continuous-effect rules engine.
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
-import {drawMainCards} from "./draw-rules.mjs";
+import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {effectiveMight} from "./combat-engine.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
@@ -73,23 +73,34 @@ function buildSteps(state,source,ability,actor,choices){
     ["discard","exhaust-runes","exhaust-self"].includes(x.kind)))
   return {instructions:[],declined:true};
  const required=ability.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
+ const handSize=state.players[actor].handCount;
  const selected=previous.length?previous:
-  required?chooseRequiredDiscards(state,source.uid,required):[];
- if(selected===null||selected.length!==required||new Set(selected).size!==selected.length)
+  required&&actor==="ai"?chooseRequiredDiscards(state,source.uid,Math.min(required,handSize)):[];
+ if(selected===null||new Set(selected).size!==selected.length)
   return {reason:"Choisis le nombre exact de cartes distinctes à défausser."};
  let discarded=0;
  const reservedDeflect=new Set();
  for(const step of ability.steps){
   let detail={...step};
   if(step.kind==="discard"){
-   if(actor!=="ai")return {reason:"Le joueur physique doit choisir et défausser ses cartes cachées."};
-   const uids=selected.slice(discarded,discarded+step.count);
-   if(!uids||uids.length!==step.count||new Set(uids).size!==uids.length)
+   if(actor!=="ai"&&handSize>0)return {reason:"Le joueur physique doit choisir et défausser ses cartes cachées.",
+    choice:ability.steps.length===2&&ability.steps[1].kind==="draw"&&step.count===1?
+      {kind:"discard-draw",draw:ability.steps[1].count}:null};
+   const count=Math.min(step.count,Math.max(0,handSize-discarded));
+   const uids=selected.slice(discarded,discarded+count);
+   if(!uids||uids.length!==count||new Set(uids).size!==uids.length)
     return {reason:"Cartes à défausser insuffisantes ou choix de main incomplet."};
    if(!uids.every(uid=>state.cards.some(c=>c.uid===uid&&c.owner===actor&&
     c.zone==="hand"&&c.uid!==source.uid)))
     return {reason:"Défausse invalide : carte absente de la main de l'IA."};
    detail.uids=uids;discarded+=step.count;
+  }
+  if(step.kind==="ready-friendly"){
+   const pool=state.cards.filter(c=>unit(c)&&c.owner===actor&&c.uid!==source.uid&&
+     c.exhausted&&["base","battlefield"].includes(c.zone));
+   if(!pool.length)continue;
+   if(actor==="human"&&pool.length!==1)return {reason:"Choisis quelle autre unité redresser."};
+   detail.targetUid=pool.sort((a,b)=>Number(b.might||0)-Number(a.might||0))[0].uid;
   }
   if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
        "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
@@ -143,7 +154,21 @@ function applySteps(state,source,steps,actor,place,deckCard){
     state.players[actor].handCount--;
     names.push(card.name);
    }
-   logs.push("défausse "+names.join(", "));
+   if(names.length)logs.push("défausse "+names.join(", "));
+  }else if(step.kind==="burn"){
+   logs.push(burnMainCards(state,actor,n,source,{place}));
+  }else if(step.kind==="score"){
+   state.players[actor].score+=n;
+   logs.push("+"+n+" PV");
+  }else if(step.kind==="ready-friendly"){
+   const target=state.cards.find(c=>c.uid===step.targetUid);
+   target.exhausted=false;
+   logs.push("redresse "+target.name);
+  }else if(step.kind==="shadow-clone"){
+   const token=place(state,actor,{code:"TOKEN-SHADOW-CLONE",name:"Shadow Clone",type:"Unit",
+    might:0,energy:0,power:0,tags:["Token"]},"base");
+   token.exhausted=true;
+   logs.push("crée Shadow Clone en base");
   }else if(step.kind==="predict"){
    const top=state.decks?.ai?.main?.[0];
    if(actor==="ai"&&top){
@@ -267,6 +292,9 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
+      c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
+      c.uid!==source.uid).length!==1)continue;
    if(ability.condition==="legion"&&
       !(Number(state.turnActions?.played?.[actor])>0))continue;
    if(trigger==="ally-play"&&ability.playedType&&
@@ -286,7 +314,11 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
     continue;
    }
    const plan=buildSteps(state,source,ability,actor,event.choices||{});
-   if(plan.reason){makePending(state,source,ability,actor,plan.reason);continue;}
+   if(plan.reason){
+    makePending(state,source,ability,actor,plan.reason);
+    if(plan.choice)state.pendingEffects.at(-1).choice=plan.choice;
+    continue;
+   }
    const logs=applySteps(state,source,plan.instructions,actor,place,deckCard);
    if(logs.length)summaries.push(ownerName(actor)+" · "+source.name+" : "+logs.join(", "));
   }

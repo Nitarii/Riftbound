@@ -6,6 +6,7 @@ import http from "node:http";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright-core";
 import {createState} from "../core.mjs";
+import {CURRENT_VERSION} from "../release-policy.mjs";
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const contentType=file=>file.endsWith(".html")?"text/html":
@@ -23,8 +24,11 @@ const server=http.createServer((req,res)=>{
 });
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const url="http://127.0.0.1:"+server.address().port;
-let chromePath=["/usr/bin/google-chrome","/usr/bin/google-chrome-stable","/usr/bin/chromium"]
- .find(file=>fs.existsSync(file));
+const chromePath=[process.env.RIFTBOUND_BROWSER_PATH,
+  "/usr/bin/google-chrome","/usr/bin/google-chrome-stable","/usr/bin/chromium",
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"]
+ .find(file=>file&&fs.existsSync(file));
 const browser=await chromium.launch({headless:true,
  ...(chromePath?{executablePath:chromePath}:{}),args:["--no-sandbox"]});
 fs.mkdirSync(path.join(root,"artifacts"),{recursive:true});
@@ -233,10 +237,10 @@ try{
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
  let upToDate=false,uninstallCalls=0,managerApiRequests=0;
  const managerPayload=()=>({
-  version:upToDate?"0.42.0":"0.26.0",portable:true,
+  version:upToDate?CURRENT_VERSION:"0.26.0",portable:true,
   path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
   canLaunch:upToDate,mustUpdate:!upToDate,
-  availableVersion:upToDate?null:"0.42.0",progress:0,
+  availableVersion:upToDate?null:CURRENT_VERSION,progress:0,
   error:"",updating:false,shuttingDown:false
  });
  await managerPage.route("**/api/**",async route=>{
@@ -325,9 +329,9 @@ try{
   const pathname=new URL(route.request().url()).pathname;
   const body=pathname==="/api/state"?{state:localState}:
    pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
-   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.42.0",
-    updateState:installedVersion==="0.42.0"?"current":"outdated",
-    mustUpdate:installedVersion!=="0.42.0",availableVersion:"0.26.0"}:
+   pathname==="/api/manager/status"?{canLaunch:installedVersion===CURRENT_VERSION,
+    updateState:installedVersion===CURRENT_VERSION?"current":"outdated",
+    mustUpdate:installedVersion!==CURRENT_VERSION,availableVersion:"0.26.0"}:
    pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
    pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
   await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
@@ -346,7 +350,7 @@ try{
   "Outdated companion still permits skipping the install wizard");
  ensure(await gamePage.locator("#manager-open").count()===1,
   "Manager button missing from the main header");
- installedVersion="0.42.0";
+ installedVersion=CURRENT_VERSION;
  await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));

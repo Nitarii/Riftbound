@@ -11,6 +11,23 @@ function shuffle(deck,rng){
  }
  return deck;
 }
+export function burnMainCards(state,owner,count,source,{place,optional=false,buff=0}={}){
+ if(owner==="human"){
+  const actual=Math.min(count,state.players.human.deckCount);
+  if(!actual)return "Burn : aucune carte disponible";
+  state.pendingEffects.push({
+   id:"burn_"+state.revision+"_"+(state.effectSerial||0)+"_"+state.pendingEffects.length,
+   sourceUid:source.uid,cardName:source.name,player:"human",trigger:"burn",
+   optional,burnCount:actual,buff,text:"Révèle "+actual+" carte(s) du dessus de ton deck et défausse-les.",
+   reason:"Annonce les cartes révélées pour synchroniser la défausse."
+  });
+  return "Burn "+actual+" : choix physique attendu";
+ }
+ const cards=state.decks.ai.main.splice(0,count);
+ for(const card of cards)place(state,"ai",card,"trash");
+ state.players.ai.deckCount=state.decks.ai.main.length;
+ return "Burn "+cards.length+(cards.length?" : "+cards.map(c=>c.name).join(", "):"");
+}
 export function drawMainCards(state,owner,count,{place,deckCard,random=Math.random}={}){
  if(!["ai","human"].includes(owner)||!Number.isInteger(count)||count<1||count>40)
   throw Error("Pioche de Main Deck invalide.");

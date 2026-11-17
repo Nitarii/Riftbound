@@ -10,7 +10,7 @@ import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import {once} from "node:events";
 import {DEFAULT_LOCAL_MODEL,ADVANCED_LOCAL_MODEL,LOCAL_MODELS,LOCAL_ENGINES,
  checkLocalModel,checkBackend,hasDiscreteWindowsGPU,backendCandidates,
- llamaServerArgs,detectRecommendedLocalProfile} from "./local-ai-profiles.mjs";
+ llamaServerArgs,detectRecommendedLocalProfile,modelContext} from "./local-ai-profiles.mjs";
 
 const ENGINE_RELEASE="b12277";
 export const LOCAL_AI_MODEL=DEFAULT_LOCAL_MODEL;
@@ -270,8 +270,9 @@ export function createFreeLocalAI({
   if(!engineInstalled(kind))throw Error("Le moteur "+kind+" n'est pas installé.");
   if(await probe(450))throw Error("Port local 11435 déjà occupé par un autre processus.");
   const executable=findServer(engineFolder(kind));
+  const hardware=hardwareStatus();
   const args=llamaServerArgs({modelFile:modelPath(id),model:id,backend:kind,
-   threads:os.availableParallelism?.()||4});
+   threads:os.availableParallelism?.()||4,ctx:modelContext(id,kind,hardware.ramGB,hardware.vramGB)});
   const child=spawnImpl(executable,args,{cwd:path.dirname(executable),
    windowsHide:true,stdio:"ignore"});
   active=child;activeModel=id;actualBackend=kind;

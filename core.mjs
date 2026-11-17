@@ -1,31 +1,36 @@
-// Shared board state; automatic scoring only for uncontested fields, never card effects.
+// Shared board reducer for the local companion and the browser.
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
-import {planRunePayment} from "./rune-payment.mjs";
+import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
 import {mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent} from "./effect-runtime.mjs";
-import {drawMainCards} from "./draw-rules.mjs";
+import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
+import {verifiedSpell,shadowAssassin,mournfulWitness,handHammer,bladeTwirler,soulspinner,
+ shadowDisciple,shadowClone,zedLegend,thresholdOfGray} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
-const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash"]);
+const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash","chain"]);
 const OWNERS = new Set(["human","ai"]);
 export const VERSION = 1;
 export const PHASES = ["Awaken","Beginning","Channel","Draw","Main","Ending"];
 const cp = x => JSON.parse(JSON.stringify(x));
-function shuffle(a) {
+function nextRandom(state){
+  let seed=(state.rng>>>0)||0x6d2b79f5;
+  seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;
+  state.rng=seed>>>0;
+  return state.rng/4294967296;
+}
+function shuffle(a,state) {
   // Fisher-Yates: the chosen champion is removed before drawing the opening hand.
-  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(nextRandom(state)*(i+1));[a[i],a[j]]=[a[j],a[i]];}
   return a;
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
-export function createState() {
-  return {version:VERSION,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+export function createState({seed=Math.floor(Math.random()*4294967296)}={}) {
+  return {version:VERSION,rng:seed>>>0,cardSerial:0,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,spellChain:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
-}
-function id() {
-  return "c_" + Math.random().toString(36).slice(2,10) + "_" + Date.now().toString(36);
 }
 function checkOwner(p) {if (!OWNERS.has(p)) throw Error("player doit être human ou ai");}
 function string(x,max=500) {if(typeof x!=="string"||!x.trim()||x.length>max)throw Error("Chaîne obligatoire (max "+max+")");return x.trim();}
@@ -41,7 +46,8 @@ export function validateCard(card) {
 }
 function place(state, p, c, zone, battlefield, faceDown, stableUid=null) {
   if(!ZONES.has(zone)) throw Error("Zone inconnue");
-  const instance={uid:stableUid||id(),owner:p,...validateCard(c),zone,battlefield:zone==="battlefield"?Math.max(0,Math.min(1,Number(battlefield)||0)):null,
+  state.cardSerial=(state.cardSerial||0)+1;
+  const instance={uid:stableUid||"c_serial_"+state.cardSerial,owner:p,...validateCard(c),zone,battlefield:zone==="battlefield"?Math.max(0,Math.min(1,Number(battlefield)||0)):null,
     exhausted:false,faceDown:!!faceDown,counters:{},damage:0};
   state.cards.push(instance);return instance;
 }
@@ -62,41 +68,149 @@ export function applyCommand(old, command) {
   if(!command||typeof command!=="object"||Array.isArray(command)) throw Error("Commande JSON attendue");
   const s=migrateLegacyPassivePendingEffects(cp(old||createState())), c=command, type=string(c.type,40);
   s.pendingEffects??=[];s.effectMarks??=[];
+  s.energyPool??={human:0,ai:0};
   s.effectWork=0; // New action has its own bounded resolution budget.
   s.turnActions??={channeled:0,drawn:0};
   s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
   const p=c.player||"ai";
-  if(s.finished&&["next-turn","play-paid","combat-attack","draw","channel"].includes(type))
+  if(s.finished&&["next-turn","play-paid","play-physical","cast","chain-pass","combat-attack","draw","channel","equip"].includes(type))
    throw Error("Partie terminée : le vainqueur est "+s.winner+".");
   let summary="";
+  if(s.spellChain&&["next-turn","phase","play-paid","play-physical","combat-attack",
+                      "combat-pass","combat-resolve","combat-confirm-effects","equip"].includes(type))
+    throw Error("Résous la chaîne de sorts avant de poursuivre.");
   if(s.pendingCombat&&["next-turn","phase","play-paid","combat-attack"].includes(type)&&
     type!=="combat-attack")throw Error("Combat en cours : résous les réactions et les dégâts avant de poursuivre.");
   if(s.pendingCombat&&type==="combat-attack")throw Error("Un combat est déjà en cours.");
   const participants=index=>s.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===index&&
     /^unit$/i.test(v.type||""));
+  const runtime={place,deckCard,random:()=>nextRandom(s)};
+  const onBoard=v=>v&&["base","battlefield"].includes(v.zone);
+  function pay(owner,cost){
+    const paid=planRunePayment(s,owner,cost);
+    if(paid.error)throw Error(paid.error);
+    for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
+    s.energyPool[owner]-=paid.poolEnergy;
+    for(const uid of paid.recycleUids){
+      if(owner==="ai")s.decks.ai.runes.push(deckCard(getCard(s,uid)));
+      else s.players.human.runeCount++;
+    }
+    const recycled=new Set(paid.recycleUids);
+    s.cards=s.cards.filter(v=>!recycled.has(v.uid));
+    if(owner==="ai")s.players.ai.runeCount=s.decks.ai.runes.length;
+    return paid;
+  }
+  function payLabel(paid){
+    return " · "+paid.energy+" énergie · "+paid.power+" Power ("+
+      paid.recycleUids.length+" rune(s) recyclée(s))";
+  }
+  function checkSpellTarget(rule,target,owner,field){
+    if(!onBoard(target)||!/^unit$/i.test(target.type))return false;
+    if(rule.target==="field-unit")return target.zone==="battlefield";
+    if(rule.target==="friendly-transfer"){
+      const controller=s.pendingCombat?.battlefield===field?
+        s.pendingCombat.previousController:battlefieldController(s,field);
+      return Number.isInteger(field)&&controller===owner&&target.owner===owner&&
+        (target.zone!=="battlefield"||target.battlefield!==field);
+    }
+    return true;
+  }
+  function spellResolution(item){
+    const source=getCard(s,item.uid),rule=verifiedSpell(source);
+    if(!rule)throw Error("Effet de sort non pris en charge.");
+    source.zone="trash";
+    const target=s.cards.find(v=>v.uid===item.targetUid);
+    const logs=[];
+    if(checkSpellTarget(rule,target,source.owner,item.field)){
+      if(rule.target==="friendly-transfer"){
+        target.zone="battlefield";target.battlefield=item.field;
+        logs.push(target.name+" rejoint "+s.battlefields[item.field].card.name);
+        logs.push(...processCardEvent(s,{trigger:"move",actor:target.owner,source:target},{place,deckCard}));
+      }
+      if(rule.might)target.counters.tempMight=(target.counters.tempMight||0)+rule.might;
+      if(rule.prevention)target.counters.preventDamage=(target.counters.preventDamage||0)+rule.prevention;
+      if(rule.damage){
+        const damage=item.damage,blocked=Math.min(damage,target.counters.preventDamage||0);
+        target.counters.preventDamage=(target.counters.preventDamage||0)-blocked;
+        target.damage=(target.damage||0)+damage-blocked;
+        logs.push((damage-blocked)+" dégât(s) à "+target.name+(blocked?" · "+blocked+" prévenu(s)":""));
+        const role=s.pendingCombat?.kind==="combat"&&s.pendingCombat.battlefield===target.battlefield?
+          (target.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
+        const might=effectiveMight(target,role,s);
+        if(might===null)throw Error("Force de la cible inconnue.");
+        if(target.damage>0&&target.damage>=might){
+          const lastKnown={...target};
+          target.zone="trash";target.battlefield=null;target.exhausted=false;target.damage=0;
+          logs.push(...processCardEvent(s,{trigger:"die",actor:target.owner,source:lastKnown},{place,deckCard}));
+        }
+      }
+    }else logs.push("cible devenue invalide");
+    if(rule.draw){
+      const result=drawMainCards(s,source.owner,rule.draw,runtime);
+      logs.push("pioche "+result.actual+" carte(s)");
+    }
+    return source.name+" résolu"+(logs.length?" · "+logs.join(" · "):"");
+  }
+  function moveEffects(v,burnPlayer){
+    const logs=processCardEvent(s,{trigger:"move",actor:v.owner,source:v},{place,deckCard});
+    if(shadowDisciple(v)){
+      if(v.owner==="ai"&&s.pendingCombat?.kind==="combat"&&s.decks.ai.main.length>0){
+       logs.push(burnMainCards(s,"ai",1,v,runtime));
+       v.counters.tempMight=(v.counters.tempMight||0)+1;
+      }else if(v.owner==="human"){
+       logs.push(burnMainCards(s,"human",1,v,{...runtime,optional:true,buff:1}));
+      }
+      return logs;
+    }
+    if(!bladeTwirler(v))return logs;
+    const mark="burn:"+s.turn+":"+s.active+":"+v.uid;
+    if(s.effectMarks.includes(mark))return logs;
+    s.effectMarks.push(mark);
+    const choice=burnPlayer??(v.owner==="ai"?(s.decks.ai.main.length>1?"ai":"human"):null);
+    if(!OWNERS.has(choice))throw Error("Blade Twirler : choisis le joueur qui subit Burn 1.");
+    logs.push(burnMainCards(s,choice,1,v,runtime));
+    return logs;
+  }
   function beginCombat(field,attacker,arriving=[]){
     if(s.pendingCombat)return;
     const opponents=participants(field).filter(u=>u.owner===OPPOSITE[attacker]);
-    if(!opponents.length)return;
     const prev=old.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===field&&
       /^unit$/i.test(v.type||""));
     const prevOwners=[...new Set(prev.map(v=>v.owner))];
     const previousController=prevOwners.length===1?prevOwners[0]:null;
-    s.pendingCombat={battlefield:field,attacker,defender:OPPOSITE[attacker],
-      previousController,passes:{human:false,ai:true},orders:{human:[],ai:[]},
+    if(!opponents.length&&previousController===attacker)return;
+    s.pendingCombat={kind:opponents.length?"combat":"conquest",battlefield:field,attacker,defender:OPPOSITE[attacker],
+      previousController,focus:attacker,passes:{human:false,ai:false},orders:{human:[],ai:[]},
       confirmedEffects:false,initiators:arriving,
       warnings:[],createdAt:new Date().toISOString()};
+    if(!opponents.length){
+      processCardEvent(s,{trigger:"showdown",actor:attacker,field},{place,deckCard});
+      return;
+    }
+    if(thresholdOfGray(s.battlefields[field].card)){
+      s.energyPool.human++;s.energyPool.ai++;
+    }
     const party=battleParties(s,field,attacker);
     s.pendingCombat.warnings=combatWarnings(s,field,party.attackers,party.defenders);
     const combatEffects=[];
-    for(const unit of party.attackers.filter(x=>arriving.includes(x.uid)))
+    for(const unit of party.attackers.filter(x=>arriving.includes(x.uid))){
+     if(attacker==="ai"&&shadowClone(unit)){
+      const food=s.cards.filter(v=>v.owner==="ai"&&v.zone==="trash"&&/^unit$/i.test(v.type))
+       .sort((a,b)=>(a.might||0)-(b.might||0))[0];
+      if(food){
+       food.zone="banished";unit.counters.tempAssault=4;
+       for(const legend of s.cards.filter(v=>v.owner==="ai"&&v.zone==="legend"&&zedLegend(v)))
+        legend.counters.empowered=1;
+       combatEffects.push("Shadow Clone bannit "+food.name+" : Assault 4 ce tour");
+      }
+     }
      combatEffects.push(...processCardEvent(s,{trigger:"attack",actor:attacker,source:unit},{place,deckCard}));
+    }
     for(const unit of party.defenders)
      combatEffects.push(...processCardEvent(s,{trigger:"defend",actor:unit.owner,source:unit},{place,deckCard}));
-    if(combatEffects.length)s.pendingCombat.warnings.push(...combatEffects.map(
-     text=>"Capacité de combat déclenchée : "+text));
+    if(combatEffects.length)s.pendingCombat.resolvedEffects=combatEffects;
     if(s.pendingEffects.length)s.pendingCombat.warnings.push(
      "Capacité déclenchée non résolue : "+s.pendingEffects[0].cardName);
   }
@@ -107,18 +221,35 @@ export function applyCommand(old, command) {
       throw Error("Attends que les deux joueurs aient passé leur fenêtre de réactions.");
     if(fight.warnings.length&&!fight.confirmedEffects)
       throw Error("Effets de cartes à vérifier : confirme leur résolution avant le calcul.");
+    if(fight.kind==="conquest"&&
+       !participants(fight.battlefield).some(u=>u.owner===fight.defender)){
+      s.pendingCombat=null;
+      const owner=battlefieldController(s,fight.battlefield);
+      const previousScore=s.players[fight.attacker].score;
+      const scoring=owner===fight.attacker?
+       scoreControlledBattlefield(s,owner,fight.battlefield,"conquer",runtime):null;
+      const effects=scoring&&s.players[owner].score>previousScore?processCardEvent(s,{trigger:"conquer",actor:owner,
+       field:fight.battlefield},{place,deckCard}):[];
+      summary=["Confrontation terminée",scoring,...effects].filter(Boolean).join(" · ");
+      return;
+    }
     const preview=previewCombat(s,fight.battlefield,fight.attacker,fight.orders);
     if(!preview.ready)throw Error(preview.error);
     const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean).map(c=>({...c}));
     const outcome=applyCombatResult(s,preview,{previousController:fight.previousController});
+    for(const uid of [...preview.attackers,...preview.defenders]){
+      const unit=s.cards.find(v=>v.uid===uid);
+      if(onBoard(unit)&&mournfulWitness(unit))unit.counters.empowered=1;
+    }
     const triggered=[];
     for(const unit of dying)
       triggered.push(...processCardEvent(s,{trigger:"die",actor:unit.owner,source:unit},{place,deckCard}));
     const resolved=outcome.controller;
     let scoring="";
     if(resolved&&resolved!==outcome.previousController){
-      scoring=scoreControlledBattlefield(s,resolved,fight.battlefield,"conquer")||"";
-      if(scoring)triggered.push(...processCardEvent(s,{
+      const previousScore=s.players[resolved].score;
+      scoring=scoreControlledBattlefield(s,resolved,fight.battlefield,"conquer",runtime)||"";
+      if(scoring&&s.players[resolved].score>previousScore)triggered.push(...processCardEvent(s,{
        trigger:"conquer",actor:resolved,field:fight.battlefield},{place,deckCard}));
     }
     summary="Combat "+s.battlefields[fight.battlefield].card.name+": "+
@@ -135,7 +266,7 @@ export function applyCommand(old, command) {
     s.beginningScoringDue=false;
     for(let i=0;i<s.battlefields.length;i++){
      if(battlefieldController(s,i)!==s.active)continue;
-     const score=scoreControlledBattlefield(s,s.active,i,"hold");
+     const score=scoreControlledBattlefield(s,s.active,i,"hold",runtime);
      if(!score)continue;
      scored.push(score);
      scored.push(...processCardEvent(s,{trigger:"hold",
@@ -172,8 +303,8 @@ export function applyCommand(old, command) {
         if(index<0){if(c.format==="preconstructed")throw Error("Champion absent des 40 cartes");}
         else s.decks.ai.main.splice(index,1);
       }
-      shuffle(s.decks.ai.main);
-      s.decks.ai.runes=shuffle(c.runes.map(deckCard));
+      shuffle(s.decks.ai.main,s);
+      s.decks.ai.runes=shuffle(c.runes.map(deckCard),s);
       s.players.ai.deckName=typeof c.deckName==="string"?c.deckName.slice(0,100):"";
       s.decks.ai.battlefields=Array.isArray(c.battlefields)?c.battlefields.slice(0,3).map(deckCard):[validateCard(c.battlefield)];
       s.cards=s.cards.filter(v=>v.owner!=="ai"||["legend","champion"].includes(v.zone));
@@ -195,11 +326,12 @@ export function applyCommand(old, command) {
     // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
     for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
       unit.damage=0;unit.stunned=false;
-      if(unit.counters){delete unit.counters.stunned;delete unit.counters.tempMight;delete unit.counters.mightThisTurn;}
+      if(unit.counters){delete unit.counters.stunned;delete unit.counters.tempMight;delete unit.counters.mightThisTurn;delete unit.counters.preventDamage;delete unit.counters.tempAssault;}
     }
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
     s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};
+    s.energyPool={human:0,ai:0};
     s.scoredFields??={human:[],ai:[]};
     s.scoredFields[s.active]=[];
     // Awaken precedes Beginning. Ready the active player's cards, then
@@ -229,6 +361,7 @@ export function applyCommand(old, command) {
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
     const entering=phase!==s.phase;
     s.phase=phase;summary="Phase "+phase;
+    if(entering&&phase==="Main")s.energyPool={human:0,ai:0};
     if(entering&&phase==="Ending"){
      const triggered=processCardEvent(s,{trigger:"ending",actor:s.active},{place,deckCard});
      if(triggered.length)summary+=" · "+triggered.join(" · ");
@@ -248,6 +381,113 @@ export function applyCommand(old, command) {
      if(!s.pendingEffects.length)
       triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:v},{place,deckCard}));
      if(triggered.length)summary+=" · "+triggered.join(" · ");
+    }
+  } else if(type==="rune-identify"){
+    const v=getCard(s,string(c.uid,80));
+    if(v.owner!=="human"||v.zone!=="runes"||v.code!=="PHYSICAL-RUNE")
+      throw Error("Choisis une rune physique non identifiée.");
+    if(!RUNE_DOMAINS.includes(c.domain))throw Error("Domaine de rune inconnu.");
+    v.name=c.domain+" Rune";v.domains=[c.domain];v.code="PHYSICAL-"+c.domain.toUpperCase();
+    summary="Rune physique identifiée : "+c.domain;
+  } else if(type==="equip"){
+    if(!s.started||s.active!==p||s.phase!=="Main"||s.pendingCombat||s.pendingEffects.length)
+      throw Error("Équipement disponible pendant la phase principale ouverte du contrôleur.");
+    const gear=getCard(s,string(c.uid,80)),target=getCard(s,string(c.targetUid,80));
+    if(!handHammer(gear)||!onBoard(gear)||gear.owner!==p||gear.attachedTo===target.uid||
+       !onBoard(target)||!/^unit$/i.test(target.type)||target.owner!==p)
+      throw Error("Équipement ou unité cible invalide.");
+    const paid=pay(p,{energy:0,power:1,domains:["Calm"],name:gear.name});
+    gear.attachedTo=target.uid;gear.zone=target.zone;gear.battlefield=target.battlefield;
+    summary=gear.name+" attaché à "+target.name+payLabel(paid);
+  } else if(type==="play-physical"){
+    const ambush=c.ambush===true;
+    if(!s.started||(!ambush&&(s.active!=="human"||s.pendingCombat))||
+       s.phase!=="Main"||s.pendingEffects.length)
+      throw Error("Annonce ce jeu pendant ta phase principale ouverte.");
+    const chosen=c.uid?getCard(s,string(c.uid,80)):null;
+    if(chosen&&(chosen.owner!=="human"||chosen.zone!=="champion"))
+      throw Error("Ce n’est pas ton champion choisi.");
+    const card=chosen||validateCard(c.card);
+    if(!chosen&&s.players.human.handCount<1)throw Error("Aucune carte dans ta main physique.");
+    if(!/^(unit|gear)$/i.test(card.type))throw Error("Ce type de carte ne peut pas être joué ici.");
+    const gear=/^gear$/i.test(card.type),field=c.battlefield;
+    if(ambush&&(!soulspinner(card)||!s.pendingCombat||
+      (s.pendingCombat.focus??"human")!=="human"||s.pendingCombat.passes.human||
+      !Number.isInteger(field)||!participants(field).some(v=>v.owner==="human")))
+      throw Error("Embuscade : attends ta priorité et choisis un champ où tu as une unité.");
+    if(!ambush&&field!=null&&(gear||!Number.isInteger(field)||battlefieldController(s,field)!=="human"))
+      throw Error("Joue cette unité en base ou sur un champ que tu contrôles.");
+    const text=String(card.text||"");
+    if(/\b(?:play only|can't play|cannot play|as an additional cost|must pay)\b/i.test(text))
+      throw Error("Coût supplémentaire ou restriction non prise en charge.");
+    const paid=pay("human",card),zone=field!=null?"battlefield":"base";
+    const v=chosen||place(s,"human",card,zone,field,false);
+    if(!chosen)s.players.human.handCount--;
+    v.zone=zone;v.battlefield=field??null;
+    v.exhausted=!gear&&!(shadowAssassin(v)?
+     s.cards.some(x=>x.owner==="human"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
+    const logs=processCardEvent(s,{trigger:"play",actor:"human",source:v,
+     choices:{targetUid:c.targetUid}},{place,deckCard});
+    s.turnActions.played.human++;
+    if(!s.pendingEffects.length)logs.push(...processCardEvent(s,{trigger:"ally-play",actor:"human",source:v},{place,deckCard}));
+    if(ambush){
+      s.pendingCombat.focus="ai";s.pendingCombat.passes={human:false,ai:false};
+    }
+    summary="Joueur : "+v.name+" jouée "+(field!=null?"sur "+s.battlefields[field].card.name:"en base")+
+      payLabel(paid)+(logs.length?" · "+logs.join(" · "):"");
+  } else if(type==="cast"){
+    checkOwner(p);
+    if(!s.started||s.phase!=="Main"||s.pendingEffects.length)
+      throw Error("Aucune fenêtre de sort disponible.");
+    const chain=s.spellChain,fight=s.pendingCombat;
+    if(chain?chain.priority!==p:fight?(fight.focus??"human")!==p||fight.passes[p]:s.active!==p)
+      throw Error("Tu n'as pas la priorité pour lancer ce sort.");
+    if(chain?.items.length>=12)throw Error("Chaîne de sorts trop longue.");
+    const source=p==="ai"?getCard(s,string(c.uid,80)):validateCard(c.card);
+    if(p==="ai"&&(source.owner!==p||source.zone!=="hand"))throw Error("Sort absent de la main de l'IA.");
+    if(p==="human"&&s.players.human.handCount<1)throw Error("Aucune carte dans ta main physique.");
+    const rule=verifiedSpell(source);
+    if(!rule)throw Error("Sort non pris en charge : son effet n'est pas validé par le moteur.");
+    if(chain&&rule.timing!=="reaction")throw Error("Ce sort n'est pas une Réaction.");
+    const target=getCard(s,string(c.targetUid,80));
+    if(!checkSpellTarget(rule,target,p,c.battlefield))throw Error("La cible ou le champ n'est pas légal pour ce sort.");
+    if(target.owner!==p&&/\[Deflect\]/i.test(target.text||""))throw Error("Le coût Deflect supplémentaire n'est pas pris en charge pour ce sort.");
+    let discard=null;
+    if(c.discardUid){
+      discard=getCard(s,string(c.discardUid,80));
+      if(p!=="ai"||!rule.discardDamage||discard.uid===source.uid||discard.owner!==p||discard.zone!=="hand")
+        throw Error("Défausse supplémentaire invalide.");
+    }
+    const paid=pay(p,{...rule,name:source.name});
+    if(discard){discard.zone="trash";s.players[p].handCount--;}
+    const v=p==="human"?place(s,p,source,"chain"):source;
+    v.zone="chain";s.players[p].handCount--;s.turnActions.played[p]++;
+    s.spellChain=chain||{items:[],lastPass:null,opener:p};
+    s.spellChain.items.push({uid:v.uid,targetUid:target.uid,field:c.battlefield??null,
+      damage:discard?rule.discardDamage:rule.damage??0});
+    s.spellChain.priority=p;s.spellChain.lastPass=null;
+    summary=v.name+" sur la chaîne → "+target.name+payLabel(paid)+
+      (discard?" · défausse "+discard.name:"");
+  } else if(type==="chain-pass"){
+    checkOwner(p);
+    const chain=s.spellChain;
+    if(!chain||chain.priority!==p)throw Error("Tu n'as pas la priorité sur la chaîne.");
+    if(s.pendingEffects.length)throw Error("Résous l'effet en attente.");
+    if(chain.lastPass===OPPOSITE[p]){
+      summary=spellResolution(chain.items.pop());
+      if(chain.items.length){
+        chain.priority=getCard(s,chain.items.at(-1).uid).owner;chain.lastPass=null;
+      }else{
+        s.spellChain=null;
+        if(s.pendingCombat){
+          // A spell reopens the showdown. A prior pass cannot close it.
+          s.pendingCombat.focus=OPPOSITE[chain.opener];
+          s.pendingCombat.passes={human:false,ai:false};
+        }
+      }
+    }else{
+      chain.lastPass=p;chain.priority=OPPOSITE[p];
+      summary=(p==="ai"?"IA":"Joueur")+" passe sur la chaîne.";
     }
   } else if(type==="play-paid") {
     // One atomic, auditable payment+play, used by the AI. The full energy AND
@@ -271,6 +511,7 @@ export function applyCommand(old, command) {
     if(discardCards.some(x=>x.owner!=="ai"||x.zone!=="hand"||x.uid===v.uid))
      throw Error("La défausse obligatoire doit venir de la main de l'IA.");
     const isSpell=String(v.type).toLowerCase()==="spell";
+    if(isSpell&&verifiedSpell(v))throw Error("Lance ce sort avec sa cible par la chaîne.");
     const isGear=String(v.type).toLowerCase()==="gear";
     const dest=isSpell?"trash":c.zone||"base";
     if(!isSpell&&dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
@@ -283,20 +524,11 @@ export function applyCommand(old, command) {
      throw Error("Accelerate n'est pas disponible sur cette unité.");
     const cost=accelerate?{...v,energy:Number(v.energy||0)+1,
       power:Number(v.power||0)+1}:v;
-    const paid=planRunePayment(s,"ai",cost);
-    if(paid.error)throw Error(paid.error);
-    for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
-    const removed=new Set(paid.recycleUids);
-    for(const uid of paid.recycleUids){
-      const rune=getCard(s,uid);
-      s.decks.ai.runes.push(deckCard(rune));
-    }
-    s.cards=s.cards.filter(card=>!removed.has(card.uid));
-    s.players.ai.runeCount=s.decks.ai.runes.length;
+    const paid=pay("ai",cost);
     if(v.zone==="hand")s.players.ai.handCount--;
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
     v.exhausted=isSpell||isGear||accelerate?false:
-      !entersNaturallyReady(v);
+      !(shadowAssassin(v)?s.cards.some(x=>x.owner==="ai"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
     if(!accelerate&&!isGear&&!isSpell&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
@@ -315,10 +547,33 @@ export function applyCommand(old, command) {
     if(!pending)throw Error("Aucun effet de carte en attente.");
     if(!c.confirm||c.id!==pending.id)
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
+    if(pending.trigger==="burn"){
+      if(c.decline&&!pending.optional)throw Error("Ce Burn est obligatoire.");
+      if(!c.decline){
+       const burned=(Array.isArray(c.cards)?c.cards:c.card?[c.card]:[]).map(validateCard);
+       if(burned.length!==(pending.burnCount??1)||s.players.human.deckCount<burned.length||
+          burned.some(card=>!(/^(unit|gear|spell)$/i.test(card.type))))
+         throw Error("Indique exactement les cartes révélées par Burn.");
+       s.players.human.deckCount-=burned.length;
+       for(const card of burned)place(s,"human",card,"trash");
+       const unit=s.cards.find(v=>v.uid===pending.sourceUid);
+       if(pending.buff&&onBoard(unit))unit.counters.tempMight=(unit.counters.tempMight||0)+pending.buff;
+      }
+    }else if(pending.choice?.kind==="discard-draw"){
+      if(s.players.human.handCount>0){
+       const discarded=validateCard(c.card);
+       if(!(/^(unit|gear|spell)$/i.test(discarded.type)))throw Error("Indique la carte physique défaussée.");
+       s.players.human.handCount--;
+       place(s,"human",discarded,"trash");
+      }
+      drawMainCards(s,"human",pending.choice.draw,runtime);
+    }
     s.pendingEffects.shift();
     summary="Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
     const holds=finishBeginningScoring();
     if(holds.length)summary+=" · "+holds.join(" · ");
+    if(s.pendingCombat?.passes.human&&s.pendingCombat.passes.ai&&!s.pendingEffects.length&&
+       (!s.pendingCombat.warnings.length||s.pendingCombat.confirmedEffects))settleCombat();
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
     checkOwner(p);
@@ -335,18 +590,25 @@ export function applyCommand(old, command) {
     }
     for(const v of attacking){v.exhausted=true;v.zone="battlefield";v.battlefield=field;}
     beginCombat(field,p,ids);
+    const moveLogs=attacking.flatMap(v=>moveEffects(v,c.burnPlayer));
     summary="Assaut "+(p==="ai"?"IA":"joueur")+" : "+attacking.map(v=>v.name).join(", ")+
       " → "+s.battlefields[field].card.name+
-      (s.pendingCombat?" · fenêtre de réactions ouverte":" · conquête du champ libre");
+      (s.pendingCombat?" · fenêtre de réactions ouverte":"")+
+      (moveLogs.length?" · "+moveLogs.join(" · "):"");
   } else if(type==="combat-pass") {
     const combat=s.pendingCombat;
     if(!combat)throw Error("Aucun combat en cours.");
     checkOwner(p);
+    if((combat.focus??"human")!==p)throw Error("Ce joueur n'a pas la focalisation.");
+    if(s.pendingEffects.length)throw Error("Résous les effets avant de passer la focalisation.");
     if(combat.passes[p])throw Error("Ce joueur a déjà passé la fenêtre de réactions.");
     combat.passes[p]=true;
+    combat.focus=OPPOSITE[p];
     summary=(p==="ai"?"IA":"Joueur")+" passe sa réaction.";
     if(combat.passes.human&&combat.passes.ai){
-      if(combat.warnings.length&&!combat.confirmedEffects)
+      if(s.pendingEffects.length)
+        summary+=" Résous les effets en attente avant de clore la confrontation.";
+      else if(combat.warnings.length&&!combat.confirmedEffects)
         summary+=" Vérifie les effets signalés, puis confirme leur résolution.";
       else settleCombat();
     }
@@ -393,7 +655,7 @@ export function applyCommand(old, command) {
       ["base","battlefield"].includes(origin)&&["base","battlefield"].includes(zone)&&
       (origin!==zone||(zone==="battlefield"&&Number(c.battlefield)!==v.battlefield));
     if(standard){
-     if(s.pendingCombat||s.pendingEffects.length)
+     if(s.pendingCombat||s.spellChain||s.pendingEffects.length)
       throw Error("Déplacement normal impossible pendant une confrontation ou un effet en attente.");
      if(v.exhausted)throw Error("Cette unité est épuisée : elle ne peut pas se déplacer.");
      if(v.owner!==s.active||s.phase!=="Main")
@@ -419,8 +681,8 @@ export function applyCommand(old, command) {
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
     if(["base","battlefield"].includes(origin)&&zone==="battlefield"&&
        v.owner===s.active&&standard)beginCombat(v.battlefield,v.owner,[v.uid]);
-    if(zone!==origin){
-      const triggered=processCardEvent(s,{trigger:"move",actor:v.owner,source:v},{place,deckCard});
+    if(zone!==origin||(zone==="battlefield"&&v.battlefield!==old.cards.find(x=>x.uid===v.uid)?.battlefield)){
+      const triggered=moveEffects(v,c.burnPlayer);
       if(triggered.length)summary+=" · "+triggered.join(" · ");
     }
   } else if(type==="remove") {
@@ -471,27 +733,32 @@ export function applyCommand(old, command) {
     s.players[p].handCount=count;summary="Main "+p+" : "+count;
   } else if(type==="draw"||type==="channel") {
     checkOwner(p);const n=Math.max(1,Math.min(12,Number(c.count)||1));
-    if(s.started&&p===s.active){
-      if(type==="channel")s.turnActions={...s.turnActions,channeled:(s.turnActions?.channeled||0)+n};
-      else s.turnActions={...s.turnActions,drawn:(s.turnActions?.drawn||0)+n};
-    }
+    const normal=s.started&&p===s.active&&c.cause!=="effect"&&
+      (type==="channel"?s.phase==="Channel":s.phase==="Draw");
     let drawn=0,burnOuts=0;
+    let channeled=0;
     if(type==="draw"){
-     const result=drawMainCards(s,p,n,{place,deckCard});
+     const result=drawMainCards(s,p,n,runtime);
      drawn=result.actual;burnOuts=result.burnOuts;
     }else if(p==="ai"){
      for(let i=0;i<n;i++){
       const card=s.decks.ai.runes.shift();if(!card)break;
       place(s,p,card,"runes",undefined,false,"c_auto_"+p+"_channel_"+s.revision+"_"+i);
+      channeled++;
      }
      s.players.ai.runeCount=s.decks.ai.runes.length;
     }else{
      const actual=Math.min(n,s.players.human.runeCount);
+     channeled=actual;
      for(let i=0;i<actual;i++)place(s,"human",
       {code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
      s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
     }
-    summary=p+" : "+(type==="draw"?"pioche "+drawn:"canalise "+n)+
+    if(normal){
+      if(type==="draw"){s.turnActions.drawn+=drawn;s.turnActions.drawAttempted=true;}
+      else {s.turnActions.channeled+=channeled;s.turnActions.channelAttempted=true;}
+    }
+    summary=p+" : "+(type==="draw"?"pioche "+drawn:"canalise "+channeled)+
      (burnOuts?" · Burn Out ×"+burnOuts:"");
     if(type==="draw"&&drawn){
      for(let i=0;i<drawn;i++){
@@ -516,16 +783,24 @@ export function applyCommand(old, command) {
   } else if(type==="note") {
     summary=string(c.text,600);
   } else throw Error("Type de commande inconnu : "+type);
+  for(const gear of s.cards.filter(v=>v.attachedTo)){
+    const host=s.cards.find(v=>v.uid===gear.attachedTo);
+    if(!onBoard(host)){
+      gear.attachedTo=null;gear.zone="base";gear.battlefield=null;
+    }else{gear.zone=host.zone;gear.battlefield=host.battlefield;}
+  }
   // A unit creates automatic Conquer only when it establishes uncontested
   // control and this field has not scored for that player this turn.
   if(s.started&&!s.pendingCombat&&["add","move","remove","play-paid","combat-attack"].includes(type)){
    for(let i=0;i<s.battlefields.length;i++){
     const owner=battlefieldController(s,i);
     if(owner===s.active){
-     const scored=scoreNewControl(old,s,owner,i);
+     const previousScore=s.players[owner].score;
+     const scored=scoreNewControl(old,s,owner,i,runtime);
      if(scored){
       summary+=" · "+scored;
-      const triggered=processCardEvent(s,{trigger:"conquer",actor:owner,field:i},{place,deckCard});
+      const triggered=s.players[owner].score>previousScore?
+       processCardEvent(s,{trigger:"conquer",actor:owner,field:i},{place,deckCard}):[];
       if(triggered.length)summary+=" · "+triggered.join(" · ");
      }
     }
@@ -544,10 +819,11 @@ export function applyCommand(old, command) {
    const owner=a>=8&&a>h?"ai":h>=8&&h>a?"human":null;
    if(owner){
     s.winner=owner;s.finished=true;
+    s.pendingEffects=[];
     summary+=" · Victoire "+(owner==="ai"?"IA":"joueur");
    }
   }
   maybeRecord(s,summary);
   return s;
 }
-export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal","effect-confirm"];
+export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","play-physical","cast","chain-pass","equip","rune-identify","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal","effect-confirm"];
