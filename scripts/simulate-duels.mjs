@@ -45,11 +45,13 @@ function game(seed,mode,metrics){
  const apply=cmd=>{
   const before=s.players.human.deckCount;
   const active=s.active;
+  const reveal=s.pendingEffects[0]?.trigger==="pakaa-reveal"&&cmd.type==="effect-confirm";
   const chainBefore=s.spellChain?.items.filter(item=>!item.ability).map(item=>item.uid)||[];
   s=applyCommand(s,cmd);
   metrics.spellResolutions+=chainBefore.filter(uid=>!s.spellChain?.items.some(item=>item.uid===uid)).length;
   if(s.active!==active||["start","next-turn","effect-confirm"].includes(cmd.type))s=advanceMandatoryTurn(s);
-  if(!cmd.cards)for(let i=0;i<before-s.players.human.deckCount&&cursor<follow.length;i++)hand.push(follow[cursor++]);
+  if(reveal&&!unit(cmd.card))cursor++;
+  else if(!cmd.cards)for(let i=0;i<before-s.players.human.deckCount&&cursor<follow.length;i++)hand.push(follow[cursor++]);
   check(s);
  };
  const can=cmd=>{try{return applyCommand(s,cmd);}catch{return null;}};
@@ -86,6 +88,9 @@ function game(seed,mode,metrics){
  for(let step=0;step<220;step++){
   if(s.finished){metrics.finished++;metrics[s.winner]++;return;}
   const effect=s.pendingEffects[0];
+  if(effect?.trigger==="pakaa-reveal"&&cursor<follow.length){
+   apply({type:"effect-confirm",confirm:true,id:effect.id,card:follow[cursor]});continue;
+  }
   if(effect?.trigger==="ending-ready-runes"){
    const uids=s.cards.filter(c=>c.owner===effect.player&&c.zone==="runes"&&c.exhausted)
     .slice(0,effect.count).map(c=>c.uid);

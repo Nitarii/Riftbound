@@ -24,6 +24,9 @@ export const verifiedSpell=card=>/^spell$/i.test(card?.type||"")?
  Object.hasOwn(spells,printedCode(card))?spells[printedCode(card)]:null:null;
 export const handHammer=card=>printedCode(card)==="VEN-027"&&/^gear$/i.test(card.type);
 export const fieldMusicians=card=>printedCode(card)==="VEN-026"&&/^unit$/i.test(card?.type||"");
+export const pakaaProtector=card=>printedCode(card)==="VEN-033"&&/^unit$/i.test(card?.type||"");
+export const shenLegend=card=>["VEN-147","VEN-193","VEN-193-STAR-166"].includes(printedCode(card))&&/^legend$/i.test(card?.type||"");
+export const noxianEmissary=card=>printedCode(card)==="VEN-128"&&/^unit$/i.test(card?.type||"");
 export const shadowAssassin=card=>printedCode(card)==="VEN-013";
 export const mournfulWitness=card=>printedCode(card)==="VEN-028";
 export const sacredProtector=card=>printedCode(card)==="VEN-129";

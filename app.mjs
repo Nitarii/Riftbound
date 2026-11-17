@@ -8,6 +8,7 @@ import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat} from "./combat-engine.mjs";
+import {shenLegend} from "./verified-cards.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
@@ -149,7 +150,8 @@ function cardHTML(c,show=true,large=false){
    (turned?"exhausted ":"")+(faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'" data-card-type="'+esc((c.type||"").toLowerCase())+'" data-stunned="'+Boolean(c.stunned||c.counters?.stunned)+'"'+status+'>'+
    '<div class="card-art">'+(faceDown?'<div class="card-back">R</div>':art)+'</div>'+label+
    (c.damage?'<b class="damage">−'+c.damage+'</b>':'')+
-   Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+
+   Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+
+    (k==="tempTank"?'Tank':esc(k)+': '+esc(v))+'</b>').join("")+
    '</div>';
  return tile;
 }
@@ -182,14 +184,15 @@ function renderCombatPanel(){
   $("combat-details").textContent=chain.priority==="human"?
    "À toi : joue une Réaction ou passe la priorité.":"Priorité à l’IA.";
   $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
-   const info=document.createElement("div"),spell=state.cards.find(c=>c.uid===item.uid);
+   const info=document.createElement("div"),spell=state.cards.find(c=>c.uid===(item.sourceUid??item.uid));
    const target=state.cards.find(c=>c.uid===item.targetUid);
    if(item.ability==="ready-runes-ending"){
     info.textContent=item.cardName+" · "+item.runeUids.length+" rune(s) à redresser";
     return info;
    }
-   info.textContent=(spell?.name||"Sort")+" → "+(target?.name||"cible absente")+
-    (item.damage?" · "+item.damage+" dégâts":"");
+   info.textContent=item.ability==="pakaa-reveal"?item.cardName+" · révélation du dessus du deck":
+    (spell?.name||item.cardName||"Sort")+" → "+(target?.name||"cible absente")+
+    (item.ability==="shen-tank"?" · Tank":item.damage?" · "+item.damage+" dégâts":"");
    if(spell){info.className="clickable";info.onclick=()=>showInstance(spell);}
    return info;
   }));
@@ -330,7 +333,7 @@ function renderPendingEffects(){
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
   (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
  $("pending-effect-description").textContent=pending.text;
- const announce={"hidden-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
+ const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
  $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":announce?"Indiquer la carte":"Confirmer l’effet";
  $("pending-effect-reason").textContent=pending.reason+(chooseRunes?" Tu peux n’en choisir aucune.":announce?
   " · Annonce « "+announce+" » suivi du nom de la carte.":
@@ -344,8 +347,9 @@ $("pending-effect-confirm").onclick=()=>{
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,uids});
   return;
  }
- const announce={"hidden-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
+ const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
  if(announce){
+  selectWorkspacePanel("chat");
   $("notes").value=announce+" ";
   $("notes").focus();
   return;
@@ -503,6 +507,25 @@ function showInstance(c) {
   $("detail-bf").value=String(c.battlefield||0);$("detail-add").textContent="Déplacer";
   let bar=$("detail-card-actions");if(!bar){bar=document.createElement("div");bar.id="detail-card-actions";bar.className="line";$("detail-add").parentElement.after(bar);}
   bar.innerHTML='<button data-action="exhaust">Épuiser</button><button data-action="ready">Redresser</button><button data-action="damage">+1 dégât</button><button data-action="heal">Soigner 1</button><button data-action="stun">Étourdir</button><button data-action="remove">Retirer</button>';
+  const fight=state.pendingCombat;
+  const hasFocus=fight?fight.focus==="human"&&!fight.passes.human:state.active==="human";
+  if(c.owner==="human"&&c.zone==="legend"&&shenLegend(c)&&!c.exhausted&&state.phase==="Main"&&
+     !state.finished&&!state.spellChain&&!state.pendingEffects?.length&&hasFocus){
+   const allies=state.cards.filter(unit=>unit.owner==="human"&&["base","battlefield"].includes(unit.zone)&&
+    /^unit$/i.test(unit.type)&&!unit.faceDown);
+   if(allies.length){
+    const label=document.createElement("label"),list=document.createElement("select"),activate=document.createElement("button");
+    label.append("Unité qui reçoit Tank",list);
+    for(const ally of allies)list.add(new Option(ally.name+" · "+(ally.zone==="base"?"Base":
+     state.battlefields[ally.battlefield]?.card?.name||"Champ de bataille"),ally.uid));
+    activate.type="button";activate.className="primary";activate.textContent="Activer Shen";
+    activate.onclick=()=>{
+     $("card-dialog").close();
+     dispatch({type:"activate",player:"human",uid:c.uid,targetUid:list.value});
+    };
+    bar.prepend(label,activate);
+   }
+  }
   $("card-dialog").showModal();
 }
 $("detail-close").onclick=()=>$("card-dialog").close();

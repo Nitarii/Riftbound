@@ -14,6 +14,10 @@ const token=crypto.randomBytes(20).toString("hex");
 const dist=path.resolve("dist");
 const app=path.join(dist,"RiftboundCompanion.exe");
 const root=await fs.mkdtemp(path.join(dist,"test-http-"));
+const soulspinner={name:"Soulspinner",type:"Unit",code:"VEN-123",energy:3,might:3};
+// Supply the catalogue locally so the spoken reveal smoke is independent of the CDN.
+await fs.writeFile(path.join(root,".riftbound-catalog-cache.json"),JSON.stringify({updatedAt:Date.now(),
+ cards:[soulspinner,...Array.from({length:500},(_,i)=>({name:"Test catalogue "+i,type:"Unit",code:"TEST-"+i}))]}));
 let child,closed;
 function launch(){
  child=spawn(app,["--no-browser"],{cwd:root,windowsHide:true,stdio:"ignore",env:{
@@ -150,7 +154,6 @@ try{
  assert.ok(replies.some(message=>message.role==="ai"&&/9.*1.*avant les réactions/.test(message.text)));
  assert.equal((await request("/api/state")).value.state.revision,opening.revision);
  assert.equal((await request("/api/ai/disable",{})).status,200);
- const soulspinner={...card("Soulspinner"),code:"VEN-123",energy:3};
  await apply({type:"play-physical",ambush:true,card:soulspinner,battlefield:0});
  assert.equal(previewCombat(state,0,"ai").defendingMight,7);
  await apply({type:"combat-order",player:"human",uids:[assassin.uid,blade.uid]});
@@ -229,8 +232,50 @@ try{
  assert.equal(state.phase,"Main");
  assert.equal(state.spellChain,null);
  assert.ok(state.cards.filter(c=>selected.includes(c.uid)).every(c=>!c.exhausted));
+ await apply({type:"reset"});
+ await apply({...shenDeck,legend:{...card("Shen, Eye of Twilight","Legend"),code:"VEN-147"}});
+ await apply(zedDeck);
+ await apply({type:"start",player:"human"});
+ await put("human",{...card("Shen, Scourge of Shadows"),code:"VEN-042",might:6},"base");
+ await put("human",{...card("Pakaa Protector"),code:"VEN-033",might:4},"base");
+ await put("human",{...card("Hand Hammer","Gear"),code:"VEN-027",might:1},"base");
+ await put("human",{...card("Calm Rune","Rune"),domains:["Calm"]},"runes");
+ await put("ai",{...card("Chemtech Enforcer"),code:"OGN-003",might:2},"battlefield",0);
+ await apply({type:"equip",player:"human",uid:state.cards.find(c=>c.code==="VEN-027").uid,
+  targetUid:state.cards.find(c=>c.code==="VEN-042").uid});
+ const group=await request("/api/messages",{text:"J’attaque le Grove avec Shen et Paka Protector."});
+ assert.equal((await waitForAnnouncement(group.value.message.id)).table.status,"applied");
+ state=(await request("/api/state")).value.state;
+ assert.equal(state.spellChain.items[0].ability,"pakaa-reveal");
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.pendingEffects[0].trigger,"pakaa-reveal");
+ const counts=state.players.human;
  await stop();
- console.log("PASS: packaged Windows, receipts, hidden data, opponent without Qwen, combat rewind and Targon’s Peak after restart.");
+ launch();
+ await ready();
+ const revealed={text:"Je révèle Soul Spinner.",requestId:crypto.randomUUID()};
+ const reel=await request("/api/messages",revealed);
+ assert.equal((await waitForAnnouncement(reel.value.message.id)).table.status,"applied");
+ assert.equal((await request("/api/messages",revealed)).value.message.id,reel.value.message.id);
+ state=(await request("/api/state")).value.state;
+ assert.equal(state.spellChain,null);
+ assert.equal(state.players.human.handCount,counts.handCount+1);
+ assert.equal(state.players.human.deckCount,counts.deckCount-1);
+ assert.ok(!state.cards.some(c=>c.code==="VEN-123"));
+ const shen=await request("/api/messages",{text:"J’active ma légende Shen sur Pakaa Protector."});
+ assert.equal((await waitForAnnouncement(shen.value.message.id)).table.status,"applied");
+ state=(await request("/api/state")).value.state;
+ assert.equal(state.spellChain.items[0].ability,"shen-tank");
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.cards.find(c=>c.code==="VEN-033").counters.tempTank,true);
+ await apply({type:"combat-pass",player:"ai"});
+ await apply({type:"combat-pass",player:"human"});
+ assert.equal(state.history[0].combat.attackingMight,13);
+ assert.equal(state.history[0].combat.defendingMight,2);
+ await stop();
+ console.log("PASS: packaged Windows, hidden data, combat rewind, Targon’s Peak and Pakaa after restart, Shen Tank, 13–2.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

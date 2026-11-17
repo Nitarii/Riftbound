@@ -194,6 +194,7 @@ const guide={
  "play-paid":{type:"play-paid",uid:"AI hand or champion UID",battlefield:"optional controlled battlefield index"},
  cast:{type:"cast",player:"ai",uid:"AI spell UID",targetUid:"unit UID",flow:"true for a supported spell in your trash",
   hidden:"true for a supported spell in your hidden zone"},
+ activate:{type:"activate",player:"ai",uid:"ready Shen legend UID",targetUid:"friendly unit UID"},
  hide:{type:"hide",player:"ai",uid:"AI card with Hidden",battlefield:0,runeUid:"optional rune UID to recycle"},
  "play-hidden":{type:"play-hidden",player:"ai",uid:"ready hidden unit UID"},
  "chain-pass":{type:"chain-pass",player:"ai"},
@@ -406,7 +407,7 @@ const receiveHumanMessage=(text,requestId)=>{
   // Passing priority and other public board commands must remain responsive
   // even when the remote catalog is unavailable or expired.
   let catalog=catalogCache||[];
-  if(!catalog.length&&(pendingSpokenPlay||pendingHumanAction||
+  if(!catalog.length&&(pendingSpokenPlay||pendingHumanAction||state.pendingEffects?.[0]?.trigger==="pakaa-reveal"||
      /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike|bonus de field musicians)\b/i.test(normalized))){
    try{catalog=await loadServerCatalog();}catch{}
    if(conversation.list(0).session!==receivedSession)return;

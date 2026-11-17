@@ -301,6 +301,7 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.condition==="empowered"&&!source.counters?.empowered)continue;
    if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
       c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
       c.uid!==source.uid).length!==1)continue;

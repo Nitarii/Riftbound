@@ -7,7 +7,7 @@ import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 import {verifiedSpell,shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
- shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden} from "./verified-cards.mjs";
+ shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash","chain","hidden","hidden-reveal"]);
 const isHiddenSlot=card=>["hidden","hidden-reveal"].includes(card?.zone);
@@ -79,7 +79,7 @@ export function applyCommand(old, command) {
   if(type==="phase"&&s.pendingEffects.some(effect=>effect.trigger==="ending-ready-runes"))
    throw Error("Choisis les runes à redresser avant de quitter la phase de fin.");
   const p=c.player||"ai";
-  if(s.finished&&["next-turn","play-paid","play-physical","cast","chain-pass","combat-attack","draw","channel","equip","hide","play-hidden"].includes(type))
+  if(s.finished&&["next-turn","play-paid","play-physical","cast","activate","chain-pass","combat-attack","draw","channel","equip","hide","play-hidden"].includes(type))
    throw Error("Partie terminée : le vainqueur est "+s.winner+".");
   let summary="";
   if(s.spellChain&&["next-turn","phase","play-paid","play-physical","combat-attack",
@@ -96,6 +96,7 @@ export function applyCommand(old, command) {
   const participants=index=>s.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===index&&
     /^unit$/i.test(v.type||""));
   const runtime={place,deckCard,random:()=>nextRandom(s)};
+  const movementTriggers=[];
   const onBoard=v=>v&&["base","battlefield"].includes(v.zone);
   const turnIndex=()=>s.turn*2+Number(s.active!==s.firstPlayer);
   const fieldController=field=>s.pendingCombat?.battlefield===field?
@@ -207,6 +208,12 @@ export function applyCommand(old, command) {
     return "capacité +3 en attente sur "+target.name;
   }
   const chainOwner=item=>item.owner??getCard(s,item.uid).owner;
+  function appendChainItem(item,{triggered=false}={}){
+    s.spellChain??={items:[],lastPass:null,opener:item.owner,triggered};
+    s.spellChain.items.push(item);
+    s.spellChain.priority=item.owner;
+    s.spellChain.lastPass=null;
+  }
   function stageEndingRunes(effect,uids){
     s.spellChain={items:[{uid:effect.id,ability:"ready-runes-ending",owner:effect.player,
      cardName:effect.cardName,runeUids:uids}],priority:effect.player,lastPass:null,opener:effect.player};
@@ -226,12 +233,47 @@ export function applyCommand(old, command) {
       reason:"Les runes seront redressées après les réactions."});
     return effect.cardName+" attend ton choix de runes.";
   }
-  function spellResolution(item,physicalDiscard){
+  function resolvePakaa(item,physicalCard){
+    const owner=item.owner,deck=s.decks.ai.main;
+    if(owner==="ai"?!deck.length:!s.players.human.deckCount)
+      return item.cardName+" · aucune carte à révéler";
+    const revealed=validateCard(owner==="ai"?deck[0]:physicalCard);
+    if(!/^(unit|gear|spell)$/i.test(revealed.type)||/^TOKEN-/i.test(revealed.code)||
+       revealed.tags.some(tag=>tag.toLowerCase()==="token"))
+      throw Error("Indique la carte du dessus du deck principal.");
+    const logs=["révèle "+revealed.name];
+    if(/^unit$/i.test(revealed.type)){
+      drawMainCards(s,owner,1,runtime);
+      logs.push("pioche cette unité",...processCardEvent(s,{trigger:"draw",actor:owner},runtime));
+    }else{
+      if(owner==="ai"){
+        deck.shift();
+        s.players.ai.deckCount=deck.length;
+      }else s.players.human.deckCount--;
+      place(s,owner,revealed,"trash");
+      logs.push("met cette carte en défausse");
+      const source=s.cards.find(v=>v.uid===item.sourceUid);
+      if(onBoard(source)){
+        source.counters.tempMight=(source.counters.tempMight||0)+2;
+        logs.push(source.name+" gagne +2 Might ce tour");
+      }
+    }
+    return item.cardName+" · "+logs.join(" · ");
+  }
+  function spellResolution(item,physicalCard){
     if(item.ability==="ready-runes-ending"){
       const runes=s.cards.filter(rune=>item.runeUids.includes(rune.uid)&&
        rune.owner===item.owner&&rune.zone==="runes"&&rune.exhausted);
       runes.forEach(rune=>{rune.exhausted=false;});
       return item.cardName+" · "+runes.length+" rune(s) redressée(s)";
+    }
+    if(item.ability==="pakaa-reveal")return resolvePakaa(item,physicalCard);
+    if(item.ability==="shen-tank"){
+      const target=s.cards.find(v=>v.uid===item.targetUid);
+      if(!checkSpellTarget({target:"friendly-unit"},target,item.owner))
+        return item.cardName+" · cible devenue invalide";
+      target.counters.tempTank=true;
+      return item.cardName+" · "+target.name+" reçoit Tank jusqu’à la fin du tour.";
     }
     const source=getCard(s,item.uid),rule=verifiedSpell(source);
     const target=s.cards.find(v=>v.uid===item.targetUid);
@@ -244,14 +286,14 @@ export function applyCommand(old, command) {
     if(!rule)throw Error("Effet de sort non pris en charge.");
     source.zone=item.flow?"banished":"trash";
     const logs=[];
-    const discarded=rule.damageFromDiscard?discardForSpell(source.owner,source.uid,physicalDiscard):null;
+    const discarded=rule.damageFromDiscard?discardForSpell(source.owner,source.uid,physicalCard):null;
     if(rule.damageFromDiscard)logs.push(discarded?"défausse "+discarded.name:"aucune carte à défausser");
     if(checkSpellTarget(rule,target,source.owner,item.field)&&
        (item.hiddenField===undefined||target.battlefield===item.hiddenField)){
       if(rule.target==="friendly-transfer"){
         target.zone="battlefield";target.battlefield=item.field;
         logs.push(target.name+" rejoint "+s.battlefields[item.field].card.name);
-        logs.push(...processCardEvent(s,{trigger:"move",actor:target.owner,source:target},{place,deckCard}));
+        logs.push(...moveTriggers(target));
       }
       if(rule.returnToBase){
         const field=s.battlefields[target.battlefield]?.card;
@@ -260,7 +302,7 @@ export function applyCommand(old, command) {
         }else{
           target.zone="base";target.battlefield=null;
           logs.push(target.name+" retourne en base");
-          logs.push(...processCardEvent(s,{trigger:"move",actor:target.owner,source:target},runtime));
+          logs.push(...moveTriggers(target));
         }
       }
       if(rule.might)target.counters.tempMight=(target.counters.tempMight||0)+rule.might;
@@ -294,24 +336,33 @@ export function applyCommand(old, command) {
     if(item.flow)logs.push(source.name+" banni après son lancement par Flux");
     return source.name+" résolu"+(logs.length?" · "+logs.join(" · "):"");
   }
-  function resolveChainTop(physicalDiscard){
+  function resolveChainTop(physicalCard){
     const chain=s.spellChain,item=chain.items.at(-1);
-    const resolved=spellResolution(item,physicalDiscard);
+    const resolved=spellResolution(item,physicalCard);
     chain.items.pop();
+    for(const trigger of movementTriggers.splice(0))appendChainItem(trigger,{triggered:true});
     if(chain.items.length){
       chain.priority=chainOwner(chain.items.at(-1));
       chain.lastPass=null;
     }else{
       s.spellChain=null;
-      if(s.pendingCombat){
+      if(s.pendingCombat&&!chain.triggered){
         s.pendingCombat.focus=OPPOSITE[chain.opener];
         s.pendingCombat.passes={human:false,ai:false};
       }
     }
     return resolved;
   }
+  function moveTriggers(v){
+    if(pakaaProtector(v)){
+      movementTriggers.push({uid:"move-"+(s.revision+1)+"-"+movementTriggers.length,sourceUid:v.uid,
+       ability:"pakaa-reveal",owner:v.owner,cardName:v.name});
+      return [v.name+" déclenche sa capacité de déplacement"];
+    }
+    return processCardEvent(s,{trigger:"move",actor:v.owner,source:v},runtime);
+  }
   function moveEffects(v,burnPlayer){
-    const logs=processCardEvent(s,{trigger:"move",actor:v.owner,source:v},{place,deckCard});
+    const logs=moveTriggers(v);
     if(shadowDisciple(v)){
       if(v.owner==="ai"&&s.pendingCombat?.kind==="combat"&&s.decks.ai.main.length>0){
        logs.push(burnMainCards(s,"ai",1,v,runtime));
@@ -452,7 +503,7 @@ export function applyCommand(old, command) {
     for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
       unit.damage=0;unit.stunned=false;
       if(unit.counters){
-       for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud"])
+       for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud","tempTank"])
         delete unit.counters[key];
       }
     }
@@ -710,6 +761,19 @@ export function applyCommand(old, command) {
     s.spellChain.priority=p;s.spellChain.lastPass=null;
     summary=v.name+(flow?" par Flux":"")+" sur la chaîne → "+target.name+payLabel(paid)+
       (discard?" · défausse "+discard.name:"");
+  } else if(type==="activate"){
+    checkOwner(p);
+    if(!s.started||s.phase!=="Main"||s.spellChain||s.pendingEffects.length||!hasPriority(p))
+      throw Error("Cette Action demande la priorité dans un état ouvert.");
+    const legend=getCard(s,string(c.uid,80)),target=getCard(s,string(c.targetUid,80));
+    if(legend.owner!==p||legend.zone!=="legend"||!shenLegend(legend)||legend.exhausted)
+      throw Error("Il faut ta légende Shen prête pour activer cette capacité.");
+    if(!checkSpellTarget({target:"friendly-unit"},target,p))
+      throw Error("Shen doit choisir une unité alliée en jeu.");
+    legend.exhausted=true;
+    appendChainItem({uid:"activate-"+(s.revision+1),sourceUid:legend.uid,cardName:legend.name,
+      targetUid:target.uid,ability:"shen-tank",owner:p});
+    summary=legend.name+" épuisé · Tank sur la chaîne → "+target.name;
   } else if(type==="chain-pass"){
     checkOwner(p);
     const chain=s.spellChain;
@@ -718,7 +782,12 @@ export function applyCommand(old, command) {
     if(chain.lastPass===OPPOSITE[p]){
       const item=chain.items.at(-1);
       const source=item.ability?null:getCard(s,item.uid);
-      if(verifiedSpell(source)?.damageFromDiscard&&source.owner==="human"&&s.players.human.handCount>0){
+      if(item.ability==="pakaa-reveal"&&item.owner==="human"&&s.players.human.deckCount>0){
+        s.pendingEffects.push({id:"reveal-"+item.uid,player:"human",sourceUid:item.sourceUid,chainUid:item.uid,
+         cardName:item.cardName,trigger:"pakaa-reveal",text:"Révèle la première carte de ton deck principal.",
+         reason:"Annonce seulement la carte révélée."});
+        summary=item.cardName+" attend la carte du dessus de ton deck.";
+      }else if(verifiedSpell(source)?.damageFromDiscard&&source.owner==="human"&&s.players.human.handCount>0){
         s.pendingEffects.push({id:"discard-"+source.uid,player:"human",sourceUid:source.uid,
          cardName:source.name,trigger:"spell-discard",text:"Défausse une carte de ta main.",
          reason:"Indique seulement le nom de la carte défaussée."});
@@ -786,9 +855,10 @@ export function applyCommand(old, command) {
     if(!pending)throw Error("Aucun effet de carte en attente.");
     if(!c.confirm||c.id!==pending.id)
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
-    if(pending.trigger==="spell-discard"){
-      if(s.spellChain?.items.at(-1)?.uid!==pending.sourceUid)
-        throw Error("Le sort en attente de défausse a changé.");
+    const chainChoice=["spell-discard","pakaa-reveal"].includes(pending.trigger);
+    if(chainChoice){
+      if(s.spellChain?.items.at(-1)?.uid!==(pending.chainUid??pending.sourceUid))
+        throw Error("L’effet en attente sur la chaîne a changé.");
       s.pendingEffects.shift();
       summary=resolveChainTop(c.card);
     }else if(pending.trigger==="ending-ready-runes"){
@@ -823,14 +893,14 @@ export function applyCommand(old, command) {
       }
       drawMainCards(s,"human",pending.choice.draw,runtime);
     }
-    if(pending.trigger!=="spell-discard"){
+    if(!chainChoice){
       s.pendingEffects.shift();
       if(!summary)summary=pending.trigger==="hidden-reveal"?"Carte cachée révélée : "+getCard(s,pending.sourceUid).name:
        "Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
     }
     const holds=finishBeginningScoring();
     if(holds.length)summary+=" · "+holds.join(" · ");
-    if(s.pendingCombat?.passes.human&&s.pendingCombat.passes.ai&&!s.pendingEffects.length&&
+    if(s.pendingCombat?.passes.human&&s.pendingCombat.passes.ai&&!s.spellChain&&!s.pendingEffects.length&&
        (!s.pendingCombat.warnings.length||s.pendingCombat.confirmedEffects))settleCombat();
   } else if(type==="combat-attack") {
     if(!s.started||s.phase!=="Main"||s.active!==p)throw Error("L'assaut standard exige ta phase Main.");
@@ -939,7 +1009,8 @@ export function applyCommand(old, command) {
     summary=v.name+" → "+(zone==="battlefield"?"champ de bataille "+(v.battlefield+1):zone);
     if(["base","battlefield"].includes(origin)&&zone==="battlefield"&&
        v.owner===s.active&&standard)beginCombat(v.battlefield,v.owner,[v.uid]);
-    if(zone!==origin||(zone==="battlefield"&&v.battlefield!==old.cards.find(x=>x.uid===v.uid)?.battlefield)){
+    if(["base","battlefield"].includes(origin)&&["base","battlefield"].includes(zone)&&
+       (zone!==origin||(zone==="battlefield"&&v.battlefield!==old.cards.find(x=>x.uid===v.uid)?.battlefield))){
       const triggered=moveEffects(v,c.burnPlayer);
       if(triggered.length)summary+=" · "+triggered.join(" · ");
     }
@@ -1041,6 +1112,7 @@ export function applyCommand(old, command) {
   } else if(type==="note") {
     summary=string(c.text,600);
   } else throw Error("Type de commande inconnu : "+type);
+  for(const trigger of movementTriggers)appendChainItem(trigger,{triggered:true});
   const delayedSummary=startNextEndingEffect();
   if(delayedSummary)summary+=" · "+delayedSummary;
   if(s.finishAfterDelayedEnding&&s.phase==="Ending"&&!s.finished&&!s.pendingEffects.length&&!s.spellChain)
@@ -1090,4 +1162,4 @@ export function applyCommand(old, command) {
   maybeRecord(s,summary);
   return s;
 }
-export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","play-physical","cast","chain-pass","equip","hide","play-hidden","rune-identify","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal","effect-confirm"];
+export const COMMANDS=["reset","setup-human","setup-ai","start","next-turn","phase","add","move","remove","exhaust","ready","exhaust-runes","play-paid","play-physical","cast","activate","chain-pass","equip","hide","play-hidden","rune-identify","flip","counter","damage","score","hand-count","draw","channel","mulligan","note","combat-attack","combat-pass","combat-resolve","combat-order","combat-confirm-effects","stun","heal","effect-confirm"];

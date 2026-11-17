@@ -1,6 +1,6 @@
 // Card-driven ability compiler with explicit handlers for verified exceptions.
 import {verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,
- shadowDisciple,zedChampion,zedLegend,thresholdOfGray} from "./verified-cards.mjs";
+ shadowDisciple,zedChampion,zedLegend,thresholdOfGray,pakaaProtector,shenLegend,noxianEmissary} from "./verified-cards.mjs";
 // Unsupported instructions are reported, never treated as resolved.
 const normalize=x=>String(x||"").replace(/\r/g,"").replace(/[’‘]/g,"'").replace(/[–—]/g,"-").trim();
 const toCount=x=>({one:1,two:2,three:3,a:1,an:1,un:1,une:1,deux:2,trois:3})[String(x).toLowerCase()]??Number(x);
@@ -123,7 +123,11 @@ export function compileCardAbilities(card){
  }
  if(zedLegend(card))return {abilities,continuous,unsupported:[
   {trigger:"activation",text:"Défausse et pioche en dépensant Empowered",reason:"Compétence activée non automatisée"}]};
- if([verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,shadowDisciple,thresholdOfGray]
+ if(noxianEmissary(card))return {continuous,abilities:[{trigger:"die",condition:"empowered",supported:true,
+  text:"Deathknell si Empowered : deux Recruits de 1 Might en base.",
+  steps:[{kind:"create-units",count:2,tokenMight:1,tokenName:"Recruit",destination:"base"}]}],
+  unsupported:[{trigger:"activation",text:"Empower de Noxian Emissary",reason:"Compétence activée non automatisée"}]};
+ if([verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,shadowDisciple,thresholdOfGray,pakaaProtector,shenLegend]
     .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){

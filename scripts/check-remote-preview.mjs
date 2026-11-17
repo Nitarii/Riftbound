@@ -65,6 +65,7 @@ try{
  assert.equal((await agent("/api/manager/status")).status,404);
  const guide=(await agent("/api/guide")).data;
  assert.equal(guide.commands.cast.type,"cast");
+ assert.equal(guide.commands.activate.type,"activate");
  assert.equal(guide.commands["chain-pass"].type,"chain-pass");
  assert.equal(guide.commands["rewind-combat"],undefined);
  assert.equal((await agent("/api/command",{type:"rewind-combat"})).status,403);

@@ -5,7 +5,7 @@ import path from "node:path";
 import http from "node:http";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright-core";
-import {createState} from "../core.mjs";
+import {applyCommand,createState} from "../core.mjs";
 import {CURRENT_VERSION} from "../release-policy.mjs";
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
@@ -245,6 +245,27 @@ try{
   console.log("PASS",viewport.width+"x"+viewport.height,"no page scroll; board/chat/history accessible");
   await page.close();
  }
+ const shenPage=await browser.newPage({viewport:{width:390,height:844}});
+ const shenFixture=[
+  {type:"setup-human",legend:{code:"VEN-147",name:"Shen, Eye of Twilight",type:"Legend"},
+   champion:{name:"Chosen Shen",type:"Unit"},battlefield:{name:"Grove",type:"Battlefield"}},
+  {type:"start",player:"human"},{type:"phase",phase:"Main"},
+  {type:"add",player:"human",card:{code:"VEN-117",name:"Disciple of Shen",type:"Unit",might:1},zone:"base"}
+ ].reduce(applyCommand,createState());
+ await shenPage.addInitScript(state=>localStorage.setItem("riftbound-companion-state-v1",JSON.stringify(state)),shenFixture);
+ await shenPage.goto(url,{waitUntil:"domcontentloaded"});
+ await shenPage.evaluate(()=>document.body.classList.remove("home-visible"));
+ await shenPage.locator("#human-legend [data-uid]").click();
+ const tankChoice=shenPage.getByLabel("Unité qui reçoit Tank");
+ ensure(await tankChoice.isVisible(),"Tank target must be selectable on the card dialog");
+ ensure((await tankChoice.locator("option:checked").textContent()).includes("Disciple of Shen"),
+  "The dialog should list the visible allied unit");
+ await shenPage.getByRole("button",{name:"Activer Shen",exact:true}).click();
+ await shenPage.waitForFunction(()=>document.querySelector("#combat-preview")?.textContent?.includes("Disciple of Shen · Tank"));
+ ensure(await shenPage.locator("#human-legend [data-card-state=exhausted]").count()===1,
+  "Activating Shen should pay the exhaust cost");
+ await shenPage.close();
+ console.log("PASS Shen activation dialog and staged Tank on mobile");
  // UI integration regression: the manager MUST show the updater screen
  // before allowing game launch when an old release is installed.
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});

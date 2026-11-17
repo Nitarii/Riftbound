@@ -5,8 +5,8 @@ import {applyCommand} from "./core.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
-import {previewCombat,effectiveMight} from "./combat-engine.mjs";
-import {verifiedSpell,hiddenDisciple} from "./verified-cards.mjs";
+import {previewCombat,effectiveMight,hasKeyword} from "./combat-engine.mjs";
+import {verifiedSpell,hiddenDisciple,shenLegend} from "./verified-cards.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const isPlayable=c=>/^(unit|gear|spell)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
@@ -47,12 +47,34 @@ function concealedDefender(state){
  }catch{}
  return null;
 }
+function defensiveTank(state){
+ const fight=state.pendingCombat;
+ const legend=own(state,"legend").find(c=>shenLegend(c)&&!c.exhausted);
+ if(fight?.kind!=="combat"||!legend)return null;
+ const allies=state.cards.filter(c=>c.owner==="ai"&&c.zone==="battlefield"&&c.battlefield===fight.battlefield&&isUnit(c));
+ if(allies.length<2)return null;
+ const preview=view=>previewCombat(view,fight.battlefield,fight.attacker,fight.orders);
+ const value=result=>(result.winner==="ai"?25:result.winner==="human"?-25:0)-
+  allies.filter(c=>result.dead.includes(c.uid)).reduce((sum,c)=>sum+2+(c.might||0),0)+
+  result.damage.filter(c=>c.owner==="human"&&c.dead).reduce((sum,c)=>sum+2+c.might,0);
+ const before=preview(state);
+ if(!before.ready)return null;
+ let bestValue=value(before),best=null;
+ for(const ally of allies.filter(c=>!hasKeyword(c,"Tank")).slice(0,12)){
+  const cards=state.cards.map(c=>c===ally?{...c,counters:{...c.counters,tempTank:true}}:c);
+  const after=preview({...state,cards});
+  if(!after.ready||value(after)<=bestValue)continue;
+  bestValue=value(after);
+  best={type:"activate",player:"ai",uid:legend.uid,targetUid:ally.uid};
+ }
+ return best;
+}
 export function planAIChainAction(state){
  const chain=state.spellChain;
  if(state.pendingEffects?.length)return null;
  if(!chain){
   if(state.pendingCombat?.focus!=="ai"||state.pendingCombat.passes.ai)return null;
-  return removalSpell(state)?.command??concealedDefender(state)??{type:"combat-pass",player:"ai"};
+  return removalSpell(state)?.command??concealedDefender(state)??defensiveTank(state)??{type:"combat-pass",player:"ai"};
  }
  if(chain.priority!=="ai")return null;
  const top=chain.items.at(-1);

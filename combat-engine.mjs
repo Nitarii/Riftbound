@@ -12,6 +12,7 @@ const words=c=>String(c?.text||"")
    " "+value.trim()+" ":" ")
  .replace(/[–—]/g," ");
 export function hasKeyword(card,keyword){
+ if(keyword==="Tank"&&card.counters?.tempTank)return true;
  return new RegExp("\\b"+keyword+"\\b","i").test(words(card));
 }
 function keywordValue(card,keyword){

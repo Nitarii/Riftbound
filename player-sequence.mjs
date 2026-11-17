@@ -142,8 +142,14 @@ export function planPlayerSequence(message,state,catalog=[]){
     c.owner==="human"&&c.zone==="battlefield"&&c.battlefield===index&&/^unit$/i.test(c.type)),movement.companion))
   return {commands:[],recognized:true,error:"Précise quelle unité alliée est déjà sur ce champ.",
    errorEN:"Specify the friendly unit already at this battlefield."};
- const chosen=pickReadyUnit(preview,movement.unit);
- if(chosen.error)return {commands:[],recognized:true,error:chosen.error,errorEN:chosen.error};
+ const singleName=preview.cards.some(c=>c.owner==="human"&&c.zone==="base"&&normalize(c.name)===strip(movement.unit));
+ const names=movement.kind==="conquer"&&!singleName?movement.unit.split(/\s+(?:et|and)\s+/):[movement.unit];
+ const chosen=names.map(name=>pickReadyUnit(preview,name));
+ const invalid=chosen.find(result=>result.error);
+ if(invalid)return {commands:[],recognized:true,error:invalid.error,errorEN:invalid.error};
+ const uids=chosen.map(({unit})=>unit.uid);
+ if(new Set(uids).size!==uids.length)return {commands:[],recognized:true,
+  error:"Choisis des attaquants distincts.",errorEN:"Choose distinct attackers."};
  if(preview.phase!=="Main"&&(!preview.turnActions?.channeled||!preview.turnActions?.drawn)){
   return {commands:[],recognized:true,error:"Annonce d'abord la canalisation et la pioche normales de ce tour.",
    errorEN:"First announce this turn's channeling and standard draw."};
@@ -154,10 +160,9 @@ export function planPlayerSequence(message,state,catalog=[]){
   if(preview.phase!=="Main")add({type:"phase",phase:"Main"});
   const defended=preview.cards.some(c=>c.zone==="battlefield"&&
    c.battlefield===index&&c.owner==="ai"&&/^unit$/i.test(c.type||""));
-  if(defended)add({type:"combat-attack",player:"human",
-   uids:[chosen.unit.uid],battlefield:index});
-  else add({type:"move",uid:chosen.unit.uid,zone:"battlefield",battlefield:index});
-  if(wantsEnd&&!preview.pendingCombat){
+  if(defended||uids.length>1)add({type:"combat-attack",player:"human",uids,battlefield:index});
+  else add({type:"move",uid:uids[0],zone:"battlefield",battlefield:index});
+  if(wantsEnd&&!preview.pendingCombat&&!preview.spellChain&&!preview.pendingEffects?.length){
    add({type:"phase",phase:"Ending"});
    if(!preview.pendingEffects?.length&&!preview.spellChain)add({type:"next-turn"});
   }

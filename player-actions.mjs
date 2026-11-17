@@ -2,7 +2,7 @@
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
-import {fieldMusicians,verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
+import {fieldMusicians,shenLegend,verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
@@ -110,6 +110,14 @@ export function spokenField(state,phrase){
 export function planTargetedPlay(text,state,catalog){
  // Preserve the target and battlefield as separate choices, with no model guessing.
  const board=state.cards.filter(c=>["base","battlefield"].includes(c.zone)&&/^unit$/i.test(c.type)&&!c.faceDown);
+ const shen=text.match(/^(?:j'(?:active|epuise)|je (?:active|epuise)|i (?:activate|exhaust)) (?:ma |la |my |the )?(?:legende (?:de )?|legend )?shen(?: eye of twilight)? (?:pour (?:donner|octroyer) tank a|sur|on) (.+)$/);
+ if(shen){
+  const source=state.cards.find(c=>c.zone==="legend"&&c.owner==="human"&&shenLegend(c));
+  const target=spokenPublicTarget(board.filter(c=>c.owner==="human"),shen[1]);
+  if(!source||!target)return fail("Indique une cible alliée en jeu pour la légende Shen.",
+   "Name a friendly unit in play for the Shen legend.");
+  return {type:"activate",player:"human",uid:source.uid,targetUid:target.uid};
+ }
  const hide=text.match(/^(?:je cache une carte|i hide a card)\s+(?:au|a|sur|at|on)\s+(.+?)(?:\s+(?:en recyclant|avec|using)\s+(?:une rune |a rune )?([a-z]+))?$/);
  if(hide){
   const field=spokenField(state,hide[1]);
@@ -240,8 +248,9 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,uids}],recognized:true};
   }
  }
- if(waiting?.trigger==="hidden-reveal"){
-  const reveal=text.match(/^(?:je revele|i reveal)\s+(.+)$/);
+ if(waiting?.trigger==="hidden-reveal"||waiting?.trigger==="pakaa-reveal"){
+  const topCard=waiting.trigger==="pakaa-reveal"&&text.match(/^(?:la carte du dessus est|le dessus est|c'est une unite c'est|c'est|the top card is)\s+(?:(?:le|la|the) )?(.+)$/);
+  const reveal=topCard||text.match(/^(?:je revele|i reveal)\s+(.+)$/);
   if(reveal){
    const card=findAnnouncedCard(catalog,reveal[1]);
    if(!card)return unknownCard(catalog,reveal[1]);
