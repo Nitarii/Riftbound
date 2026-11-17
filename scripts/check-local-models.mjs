@@ -77,24 +77,28 @@ async function checkTableQuestions(){
  apply({type:"combat-attack",player:"ai",battlefield:0,
   uids:state.cards.filter(c=>c.owner==="ai"&&c.zone==="base").map(c=>c.uid)});
  apply({type:"combat-pass",player:"ai"});
- let answer,proposalTried=false;
+ let answer,proposalTried=false,requests=0;
  const opponent=createIntegratedAI({userData:scratch,getState:()=>state,
   applyBatch:()=>{proposalTried=true;throw Error("Une question ne doit jamais muter le plateau.");},
   sendMessage:text=>answer?.(text),getMessages:()=>({session:"qwen-report-fixture",messages:[]}),
   getCatalog:async()=>[],
-  fetchImpl:(url,options)=>fetch(origin+new URL(url).pathname,options)
+  fetchImpl:(url,options)=>{
+   requests++;
+   return fetch(origin+new URL(url).pathname,options);
+  }
  });
  opponent.configure({provider:"free",model:modelId,enabled:true});
- const ask=async(label,question,pattern)=>{
-  const before=state.revision,begin=performance.now();
+ const ask=async(label,question,pattern,source="engine")=>{
+  const before=state.revision,beforeRequests=requests,begin=performance.now();
   const text=await new Promise((resolve,reject)=>{
-   const timer=setTimeout(()=>reject(Error("Qwen n’a pas répondu à "+label)),23000);
+   const timer=setTimeout(()=>reject(Error("Aucune réponse à "+label)),23000);
    answer=reply=>{clearTimeout(timer);resolve(reply);};
    opponent.onHumanMessage(question);
   });
-  console.log(JSON.stringify({qwen:modelId,scenario:label,replyMs:Math.round(performance.now()-begin),text}));
-  if(state.revision!==before||proposalTried||!pattern.test(text))
-   throw Error("Réponse Qwen non conforme pour "+label);
+  const actualSource=requests===beforeRequests?"engine":"qwen";
+  console.log(JSON.stringify({qwen:modelId,source:actualSource,scenario:label,replyMs:Math.round(performance.now()-begin),text}));
+  if(state.revision!==before||proposalTried||actualSource!==source||!pattern.test(text))
+   throw Error("Réponse non conforme pour "+label);
  };
  await ask("confrontation-en-cours","Quelle est la force provisoire en attaque, puis en défense ?",
   /\b9\b[^\n]*\b1\b/);
@@ -102,6 +106,8 @@ async function checkTableQuestions(){
  apply({type:"next-turn"});
  await ask("combat-resolu","Quels étaient les totaux d’attaque puis de défense au dernier combat ?",
   /\b9\b[^\n]*\b1\b/);
+ await ask("priorite","Comment fonctionne la priorité quand un sort est sur la chaîne ?",
+  /pass|r[ée]action/i,"qwen");
 }
 
 if(wavArg){

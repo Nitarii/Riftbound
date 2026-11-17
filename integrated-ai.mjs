@@ -41,18 +41,51 @@ export function validateAIConfig(input,previous={}){
   ...(provider==="free"&&input.rulesOnly===true?{rulesOnly:true}:{})};
 }
 const shortCard=c=>c?{code:c.code,name:c.name,type:c.type}:null;
-export function modelBoardState(state){
+function currentConfrontation(state){
  const fight=state.pendingCombat;
+ if(!fight)return null;
  const preview=fight?.kind==="combat"?previewCombat(state,fight.battlefield,fight.attacker,fight.orders):null;
+ return {battlefield:state.battlefields[fight.battlefield]?.card?.name,
+  kind:fight.kind,attacker:fight.attacker,focus:fight.focus,passes:fight.passes,
+  ...(preview?.ready&&preview.attackers.length&&preview.defenders.length?
+   {attackMight:preview.attackingMight,defenseMight:preview.defendingMight}:{})};
+}
+function combatTotalsReply(text,state){
+ if(!/^(?:quel(?:le)?s?\b|combien\b|what\b|how much\b|can you (?:tell|give)\b|(?:tu peux|peux-tu) (?:dire|donner|me dire|me donner)\b)/.test(text)||
+    !/\b(?:force|forces|might|total|totaux|totals|strength|puissance)\b/.test(text)||
+    !/\b(?:attaque|defense|combat|confrontation|attack|showdown|defence|fight)\b/.test(text)||
+    /\b(?:si|if|apres que|after i)\b/.test(text))return "";
+ const asksBoth=/\b(?:attaque|attack)\b/.test(text)&&/\b(?:defense|defence)\b/.test(text);
+ if(!asksBoth&&!/\b(?:total|totaux|totals)\b|\b(?:force|forces|might|strength) (?:du|de la|of the|in the) (?:combat|confrontation|fight|showdown)\b/.test(text))
+  return "";
+ const past=/\b(?:dernier combat|combat precedent|combat resolu|etai(?:en)?t|avaient|last (?:fight|combat)|previous (?:fight|combat)|were)\b/.test(text);
+ const english=/^(?:what|how much|can you)\b/.test(text);
+ const current=past?null:currentConfrontation(state);
+ if(current){
+  if(!Number.isFinite(current.attackMight)||!Number.isFinite(current.defenseMight))
+   return english?"There is no combat damage total yet at "+current.battlefield+".":
+    "Il n’y a pas encore de total de combat sur "+current.battlefield+".";
+  return english?"At "+current.battlefield+", the attack is at "+current.attackMight+
+   " and the defense is at "+current.defenseMight+" before reactions.":
+   "Sur "+current.battlefield+", l’attaque est à "+current.attackMight+
+   " et la défense à "+current.defenseMight+" avant les réactions.";
+ }
+ const last=state.lastCombat;
+ if(!last)return english?"The board has no recorded combat.":"Le plateau ne contient aucun combat résolu.";
+ if(!last.exchanged)return english?"The last combat at "+last.battlefield+" had no combat damage step.":
+  "Le dernier combat sur "+last.battlefield+" s’est terminé sans échange de dégâts.";
+ return english?"In the last combat at "+last.battlefield+", the attack was "+last.attackingMight+
+  " and the defense was "+last.defendingMight+".":
+  "Au dernier combat sur "+last.battlefield+", l’attaque était à "+last.attackingMight+
+  " et la défense à "+last.defendingMight+".";
+}
+export function modelBoardState(state){
  return {
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
   firstPlayer:state.firstPlayer,turnActions:state.turnActions,pendingEffects:(state.pendingEffects||[]).slice(0,5),
   spellChain:state.spellChain||null,
   delayedEnding:state.delayedEnding||[],
-  confrontation:fight?{battlefield:state.battlefields[fight.battlefield]?.card?.name,
-   kind:fight.kind,attacker:fight.attacker,focus:fight.focus,passes:fight.passes,
-   ...(preview?.ready&&preview.attackers.length&&preview.defenders.length?
-    {attackMight:preview.attackingMight,defenseMight:preview.defendingMight}:{})}:null,
+  confrontation:currentConfrontation(state),
   lastResolvedCombat:state.lastCombat||null,
   started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
@@ -501,6 +534,12 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }
  function onHumanMessage(text,{actionApplied=false}={}){
   if(!config?.enabled)return;
+  const exactCombatReply=actionApplied?"":combatTotalsReply(normalizePlayerAnnouncement(text),getState());
+  if(exactCombatReply){
+   sendMessage(exactCombatReply);
+   advanceTurnIfAI();
+   return;
+  }
   // A player can finish their turn by voice, text, or a board button.
   // Do not enqueue the AI's turn behind any pending inference call.
   if(advanceTurnIfAI())return;

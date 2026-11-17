@@ -143,6 +143,13 @@ try{
  const burned=opening.cards.find(c=>c.owner==="ai"&&c.zone==="trash");
  assert.ok(burned,"Blade Twirler milled a card face up");
  assert.equal(opening.pendingCombat.focus,"human");
+ assert.equal((await request("/api/ai/rules/activate",{})).value.rulesOnly,true);
+ const totals=await request("/api/messages",{text:"Quelle est la force provisoire en attaque et en défense ?"});
+ await waitForAnnouncement(totals.value.message.id);
+ const replies=(await request("/api/messages?after="+totals.value.message.id)).value.messages;
+ assert.ok(replies.some(message=>message.role==="ai"&&/9.*1.*avant les réactions/.test(message.text)));
+ assert.equal((await request("/api/state")).value.state.revision,opening.revision);
+ assert.equal((await request("/api/ai/disable",{})).status,200);
  const soulspinner={...card("Soulspinner"),code:"VEN-123",energy:3};
  await apply({type:"play-physical",ambush:true,card:soulspinner,battlefield:0});
  assert.equal(previewCombat(state,0,"ai").defendingMight,7);
