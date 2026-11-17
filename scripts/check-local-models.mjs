@@ -5,7 +5,8 @@ import {promisify} from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {audioToWav} from "../local-voice.mjs";
-import {extractJSON} from "../integrated-ai.mjs";
+import {createIntegratedAI,extractJSON} from "../integrated-ai.mjs";
+import {applyCommand,createState} from "../core.mjs";
 import {llamaServerArgs,ADVANCED_LOCAL_MODEL,DEFAULT_LOCAL_MODEL,LOCAL_MODELS} from "../local-ai-profiles.mjs";
 
 const useCPU=process.argv.includes("--cpu");
@@ -54,10 +55,53 @@ try{
  qwenTime=Math.round(performance.now()-t);
  console.log(JSON.stringify({qwen:modelId,backend,coldMs,decisionMs:qwenTime,chosen,
   generatedTokens:result.usage?.completion_tokens}));
+ if(!useCPU)await checkTableQuestions();
 }finally{
  if(child.exitCode===null)child.kill();
  try{await stopped;}catch{}
  await log.close();
+}
+
+async function checkTableQuestions(){
+ const scratch=await fs.mkdtemp(path.join(out,"grounded-qwen-"));
+ const card=(name,type="Unit",might=0)=>({code:name,name,type,energy:0,might});
+ let state=createState({seed:17});
+ const apply=command=>{state=applyCommand(state,command);};
+ apply({type:"setup-human",legend:card("Shen","Legend"),champion:card("Chosen Shen"),
+  battlefield:card("Grove","Battlefield")});
+ apply({type:"start",player:"ai"});
+ apply({type:"phase",phase:"Main"});
+ apply({type:"add",player:"human",card:card("Disciple test","Unit",1),zone:"battlefield",battlefield:0});
+ apply({type:"add",player:"ai",card:card("Blade test","Unit",4),zone:"base"});
+ apply({type:"add",player:"ai",card:card("Assassin test","Unit",5),zone:"base"});
+ apply({type:"combat-attack",player:"ai",battlefield:0,
+  uids:state.cards.filter(c=>c.owner==="ai"&&c.zone==="base").map(c=>c.uid)});
+ apply({type:"combat-pass",player:"ai"});
+ let answer,proposalTried=false;
+ const opponent=createIntegratedAI({userData:scratch,getState:()=>state,
+  applyBatch:()=>{proposalTried=true;throw Error("Une question ne doit jamais muter le plateau.");},
+  sendMessage:text=>answer?.(text),getMessages:()=>({session:"qwen-report-fixture",messages:[]}),
+  getCatalog:async()=>[],
+  fetchImpl:(url,options)=>fetch(origin+new URL(url).pathname,options)
+ });
+ opponent.configure({provider:"free",model:modelId,enabled:true});
+ const ask=async(label,question,pattern)=>{
+  const before=state.revision,begin=performance.now();
+  const text=await new Promise((resolve,reject)=>{
+   const timer=setTimeout(()=>reject(Error("Qwen n’a pas répondu à "+label)),23000);
+   answer=reply=>{clearTimeout(timer);resolve(reply);};
+   opponent.onHumanMessage(question);
+  });
+  console.log(JSON.stringify({qwen:modelId,scenario:label,replyMs:Math.round(performance.now()-begin),text}));
+  if(state.revision!==before||proposalTried||!pattern.test(text))
+   throw Error("Réponse Qwen non conforme pour "+label);
+ };
+ await ask("confrontation-en-cours","Quelle est la force provisoire en attaque, puis en défense ?",
+  /\b9\b[^\n]*\b1\b/);
+ apply({type:"combat-pass",player:"human"});
+ apply({type:"next-turn"});
+ await ask("combat-resolu","Quels étaient les totaux d’attaque puis de défense au dernier combat ?",
+  /\b9\b[^\n]*\b1\b/);
 }
 
 if(wavArg){

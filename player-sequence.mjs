@@ -38,6 +38,8 @@ function pickReadyUnit(state,spoken){
 const endTurn=/\b(?:termine|finis|passe|end|finish|pass)\s+(?:(?:mon|my|le|the)\s+)?(?:tour|turn)\b|\b(?:fin de mon tour|my turn is over)\b/;
 function extractMovement(text){
  let t=text.replace(endTurn," ").replace(/\b(?:et|and|puis|then)\s+(?:je|i)\s*$/," ").trim();
+ const corrected=t.match(/^(?:je )?(?:mets|deplace|pose|envoie)\s+(.+?)\s+en base\s+(?:euh\s+)?pardon\s+(?:avec\s+(.+?)\s+)?(?:sur|au|vers)\s+(.+)$/);
+ if(corrected)return {full:t,unit:corrected[1],companion:corrected[2],field:corrected[3]};
  // "je conquiers le Grove avec mon Loyal Poro"
  const conquer=/\b(?:conquiers|conquer|conquers|capture|captures|prends|take|attaque|attack|controle|control)\s+(?:(?:le|la|the|mon|my)\s+)?(.+?)\s+(?:avec|using|with)\s+(?:(?:mon|my|ma|le|la|the|un|une)\s+)?(.+?)\s*$/;
  let m=t.match(conquer);
@@ -74,7 +76,23 @@ function planBaseSequence(message,state,catalog){
  return {commands,recognized:commands.length>0,summary:preview.message};
 }
 export function planPlayerSequence(message,state,catalog=[]){
- const combat= combatVoicePlan(message,state);
+ // A correction in one final utterance replaces the pass before any command runs.
+ const correctedReaction=normalizePlayerAnnouncement(message).match(
+  /^(?:je passe|i pass)(?: (?:ma |my |la |the )?(?:reaction|priorite|priority))? (?:non je reagis|no i react)(?: (.+))?$/);
+ if(correctedReaction&&state?.started&&(state.spellChain||state.pendingCombat)&&!String(message).includes("?")){
+  const priority=state.spellChain?.priority??state.pendingCombat?.focus??"human";
+  if(priority!=="human"||!state.spellChain&&state.pendingCombat?.passes.human)
+   return {commands:[],recognized:true,error:"La focalisation est passée à l’adversaire.",
+    errorEN:"The opponent now has priority."};
+  if(!correctedReaction[1])return {commands:[],recognized:true,
+   prompt:"Ta fenêtre de réaction reste ouverte. Quelle carte veux-tu jouer ?",
+   promptEN:"Your reaction window stays open. Which card do you want to play?"};
+  const replacement=correctedReaction[1]
+   .replace(/^je vais joue\b/,"je joue").replace(/\b(?:euh|heu|uh|um)\s+/g,"")
+   .replace(/\s+(?:resous|resolve)$/,"").trim();
+  return planPlayerSequence(replacement,state,catalog);
+ }
+ const combat=combatVoicePlan(message,state);
  if(combat)return combat;
  const text=normalizePlayerAnnouncement(message).slice(0,1200);
  if(!text||!state?.started)return {commands:[],recognized:false};
@@ -82,12 +100,15 @@ export function planPlayerSequence(message,state,catalog=[]){
  if(/[?]/.test(String(message))||/^(?:si je|if i|can i|could i|should i|puis je|je peux|peux je|est ce que|comment|how|pourquoi|why)\b/.test(text)||
     /\b(?:ne (?:veux|vais|deplace|joue) pas|je (?:ne )?veux pas|do not|don't)\b/.test(text))
   return {commands:[],recognized:false};
- const compound=text.match(/^(.+?)\s+(?:et|puis)\s+avec\s+(.+?)\s+j'\s*attaque\s+(.+)$/);
+ const explicitAttacker=text.match(/^(?<play>.+?)\s+(?:et|puis)\s+avec\s+(?<attacker>.+?)\s+j'\s*attaque\s+(?<field>.+)$/);
+ const musicians=text.match(/^(?<play>(?:le bonus de|je joue) field musicians sur .+?) puis j'\s*attaque\s+(?<field>.+)$/);
+ const compound=(explicitAttacker||musicians)?.groups;
  if(compound){
-  const first=planTargetedPlay(compound[1],state,catalog);
+  const first=planTargetedPlay(compound.play,state,catalog);
   if(first?.error)return first;
-  if(first?.type==="cast"){
-   const field=pickField(state,compound[3]),selected=pickReadyUnit(state,compound[2]);
+  if(first?.type==="cast"||first?.type==="play-physical"&&first.targetUid){
+   const target=state.cards.find(c=>c.uid===first.targetUid);
+   const field=pickField(state,compound.field),selected=pickReadyUnit(state,compound.attacker||target?.name);
    if(field===null||selected.error)return {recognized:true,commands:[],
     error:selected.error||"Précise le champ à attaquer.",errorEN:"Specify the ready attacker and battlefield."};
    try{
@@ -117,6 +138,10 @@ export function planPlayerSequence(message,state,catalog=[]){
  const index=pickField(preview,movement.field);
  if(index===null)return {commands:[],recognized:true,error:"Champ de bataille ambigu : précise Grove ou le nom de l'autre terrain.",
   errorEN:"Ambiguous battlefield: specify the actual battlefield name."};
+ if(movement.companion&&!spokenPublicTarget(preview.cards.filter(c=>
+    c.owner==="human"&&c.zone==="battlefield"&&c.battlefield===index&&/^unit$/i.test(c.type)),movement.companion))
+  return {commands:[],recognized:true,error:"Précise quelle unité alliée est déjà sur ce champ.",
+   errorEN:"Specify the friendly unit already at this battlefield."};
  const chosen=pickReadyUnit(preview,movement.unit);
  if(chosen.error)return {commands:[],recognized:true,error:chosen.error,errorEN:chosen.error};
  if(preview.phase!=="Main"&&(!preview.turnActions?.channeled||!preview.turnActions?.drawn)){

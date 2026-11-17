@@ -11,6 +11,7 @@ import {resolvePrecon} from "../precons.mjs";
 
 const count=Math.max(1,Math.min(2000,Number(process.argv[2])||100));
 const source=process.argv[3]?decodeCards(JSON.parse(fs.readFileSync(process.argv[3],"utf8"))):null;
+const opponent=process.argv[4]||"zed";
 const modes=["passif","occupation","pression"];
 const results=Object.fromEntries(modes.map(mode=>[mode,{total:0,finished:0,ai:0,human:0,
  stalls:0,invalid:0,decisions:0,decisionMs:0,spellResolutions:0,blockedBy:{},examples:[]}]));
@@ -34,7 +35,7 @@ function check(state){
 function game(seed,mode,metrics){
  const random=()=>((seed*2654435761>>>0)%829)/829;
  const human=source?resolvePrecon(source,"shen",random):synthetic("Shen",seed,"Order");
- const ai=source?resolvePrecon(source,"zed",random):synthetic("Zed",seed+1,"Fury");
+ const ai=source?resolvePrecon(source,opponent,random):synthetic("Zed",seed+1,"Fury");
  const follow=human.main.filter((c,i)=>!source||i!==human.main.findIndex(a=>a.code===human.champion.code));
  const hand=follow.slice(0,4);
  let cursor=hand.length,runeCursor=0;
@@ -123,5 +124,5 @@ for(const mode of modes){
  metrics.avgDecisionMs=Number((metrics.decisionMs/Math.max(1,metrics.decisions)).toFixed(2));
  delete metrics.decisionMs;
 }
-console.log(JSON.stringify({decks:source?"Shen/Zed Vendetta":"fixtures synthétiques",results},null,2));
+console.log(JSON.stringify({decks:source?"Shen / "+opponent:"fixtures synthétiques",results},null,2));
 if(Object.values(results).some(r=>r.invalid||!source&&r.stalls))process.exitCode=1;

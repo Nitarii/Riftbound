@@ -175,10 +175,10 @@ function renderCombatPanel(){
  if(chain){
   panel.hidden=false;attackBtn.hidden=true;
   $("combat-choices").hidden=true;
-  $("combat-pass-button").hidden=chain.priority!=="human";
+  $("combat-pass-button").hidden=chain.priority!=="human"||Boolean(state.pendingEffects?.length);
   $("combat-effects-button").hidden=true;
   $("combat-order-button").hidden=true;
-  $("combat-title").textContent=uiLanguage==="en"?"SPELL CHAIN":"CHAÎNE DE SORTS";
+  $("combat-title").textContent=uiLanguage==="en"?"CHAIN":"CHAÎNE";
   $("combat-details").textContent=chain.priority==="human"?
    "À toi : joue une Réaction ou passe la priorité.":"Priorité à l’IA.";
   $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
@@ -302,16 +302,18 @@ function renderPendingEffects(){
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
   (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
  $("pending-effect-description").textContent=pending.text;
- $("pending-effect-confirm").textContent=pending.trigger==="hidden-reveal"?"Indiquer la carte":"Confirmer l’effet";
- $("pending-effect-reason").textContent=pending.reason+(pending.trigger==="hidden-reveal"?
-  " · Annonce « Je révèle » suivi du nom de la carte.":
+ const announce={"hidden-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
+ $("pending-effect-confirm").textContent=announce?"Indiquer la carte":"Confirmer l’effet";
+ $("pending-effect-reason").textContent=pending.reason+(announce?
+  " · Annonce « "+announce+" » suivi du nom de la carte.":
   " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
- if(pending.trigger==="hidden-reveal"){
-  $("notes").value="Je révèle ";
+ const announce={"hidden-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
+ if(announce){
+  $("notes").value=announce+" ";
   $("notes").focus();
   return;
  }
@@ -674,12 +676,14 @@ async function sendChatMessage(message){
  const text=String(message||"").trim();
  if(!text)return false;
  if(!relay){notify("Connecte d'abord le serveur pour transmettre ton message à l'IA.",true);return false;}
+ const session=relay,requestId=crypto.randomUUID();
  try{
-  const response=await fetch(relay.url+"/api/messages",{
-    ...localFetchOptions(relay.url),method:"POST",
-    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
-    body:JSON.stringify({text})
+  const post=()=>fetch(session.url+"/api/messages",{
+    ...localFetchOptions(session.url),method:"POST",
+    headers:{"Authorization":"Bearer "+session.token,"Content-Type":"application/json"},
+    body:JSON.stringify({text,requestId})
   });
+  const response=await post().catch(error=>{if(relay!==session)throw error;return post();});
   const data=await response.json();
   if(!response.ok)throw Error(data.error||"Message refusé");
   pendingChatResponse=Boolean(integratedAIStatus?.enabled||remoteSession?.url);

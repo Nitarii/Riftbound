@@ -149,8 +149,10 @@ try{
  await ready();
  assert.equal((await request("/api/state")).value.state.revision,abandonedRevision);
  assert.equal((await cmd({type:"rewind-combat"},opening.revision)).status,400);
- const rewind=await request("/api/messages",{text:"Non, on annulait ça. Reviens au moment où tu m’attaques."});
+ const announcement={text:"Non, on annulait ça. Reviens au moment où tu m’attaques.",requestId:crypto.randomUUID()};
+ const rewind=await request("/api/messages",announcement);
  assert.equal(rewind.status,200);
+ assert.equal((await request("/api/messages",announcement)).value.message.id,rewind.value.message.id);
  let message;
  for(let i=0;i<30;i++){
   const {value:thread}=await request("/api/messages");
@@ -173,6 +175,12 @@ try{
  assert.equal(state.cards.filter(c=>c.owner==="ai"&&c.zone==="trash")[0].uid,burned.uid);
  assert.equal(previewCombat(state,0,"ai").attackingMight,9);
  assert.equal(previewCombat(state,0,"ai").defendingMight,1);
+ await stop();
+ launch();
+ await ready();
+ assert.equal((await request("/api/messages",announcement)).value.message.id,rewind.value.message.id);
+ assert.equal((await request("/api/state")).value.state.revision,state.revision);
+ assert.equal((await request("/api/messages",{...announcement,text:"Je passe."})).status,400);
  await apply({type:"combat-pass",player:"human"});
  await apply({type:"next-turn"});
  assert.equal((await cmd({type:"rewind-combat"},state.revision)).status,400);

@@ -359,8 +359,10 @@ if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
 let pendingHumanAction=null;
 let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
-const receiveHumanMessage=text=>{
- const entry=conversation.post("human",text,{trackTable:true});
+const receiveHumanMessage=(text,requestId)=>{
+ const previous=conversation.findHumanRequest(requestId,text);
+ if(previous)return previous;
+ const entry=conversation.post("human",text,{trackTable:true,requestId});
  const receivedRevision=state.revision;
  const receivedSession=conversation.list(0).session;
  let outcome="delegated";
@@ -450,6 +452,11 @@ const receiveHumanMessage=text=>{
    receiveAgentMessage(english?plan.errorEN:plan.error);
    return;
   }
+  if(plan.prompt){
+   outcome="clarification";
+   receiveAgentMessage(english?plan.promptEN:plan.prompt);
+   return;
+  }
   if(plan.recognized&&!plan.commands?.length){
    outcome="unchanged";
    receiveAgentMessage(english?"Already reflected on the board.":"Cette action est déjà prise en compte sur le plateau.");
@@ -474,7 +481,7 @@ const receiveHumanMessage=text=>{
     if(plan.afterChain)pendingCompound={action:plan.afterChain,session:conversation.list(0).session};
     applyAgentBatch(plan.commands,revision,"announcement");
     outcome="applied";
-    receiveAgentMessage(state.message+(plan.afterChain?" · Le déplacement suivra la résolution du sort.":""));
+    receiveAgentMessage(state.message+(plan.afterChain?" · L’attaque suivra la résolution de la chaîne.":""));
    }
    catch(e){
     outcome="rejected";
@@ -639,7 +646,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/messages"){
     try{
       const message=await body(req);
-      const entry=receiveHumanMessage(message.text);
+      const entry=receiveHumanMessage(message.text,message.requestId);
       json(res,200,{ok:true,message:entry},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }

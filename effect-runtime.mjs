@@ -97,7 +97,7 @@ function buildSteps(state,source,ability,actor,choices){
    if(!uids.every(uid=>state.cards.some(c=>c.uid===uid&&c.owner===actor&&
     c.zone==="hand"&&c.uid!==source.uid)))
     return {reason:"Défausse invalide : carte absente de la main de l'IA."};
-   detail.uids=uids;discarded+=step.count;
+   detail.uids=uids;discarded+=count;
   }
   if(step.kind==="ready-friendly"){
    const pool=state.cards.filter(c=>unit(c)&&c.owner===actor&&c.uid!==source.uid&&

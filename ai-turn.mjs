@@ -70,16 +70,21 @@ export function planAIChainAction(state){
 function removalSpell(state){
  const spells=[...own(state,"hand"),...own(state,"trash")].filter(c=>{
   const rule=verifiedSpell(c);
-  return (rule?.damage||rule?.killAtMost!==undefined)&&(c.zone==="hand"||rule.flow);
+  return (rule?.damage||rule?.damageFromDiscard||rule?.returnToBase||rule?.killAtMost!==undefined)&&
+   (c.zone==="hand"||rule.flow);
  });
  let best=null;
  for(const spell of spells){
   const rule=verifiedSpell(spell);
   const discard=rule.discardDamage?chooseRequiredDiscards(state,spell.uid,1)?.[0]:null;
+  const resolutionDiscard=rule.damageFromDiscard&&
+   state.cards.find(c=>c.uid===chooseRequiredDiscards(state,spell.uid,1)?.[0]);
   for(const unit of state.cards.filter(c=>c.owner==="human"&&c.zone==="battlefield"&&isUnit(c)&&!c.faceDown)){
    const might=effectiveMight(unit,"none",state);
    if(might==null)continue;
    const need=might-(unit.damage||0)+(unit.counters.preventDamage||0);
+   if(rule.damageFromDiscard&&(!resolutionDiscard||resolutionDiscard.energy<need))continue;
+   if(rule.returnToBase&&/vilemaw.s lair|antre de vilemaw/i.test(state.battlefields[unit.battlefield]?.card?.name||""))continue;
    const after=rule.disempower?{...unit,counters:{...unit.counters,
     empowered:Math.max(0,(unit.counters?.empowered||0)-1)}}:unit;
    const needsDiscard=rule.damage!==undefined&&need>rule.damage;
@@ -89,7 +94,7 @@ function removalSpell(state){
     ...(spell.zone==="trash"?{flow:true}:{}),...(needsDiscard?{discardUid:discard}:{})};
    try{
     applyCommand(state,command);
-    const value=might*2-(command.discardUid?3:0);
+    const value=might*2-(command.discardUid||resolutionDiscard?3:0)-(rule.returnToBase?2:0);
     if(!best||value>best.value)best={command,value,name:spell.name,target:unit.name};
    }catch{}
   }
@@ -295,7 +300,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    moveUncontested();
    if(interrupted())break;
   }
-  if(view.finished)return partial();
+  if(view.finished||view.spellChain)return partial();
   if(!view.pendingCombat&&!view.pendingEffects?.length)attackDefended();
   if(!interrupted()){
    const spell=readyForConquest(view);

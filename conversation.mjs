@@ -28,14 +28,23 @@ export function createConversation({file=null}={}){
    fs.renameSync(temp,file);
   }finally{try{fs.unlinkSync(temp);}catch{}}
  }
- function post(role,text,{trackTable=false}={}){
+ function post(role,text,{trackTable=false,requestId}={}){
   if(role!=="human"&&role!=="ai")throw Error("Émetteur non autorisé");
   if(typeof text!=="string"||!text.trim()||text.length>TEXT_LIMIT)
    throw Error("Message obligatoire de 1 à "+TEXT_LIMIT+" caractères");
+  if(requestId!==undefined&&(role!=="human"||typeof requestId!=="string"||!/^[A-Za-z0-9_-]{8,80}$/.test(requestId)))
+   throw Error("Identifiant d’annonce invalide.");
   const entry={id:++seq,role,text:text.trim(),at:new Date().toISOString(),
+   ...(requestId?{requestId}:{}),
    ...(role==="human"&&trackTable?{table:{status:"pending"}}:{})};
   entries.push(entry);entries=entries.slice(-LIMIT);save();
   return entry;
+ }
+ function findHumanRequest(requestId,text){
+  if(!requestId)return null;
+  const entry=entries.find(m=>m.role==="human"&&m.requestId===requestId);
+  if(entry&&entry.text!==String(text??"").trim())throw Error("Identifiant déjà utilisé pour une autre annonce.");
+  return entry||null;
  }
  function markTable(id,expectedSession,table){
   if(session!==expectedSession)return;
@@ -50,11 +59,11 @@ export function createConversation({file=null}={}){
   if(agent){
    const unresolved=messages.findIndex(m=>m.table?.status==="pending");
    if(unresolved>=0)messages=messages.slice(0,unresolved);
-   messages=messages.slice(0,HISTORY_BATCH);
+   messages=messages.slice(0,HISTORY_BATCH).map(({requestId,...entry})=>entry);
   }else messages=messages.slice(-HISTORY_BATCH);
   return {messages,lastId:agent?(messages.at(-1)?.id??cursor):seq,session,agentSeenAt:lastAgentPoll||null};
  }
  function markAgentPoll(){lastAgentPoll=Date.now();}
  function clear(){entries=[];seq=0;lastAgentPoll=0;session=crypto.randomUUID();save();}
- return {post,list,markTable,markAgentPoll,clear};
+ return {post,findHumanRequest,list,markTable,markAgentPoll,clear};
 }

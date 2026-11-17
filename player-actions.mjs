@@ -2,7 +2,7 @@
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
-import {verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
+import {fieldMusicians,verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
@@ -134,10 +134,13 @@ export function planTargetedPlay(text,state,catalog){
   if(!slot)return fail("Précise le champ de ta carte cachée.","Specify the battlefield of your hidden card.");
   const card=findAnnouncedCard(catalog,hiddenPlay[1]);
   if(!card)return unknownCard(catalog,hiddenPlay[1]);
-  if(!verifiedSpell(card))return {type:"play-hidden",player:"human",uid:slot.uid,card};
-  const target=hiddenPlay[3]&&spokenPublicTarget(board.filter(c=>c.owner==="human"),hiddenPlay[3]);
-  if(!target)return fail("Indique l’unité à déplacer vers le champ de ton sort caché.",
-   "Name the unit moving to the battlefield of your hidden spell.");
+  const rule=verifiedSpell(card);
+  if(!rule)return {type:"play-hidden",player:"human",uid:slot.uid,card};
+  const targets=rule.returnToBase?board.filter(c=>c.zone==="battlefield"&&c.battlefield===field):
+   board.filter(c=>c.owner==="human");
+  const target=hiddenPlay[3]&&spokenPublicTarget(targets,hiddenPlay[3]);
+  if(!target)return fail("Indique l’unité ciblée par le sort caché.",
+   "Name the unit targeted by the hidden spell.");
   return {type:"cast",player:"human",uid:slot.uid,hidden:true,battlefield:field,targetUid:target.uid,card};
  }
  const flow=text.match(/^(?:je (?:joue|lance)|i (?:play|cast))\s+(.+?)\s+(?:depuis (?:ma|la) defausse|par flux|from (?:my|the) trash|with flow)\s+(?:sur|on)\s+(.+)$/);
@@ -166,7 +169,7 @@ export function planTargetedPlay(text,state,catalog){
    "Specify the supported Ambush unit and the battlefield.");
   return {type:"play-physical",card,battlefield:field,ambush:true};
  }
- const play=text.match(/^(?:je joue|je pose|i play)\s+(.+?)(?:\s+que je mets)?\s+(?:sur|cible|targeting|on)\s+(.+?)(?:\s+pour .*runes?)?$/);
+ const play=text.match(/^(?:je joue|je pose|i play|le bonus de)\s+(.+?)(?:\s+que je mets)?\s+(?:sur|cible|targeting|on)\s+(.+?)(?:\s+pour .*runes?)?$/);
  if(!play){
   const threatening=state.spellChain?.items.at(-1);
   const target=threatening?.damage>0&&board.find(c=>c.uid===threatening.targetUid&&c.owner==="human");
@@ -184,6 +187,8 @@ export function planTargetedPlay(text,state,catalog){
     "Specify the unit targeted by "+card.name+".");
   return {type:"cast",player:"human",card,targetUid:target.uid};
  }
+ if(fieldMusicians(card)&&target)return {type:"play-physical",card,targetUid:target.uid};
+ if(text.startsWith("le bonus de "))return null;
  const field=spokenField(state,play[2]);
  return field!==null?{type:"play-physical",card,battlefield:field}:null;
 }
@@ -222,7 +227,8 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};
   }
  }
- if(declaredDiscard&&waiting?.player==="human"&&waiting.choice?.kind==="discard-draw"){
+ if(declaredDiscard&&waiting?.player==="human"&&
+    (waiting.choice?.kind==="discard-draw"||waiting.trigger==="spell-discard")){
   const card=findAnnouncedCard(catalog,declaredDiscard[1]);
   if(!card)return unknownCard(catalog,declaredDiscard[1]);
   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};
@@ -246,9 +252,16 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    catch(error){return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);}
   }
  }
- const namedChannel=text.match(/\b(?:canalise|channel)\s+(.+)$/);
+ const correctedChannel=text.match(/^((?:je )?(?:canalise|channel))\s+.+?\s+(?:euh\s+)?(?:non|pardon)\s+(.+)$/);
+ const namedChannel=(correctedChannel?correctedChannel[1]+" "+correctedChannel[2]:text)
+  .match(/\b(?:canalise|channel)\s+(.+)$/);
  if(namedChannel){
-  const names=namedChannel[1].split(" ").filter(x=>Object.hasOwn(domainNames,x)).map(x=>domainNames[x]);
+  const singleDomain=namedChannel[1].match(new RegExp("^"+number+" (?:runes? )?(?:d'|de )?([a-z]+)$"));
+  if(singleDomain&&Object.hasOwn(domainNames,singleDomain[2])&&!(num(singleDomain[1])>=1&&num(singleDomain[1])<=3))
+   return fail("Indique un nombre de runes canalisées entre un et trois.","Name between one and three channeled runes.");
+  const names=singleDomain&&Object.hasOwn(domainNames,singleDomain[2])?
+   Array(num(singleDomain[1])).fill(domainNames[singleDomain[2]]):
+   namedChannel[1].split(" ").filter(x=>Object.hasOwn(domainNames,x)).map(x=>domainNames[x]);
   if(names.length){
    const unknown=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.code==="PHYSICAL-RUNE");
    const current=state.turnActions?.channeled||0;

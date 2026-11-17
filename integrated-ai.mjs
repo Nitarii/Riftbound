@@ -8,12 +8,15 @@ import {planSafeAITurn,planAutonomousAITurn,describeAITurn,enumerateAIAssaults,p
 import {ADVANCED_LOCAL_MODEL} from "./local-ai-profiles.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 import {allowPhysicalLocalCommand} from "./local-action-gate.mjs";
+import {previewCombat} from "./combat-engine.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
 const DEFAULT_MODELS={openai:"gpt-4.1-mini",ollama:"gpt-oss:20b",lmstudio:"local-model",free:LOCAL_AI_MODEL};
 const COMMANDS=new Set(["move","add","exhaust","exhaust-runes","ready","flip","damage","counter","score",
  "draw","channel","mulligan","phase","next-turn","note"]);
+const aiHasPriority=game=>Boolean(game?.started&&!game.finished&&
+ (game.spellChain?.priority??(game.pendingCombat?game.pendingCombat.focus??"human":game.active))==="ai");
 function providerURL(source){
  const url=new URL(String(source||""));
  if(url.protocol!=="https:"||url.username||url.password||url.search||url.hash||
@@ -39,10 +42,17 @@ export function validateAIConfig(input,previous={}){
 }
 const shortCard=c=>c?{code:c.code,name:c.name,type:c.type}:null;
 export function modelBoardState(state){
+ const fight=state.pendingCombat;
+ const preview=fight?.kind==="combat"?previewCombat(state,fight.battlefield,fight.attacker,fight.orders):null;
  return {
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
   firstPlayer:state.firstPlayer,turnActions:state.turnActions,pendingEffects:(state.pendingEffects||[]).slice(0,5),
   spellChain:state.spellChain||null,
+  confrontation:fight?{battlefield:state.battlefields[fight.battlefield]?.card?.name,
+   kind:fight.kind,attacker:fight.attacker,focus:fight.focus,passes:fight.passes,
+   ...(preview?.ready&&preview.attackers.length&&preview.defenders.length?
+    {attackMight:preview.attackingMight,defenseMight:preview.defendingMight}:{})}:null,
+  lastResolvedCombat:state.lastCombat||null,
   started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
    human:{legend:shortCard(state.players.human.legend),champion:shortCard(state.players.human.champion),
@@ -57,7 +67,7 @@ export function modelBoardState(state){
       {uid:c.uid,owner:c.owner,zone:c.zone,faceDown:true}:
       {uid:c.uid,owner:c.owner,zone:c.zone,battlefield:c.battlefield,
        code:c.code,name:c.name,type:c.type,
-       power:c.power,energy:c.energy,exhausted:c.exhausted,
+       power:c.power,energy:c.energy,might:c.might,exhausted:c.exhausted,attachedTo:c.attachedTo,
        damage:c.damage,counters:c.counters})
  };
 }
@@ -194,7 +204,7 @@ export const SYSTEM_PROMPT=[
 export const FREE_SYSTEM_PROMPT=[
  "You are a physical Riftbound opponent. Understand French, English, mixed language and typos. Never see or ask for the human's hidden hand.",
  "Board and card reference are facts. gameReference.rulebook.relevant gives relevant numbered rules from RUP5 FR (9 Oct 2026). Apply card-text priority and prohibitions. Never invent a card, UID, ability, payment or resolution. Cite a rule number for any rules explanation and ask if uncertain.",
- "Human commands were already applied by server. If board.active is ai, play your own turn using only real board.cards UIDs and valid commands. No repeated human actions.",
+ "Only the deterministic engine plays the AI turn. Report completed moves from confirmed board facts. A pending spell, confrontation, or announced intention is not a completed result. board.confrontation totals are provisional; board.lastResolvedCombat contains actual damage assignments. Never claim a new move has been applied.",
  "Return only a JSON object with reply (one natural short sentence in preferredReplyLanguage) and commands (array). No surrounding text or examples.",
  "Most actions are already handled by deterministic rules. Only if the human explicitly says to move, ready or exhaust a PUBLIC human card, you may propose one matching command with an existing UID. The message must name that card and a move must name the battlefield. Do not suggest scores, draws, resource payments or new cards. Be concise."
 ].join("\n");
@@ -266,9 +276,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  async function runAutonomousTurn(){
   if(autonomousRunning||!config?.enabled)return;
   const game=getState();
-  if(!game?.started||game.finished||
-     (game.spellChain?game.spellChain.priority!=="ai":
-      game.active!=="ai"&&game.pendingCombat?.focus!=="ai"))return;
+  if(!aiHasPriority(game))return;
   const session=getMessages(0).session;
   const key=session+":"+game.revision;
   if(lastAutonomousRevision===key)return;
@@ -293,10 +301,6 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      committed=true;
      if(config===own&&getMessages(0).session===session)sendMessage(updated?.message??getState().message);
     }
-    return;
-   }
-   if(game.pendingCombat){
-    sendMessage("Combat en cours : annonce une réaction ou passe la priorité pour le résoudre.");
     return;
    }
    const preferredAssault=await chooseAssault(game,own);
@@ -327,9 +331,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }
  function advanceTurnIfAI(){
   const game=getState();
-  if(!config?.enabled||!game?.started||game.finished||
-     (game.spellChain?game.spellChain.priority!=="ai":
-      game.active!=="ai"&&game.pendingCombat?.focus!=="ai"))return false;
+  if(!config?.enabled||!aiHasPriority(game))return false;
   // Stop a conversational response from holding up the turn and from
   // publishing obsolete information after the board has advanced.
   liveChatAbort?.abort();
@@ -342,6 +344,9 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
   try{
    const game=getState(),revision=game.revision;
    const stillCurrent=()=>getMessages(0).session===session&&config===own&&!!config.enabled;
+   const normalized=normalizePlayerAnnouncement(message);
+   const question=!actionApplied&&(/\?/.test(message)||
+    /^(?:pourquoi|combien|quelle? (?:est|force|regle)|quels? (?:sont|degats|effets)|comment|why|what|how)\b/.test(normalized));
    if(game.pendingEffects?.length){
     const pending=game.pendingEffects[0];
     const key=pending.id+":"+game.revision;
@@ -353,11 +358,11 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     }
     return;
    }
-   if(game.spellChain){
+   if(game.spellChain&&!question){
     if(stillCurrent()&&!actionApplied)sendMessage("La chaîne attend une Réaction ou un passage de priorité.");
     return;
    }
-   if(game.pendingCombat){
+   if(game.pendingCombat&&!question){
     if(stillCurrent()&&!actionApplied)sendMessage(
      "Confrontation en cours sur "+game.battlefields[game.pendingCombat.battlefield]?.card?.name+
      ". Utilise la priorité affichée pour annoncer une réaction ou passer."
@@ -366,7 +371,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    }
    // Even a previously queued conversation must not run a competing turn.
    // All AI moves pass through one revision-guarded deterministic runner.
-   if(game.started&&game.active==="ai"){advanceTurnIfAI();return;}
+   if(game.started&&game.active==="ai"&&advanceTurnIfAI())return;
    if(actionApplied&&game.started)return; // Physical action already applied.
    if(own.rulesOnly){
     if(stillCurrent())sendMessage("Le moteur de jeu est actif. Pour les réponses de conversation, active Qwen depuis le gestionnaire. État : "+game.message);
@@ -375,16 +380,18 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    let catalog=[];
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";
+   const template=free&&own.model===ADVANCED_LOCAL_MODEL?{chat_template_kwargs:{enable_thinking:false}}:{};
    const transcript=getMessages(0).messages.slice(-8)
     .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?450:1200)}));
    const payload={
     model:own.model,temperature:free?0.2:0.3,max_tokens:free?380:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
+    ...template,
     messages:[
      {role:"system",content:free?FREE_SYSTEM_PROMPT:SYSTEM_PROMPT},
      {role:"user",content:JSON.stringify({
       latestHumanMessage:message,
-      normalizedPlayerAnnouncement:normalizePlayerAnnouncement(message),
+      normalizedPlayerAnnouncement:normalized,
       preferredReplyLanguage:detectMessageLanguage(message),
       conversation:transcript,
       board:modelBoardState(game),
@@ -421,7 +428,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      })
     };
     response=await sendRequest({
-     model:own.model,temperature:0.2,max_tokens:240,
+     model:own.model,temperature:0.2,max_tokens:240,...template,
      messages:[{role:"system",content:FREE_SYSTEM_PROMPT},
       {role:"user",content:JSON.stringify(smallContext)}]
     });
@@ -432,34 +439,37 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    const parsed=extractJSON(packet?.choices?.[0]?.message?.content);
    if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error("Réponse IA mal formée.");
    let reply=String(parsed.reply||"").trim().slice(0,1200);
-   const proposed=Array.isArray(parsed.commands)?parsed.commands.slice(0,8)
-    .filter(cmd=>own.provider!=="free"||allowPhysicalLocalCommand(cmd,game,message)):[];
+   const proposed=Array.isArray(parsed.commands)?parsed.commands.slice(0,8):[];
    const commands=[],rejected=[];
    let preview=game;
    for(const command of proposed){
+    if(question||own.provider==="free"&&!allowPhysicalLocalCommand(command,game,message)){
+     rejected.push("Commande sans annonce de jeu correspondante");
+     continue;
+    }
     try{
      const checked=validateAgentCommands([command],preview,message,catalog);
      if(checked.length){commands.push(...checked);preview=applyCommand(preview,checked[0]);}
     }catch(e){rejected.push(String(e.message||e));}
    }
    const english=detectMessageLanguage(message)==="en";
-   let fallback=false;
    // A valid but incomplete note/phase is not a finished AI turn.
    // Finish only simple, verifiable actions without inventing card effects.
-   if(game.active==="ai"&&preview.active==="ai"){
+   if(!question&&!game.pendingCombat&&!game.spellChain&&game.active==="ai"&&preview.active==="ai"){
     const safe=planSafeAITurn(preview);
-    if(safe.length){commands.push(...safe);fallback=true;}
+    commands.push(...safe);
    }
    if(!stillCurrent())return;
    if(commands.length){
     try{await applyBatch(commands,revision);}
     catch(e){sendMessage((english?"Board unchanged: ":"Plateau inchangé : ")+String(e.message||e).slice(0,200));return;}
+    if(stillCurrent())sendMessage(getState().message||groundedReply("",commands,game,english));
+    return;
    }
-   if(fallback)reply=groundedReply("",commands,game,english);
-   else if(rejected.length){
+   if(rejected.length){
     // Never claim an invalid movement happened.
     reply=(english?"Some suggested moves were not executed: ":"Certains déplacements proposés n'ont pas été exécutés : ")+
-     [...new Set(rejected)].slice(0,2).join("; ")+(commands.length?"":"");
+     [...new Set(rejected)].slice(0,2).join(". ");
    }
    if(stillCurrent())sendMessage(groundedReply(reply,commands,game,english));
   }catch(e){
