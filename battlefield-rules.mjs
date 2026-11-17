@@ -1,6 +1,7 @@
+import {DUEL_RULES} from "./rules-compendium.mjs";
 // Conservative automatic Conquer/Hold scoring for an uncontested Duel field.
 // Never resolves combat or card abilities; opposing units block auto-control.
-export const DUEL_WIN_SCORE=8;
+export const DUEL_WIN_SCORE=DUEL_RULES.victoryScore;
 export function battlefieldController(state,index){
  const owners=new Set((state?.cards||[]).filter(c=>c.zone==="battlefield"&&
   c.battlefield===index&&/unit/i.test(c.type||"")).map(c=>c.owner));
