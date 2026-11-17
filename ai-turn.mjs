@@ -1,3 +1,4 @@
+import {duelOpeningRuneCount} from "./rules-compendium.mjs";
 // Deterministic, cost-checked basic Duel turn for the local AI.
 // The local language model handles conversation, NOT unchecked game mutations.
 import {applyCommand} from "./core.mjs";
@@ -50,8 +51,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5}={}){
  const partial=()=>({commands,state:view,enacted,refused,finished:!!view.finished,
   summary:enacted.join(", ")});
  try{
-  const first=view.firstPlayer||"human";
-  const count=view.turn===1&&first!=="ai"?3:2;
+  const count=duelOpeningRuneCount(view,"ai");
   if(!view.turnActions?.channeled){
    const left=view.decks?.ai?.runes?.length||0;
    if(left>0){
