@@ -23,6 +23,7 @@ on:
       - 'conversation.mjs'
       - 'integrated-ai.mjs'
       - 'game-knowledge.mjs'
+      - 'rules-compendium.mjs'
       - 'free-ai.mjs'
       - 'whisper-local.mjs'
       - 'portable.mjs'
