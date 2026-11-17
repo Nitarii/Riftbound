@@ -146,6 +146,7 @@ export function buildGameKnowledge(state,announcement,catalog=[],{
   if(truncated.includes(card.name))card.text+=" … [texte incomplet, consulter la carte officielle]";
  }
  return {
+  rulebook:{...CORE_RULEBOOK,relevant:selectCoreRules(announcement,{state,limit:ruleCount+2})},
   rules:{revision:RULES_SOURCES.coreRevision,source:RULES_SOURCES.rulesHub,
    notice:"Règles originales résumées, non exhaustives; le hub officiel et les errata prévalent.",
    quickReference:selectRules(announcement,ruleCount)},
