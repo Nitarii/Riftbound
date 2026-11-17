@@ -68,7 +68,9 @@ try{
  assert.equal(guide.commands.activate.type,"activate");
  assert.equal(guide.commands["chain-pass"].type,"chain-pass");
  assert.equal(guide.commands["rewind-combat"],undefined);
+ assert.equal(guide.commands["cancel-follow-up"],undefined);
  assert.equal((await agent("/api/command",{type:"rewind-combat"})).status,403);
+ assert.equal((await agent("/api/command",{type:"cancel-follow-up"})).status,403);
  assert.equal(guide.endpoints["GET /api/ai/status"],undefined);
  assert.equal((await local("/api/ai/status")).data.enabled,false);
  assert.equal((await local("/api/ai/rules/activate",{})).status,409);

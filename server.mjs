@@ -145,14 +145,16 @@ function authorized(req){
 }
 function msg(res,status,text,req){json(res,status,{error:text},req);}
 function sharedState(view=state,{agent=false}={}){
- const {rng,cardSerial,decks,combatRewindId,...publicView}=view;
+ const {rng,cardSerial,decks,combatRewindId,pendingFollowUp,...publicView}=view;
+ const queued=pendingFollowUp?.action;
  const cards=view.cards.flatMap(c=>{
   if(c.zone==="deck"||c.zone==="rune-deck"||c.owner==="human"&&c.zone==="hand")return [];
   if(c.owner==="ai"&&c.zone==="hand"&&!agent||c.faceDown&&(!agent||c.owner==="human"))
    return [{uid:c.uid,owner:c.owner,zone:c.zone,battlefield:c.battlefield,faceDown:true}];
   return [c];
  });
- return {...publicView,cards};
+ return {...publicView,cards,
+  ...(queued?{queuedAttack:{battlefield:queued.battlefield,uids:queued.uids}}:{})};
 }
 function broadcast(){
  const payload="data: "+JSON.stringify({state:sharedState()})+"\n\n";
@@ -201,6 +203,7 @@ const guide={
  "combat-attack":{type:"combat-attack",player:"ai",battlefield:0,uids:["ready unit UID"]},
  "combat-pass":{type:"combat-pass",player:"ai"},
  "rewind-combat":{type:"rewind-combat",ifRevision:"current revision (local physical player only)"},
+ "cancel-follow-up":{type:"cancel-follow-up",ifRevision:"current revision (local physical player only)"},
  phase:{type:"phase",phase:"Main"},
  add:{type:"add",player:"ai",zone:"base",card:{name:"Card Name",type:"Unit",image:"optional HTTPS image URL"}},
  move:{type:"move",uid:"read from state.cards",zone:"battlefield",battlefield:0},
@@ -223,15 +226,45 @@ const deckDescriptions=()=>PRECONS.map(p=>({id:p.id,label:p.label,source:p.sourc
  battlefields:p.battlefields}));
 const recentCommands=new Map();
 const checkpoints=[];
-let pendingCompound=null;
 function ensureRevision(revision){
  if(Number.isInteger(revision)&&revision!==state.revision)
   throw Error("Version obsolète; recharge /api/state");
 }
+function completeAnnouncedAttack(previous,next){
+ const pending=next.pendingFollowUp;
+ if(!pending)return {next};
+ const {action,turn,wait}=pending;
+ const sameWindow=action?.type==="combat-attack"&&action.player==="human"&&
+  next.started&&!next.finished&&next.active==="human"&&next.turn===turn&&
+  next.phase==="Main"&&!next.pendingCombat;
+ if(sameWindow&&next.spellChain)return {next};
+ delete next.pendingFollowUp;
+ // The intent may only run when this transaction actually releases its wait.
+ // An older client may have finished the chain while ignoring the stored intent.
+ if(!sameWindow||(wait==="chain"?!previous.spellChain:!previous.pendingEffects.length))
+  return {next};
+ if(next.pendingEffects.length){
+  next.pendingFollowUp={...pending,wait:"effect"};
+  return {next};
+ }
+ const preceding=next.message;
+ try{
+  const applied=applyCommand(next,action);
+  applied.message=preceding+" · "+applied.message;
+  return {next:applied,action,completed:true};
+ }catch(error){
+  next.message=preceding+" · Attaque annoncée non appliquée : "+error.message;
+  next.history[0].text=next.message;
+  return {next,completed:true};
+ }
+}
 function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",remember=true,opening=null}={}){
  const previous=state;
+ const followUp=completeAnnouncedAttack(previous,next);
+ next=followUp.next;
  const receipt={id,status:"applied",origin,before:previous.revision,after:next.revision,
-  actions:commands.map(c=>c.type),result:next.message};
+  actions:[...commands.map(c=>c.type),...(followUp.action?[followUp.action.type]:[])],
+  result:next.message};
  next.history=(next.history||[]).map((event,index)=>index===0?{...event,commandId:id,origin}:event);
  opening=captureCombatOpening(next)||opening;
  if(opening&&matchesCombatOpening(opening,next)){
@@ -248,17 +281,9 @@ function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",reme
   if(checkpoints.length>30)checkpoints.shift();
  }
  state=next;broadcast();
- if(previous.spellChain&&!next.spellChain&&pendingCompound){
-  const {action,session}=pendingCompound;
-  pendingCompound=null;
-  if(next.active==="human"&&!next.pendingCombat&&!next.pendingEffects.length&&!next.finished&&
-     conversation.list(0).session===session){
-   const revision=next.revision;
-   queueMicrotask(()=>{
-    try{applyAgentBatch([action],revision,"voice-follow-up");receiveAgentMessage(state.message);}
-    catch(error){receiveAgentMessage("Suite de l'annonce non appliquée : "+error.message);}
-   });
-  }else receiveAgentMessage("La suite de l’annonce n’a pas été exécutée. Annonce de nouveau le déplacement quand la fenêtre le permet.");
+ if(followUp.completed&&["local","remote"].includes(origin)){
+  try{receiveAgentMessage(next.message);}
+  catch(error){console.warn("Réponse de l’attaque non sauvegardée :",error.message);}
  }
  return receipt;
 }
@@ -297,7 +322,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Retour à l’attaque réservé à la table locale avec révision.");
   const opening=savedCombatOpenings.find(candidate=>matchesCombatOpening(candidate,state));
   const restored=rewindCombat(opening,state,{english});
-  pendingCompound=null;
+  delete restored.pendingFollowUp;
   receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
   pendingHumanAction=null;pendingSpokenPlay=null;
   while(checkpoints.at(-1)?.receipt.after>opening.revision)checkpoints.pop();
@@ -310,13 +335,19 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   restored.message="Transaction annulée : "+checkpoint.receipt.result;
   restored.history=[{revision:restored.revision,at:new Date().toISOString(),
    text:restored.message,undoOf:checkpoint.receipt.id},...restored.history].slice(0,120);
-  pendingCompound=null;
+  delete restored.pendingFollowUp;
   receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
   checkpoints.pop();
+ }else if(command.type==="cancel-follow-up"){
+  if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
+  if(!state.pendingFollowUp)throw Error("Aucune attaque annoncée en attente.");
+  next=applyCommand(state,{type:"note",text:"Attaque annoncée annulée. La chaîne se poursuit."});
+  delete next.pendingFollowUp;
+  receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
  }else{
   next=applyCommand(state,command);
   if(next.active!==state.active||["start","next-turn","effect-confirm"].includes(command.type))next=advanceMandatoryTurn(next);
-  if(input.type==="reset")pendingCompound=null;
+  if(["start","setup-human","setup-ai"].includes(command.type))delete next.pendingFollowUp;
   receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
   if(input.type==="reset"){conversation.clear();pendingHumanAction=null;checkpoints.length=0;}
  }
@@ -332,7 +363,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
 }
 const readMessages=after=>conversation.list(after);
 const receiveAgentMessage=text=>conversation.post("ai",text);
-function applyAgentBatch(actions,revision,origin="ai"){
+function applyAgentBatch(actions,revision,origin="ai",followUp=null){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
  let next=state,opening=null;
@@ -341,6 +372,11 @@ function applyAgentBatch(actions,revision,origin="ai"){
   next=applyCommand(next,cmd);
   if(next.active!==active||["start","next-turn","effect-confirm"].includes(cmd.type))next=advanceMandatoryTurn(next);
   opening=captureCombatOpening(next)||opening;
+ }
+ if(followUp){
+  if(!next.spellChain||state.pendingFollowUp)
+   throw Error("Une attaque annoncée doit suivre une chaîne précise.");
+  next.pendingFollowUp={action:followUp,turn:next.turn,wait:"chain"};
  }
  commitGame(next,{commands:actions,origin,opening});
  // Some AI actions finish an effect or advance into another playable state.
@@ -378,18 +414,18 @@ const receiveHumanMessage=(text,requestId)=>{
   integratedAI.advanceTurnIfAI();
   return entry;
  }
- if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(entry.text)&&pendingCompound){
-  pendingCompound=null;
-  outcome="unchanged";mark();
-  receiveAgentMessage("Suite de l'annonce mise en pause. La chaîne reste au même état.");
-  return entry;
- }
  humanAnnouncements=humanAnnouncements.catch(()=>{}).then(async()=>{
   if(conversation.list(0).session!==receivedSession)return;
   let announcement=entry.text;
   const english=detectMessageLanguage(entry.text)==="en";
   const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
    .toLowerCase().replace(/[.!?]+$/g,"").trim();
+  if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(normalized)&&state.pendingFollowUp){
+   await executeGameCommand({type:"cancel-follow-up",ifRevision:state.revision});
+   outcome="applied";
+   receiveAgentMessage(state.message);
+   return;
+  }
   if(requestsCombatRewind(normalized)){
    await executeGameCommand({type:"rewind-combat",ifRevision:receivedRevision},{english});
    outcome="applied";
@@ -480,14 +516,12 @@ const receiveHumanMessage=(text,requestId)=>{
    }
    const revision=state.revision;
    try{
-    if(plan.afterChain)pendingCompound={action:plan.afterChain,session:conversation.list(0).session};
-    applyAgentBatch(plan.commands,revision,"announcement");
+    applyAgentBatch(plan.commands,revision,"announcement",plan.afterChain);
     outcome="applied";
     receiveAgentMessage(state.message+(plan.afterChain?" · L’attaque suivra la résolution de la chaîne.":""));
    }
    catch(e){
     outcome="rejected";
-    if(plan.afterChain)pendingCompound=null;
     receiveAgentMessage((english?"Action not applied: ":"Action non appliquée : ")+String(e.message||e).slice(0,180));
     return;
    }

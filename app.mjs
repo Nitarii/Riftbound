@@ -183,6 +183,10 @@ function renderCombatPanel(){
   $("combat-title").textContent=uiLanguage==="en"?"CHAIN":"CHAÎNE";
   $("combat-details").textContent=chain.priority==="human"?
    "À toi : joue une Réaction ou passe la priorité.":"Priorité à l’IA.";
+  if(state.queuedAttack){
+   const field=state.battlefields[state.queuedAttack.battlefield]?.card?.name;
+   if(field)$("combat-details").textContent+=" · Attaque prévue sur "+field+" après la chaîne.";
+  }
   $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
    const info=document.createElement("div"),spell=state.cards.find(c=>c.uid===(item.sourceUid??item.uid));
    const target=state.cards.find(c=>c.uid===item.targetUid);

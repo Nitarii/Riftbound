@@ -15,9 +15,11 @@ const dist=path.resolve("dist");
 const app=path.join(dist,"RiftboundCompanion.exe");
 const root=await fs.mkdtemp(path.join(dist,"test-http-"));
 const soulspinner={name:"Soulspinner",type:"Unit",code:"VEN-123",energy:3,might:3};
+const discipline={name:"Discipline",type:"Spell",code:"OGN-058",energy:2};
+const musicians={name:"Field Musicians",type:"Unit",code:"VEN-026",energy:4,might:3};
 // Supply the catalogue locally so the spoken reveal smoke is independent of the CDN.
 await fs.writeFile(path.join(root,".riftbound-catalog-cache.json"),JSON.stringify({updatedAt:Date.now(),
- cards:[soulspinner,...Array.from({length:500},(_,i)=>({name:"Test catalogue "+i,type:"Unit",code:"TEST-"+i}))]}));
+ cards:[soulspinner,discipline,musicians,...Array.from({length:500},(_,i)=>({name:"Test catalogue "+i,type:"Unit",code:"TEST-"+i}))]}));
 let child,closed;
 function launch(){
  child=spawn(app,["--no-browser"],{cwd:root,windowsHide:true,stdio:"ignore",env:{
@@ -274,8 +276,76 @@ try{
  await apply({type:"combat-pass",player:"human"});
  assert.equal(state.history[0].combat.attackingMight,13);
  assert.equal(state.history[0].combat.defendingMight,2);
+ const announce=async text=>{
+  const posted=await request("/api/messages",{text,requestId:crypto.randomUUID()});
+  assert.equal(posted.status,200,posted.value.error);
+  assert.equal((await waitForAnnouncement(posted.value.message.id)).table.status,"applied");
+  state=(await request("/api/state")).value.state;
+  return state;
+ };
+ const witness={...card("Mournful Witness"),code:"VEN-028",might:2};
+ const reveler={...card("Twilight Reveler"),code:"VEN-096",might:3};
+ const r02="Je joue Discipline sur Mournful Witness et avec Witness j’attaque le Grove.";
+ async function prepareFollowUp(attacker,spoken){
+  await apply({type:"reset"});
+  await apply(shenDeck);
+  await apply(zedDeck);
+  await apply({type:"start",player:"human"});
+  await put("human",attacker,"base");
+  await put("ai",reveler,"battlefield",0);
+  if(attacker===disciple){
+   for(let i=0;i<2;i++)await put("human",card("Calm Test Rune","Rune"),"runes");
+  }
+  const uid=state.cards.find(c=>c.code===attacker.code).uid;
+  await announce(spoken);
+  assert.deepEqual(state.queuedAttack,{battlefield:0,uids:[uid]});
+  assert.equal(state.pendingFollowUp,undefined);
+  return uid;
+ }
+ const witnessUid=await prepareFollowUp(witness,r02);
+ const deckBefore=state.players.human.deckCount,handBefore=state.players.human.handCount;
+ await apply({type:"chain-pass",player:"human"});
  await stop();
- console.log("PASS: packaged Windows, hidden data, combat rewind, Targon’s Peak and Pakaa after restart, Shen Tank, 13–2.");
+ launch();
+ await ready();
+ assert.deepEqual((await request("/api/state")).value.state.queuedAttack,{battlefield:0,uids:[witnessUid]});
+ const finalPass={type:"chain-pass",player:"ai",ifRevision:state.revision,commandId:crypto.randomUUID()};
+ const finished=await request("/api/command",finalPass);
+ assert.equal(finished.status,200,finished.value.error);
+ assert.deepEqual(finished.value.receipt.actions,["chain-pass","combat-attack"]);
+ state=finished.value.state;
+ assert.equal(state.queuedAttack,undefined);
+ assert.equal(state.spellChain,null);
+ assert.equal(state.players.human.deckCount,deckBefore-1);
+ assert.equal(state.players.human.handCount,handBefore+1);
+ assert.equal(previewCombat(state,0,"human").attackingMight,4);
+ assert.equal(previewCombat(state,0,"human").defendingMight,3);
+ const retry=await request("/api/command",finalPass);
+ assert.equal(retry.value.receipt.status,"duplicate");
+ assert.equal(retry.value.state.revision,state.revision);
+ const discipleUid=await prepareFollowUp(disciple,"Le bonus de Field Musicians sur Disciple, puis j’attaque le Grove.");
+ const savedChain=state.spellChain;
+ await announce("Attends.");
+ assert.deepEqual(state.spellChain,savedChain);
+ assert.equal(state.queuedAttack,undefined);
+ await stop();
+ launch();
+ await ready();
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.pendingCombat,null);
+ assert.equal(state.cards.find(c=>c.uid===discipleUid).counters.tempMight,3);
+ const blockedWitness=await prepareFollowUp(witness,r02);
+ await apply({type:"exhaust",uid:blockedWitness});
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.pendingCombat,null);
+ assert.equal(state.spellChain,null);
+ assert.equal(state.queuedAttack,undefined);
+ assert.equal(state.cards.find(c=>c.uid===blockedWitness).counters.tempMight,2);
+ assert.match(state.message,/Attaque annoncée non appliquée/);
+ await stop();
+ console.log("PASS: packaged Windows, hidden data, combat rewind, Targon and Pakaa after restart, Shen Tank, saved follow-up and cancellation.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});
