@@ -314,7 +314,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   checkpoints.pop();
  }else{
   next=applyCommand(state,command);
-  if(["start","next-turn","effect-confirm"].includes(command.type))next=advanceMandatoryTurn(next);
+  if(next.active!==state.active||["start","next-turn","effect-confirm"].includes(command.type))next=advanceMandatoryTurn(next);
   if(input.type==="reset")pendingCompound=null;
   receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
   if(input.type==="reset"){conversation.clear();pendingHumanAction=null;checkpoints.length=0;}
@@ -336,8 +336,9 @@ function applyAgentBatch(actions,revision,origin="ai"){
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
  let next=state,opening=null;
  for(const cmd of actions){
+  const active=next.active;
   next=applyCommand(next,cmd);
-  if(["start","next-turn","effect-confirm"].includes(cmd.type))next=advanceMandatoryTurn(next);
+  if(next.active!==active||["start","next-turn","effect-confirm"].includes(cmd.type))next=advanceMandatoryTurn(next);
   opening=captureCombatOpening(next)||opening;
  }
  commitGame(next,{commands:actions,origin,opening});
@@ -406,7 +407,7 @@ const receiveHumanMessage=(text,requestId)=>{
   // even when the remote catalog is unavailable or expired.
   let catalog=catalogCache||[];
   if(!catalog.length&&(pendingSpokenPlay||pendingHumanAction||
-     /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike)\b/i.test(normalized))){
+     /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike|bonus de field musicians)\b/i.test(normalized))){
    try{catalog=await loadServerCatalog();}catch{}
    if(conversation.list(0).session!==receivedSession)return;
   }

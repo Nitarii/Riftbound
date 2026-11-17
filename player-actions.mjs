@@ -219,6 +219,27 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  }
  const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(?:\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
+ if(waiting?.trigger==="ending-ready-runes"){
+  const select=text.match(/^(?:je redresse|je prepare|i ready) (.+)$/);
+  const none=/^(?:aucune rune|je ne redresse aucune rune|no runes)$/.test(text);
+  if(none)return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,uids:[]}],recognized:true};
+  if(select){
+   const pool=state.cards.filter(r=>r.owner==="human"&&r.zone==="runes"&&r.exhausted);
+   const uids=[];
+   for(const part of select[1].split(/\s+(?:et|and)\s+/)){
+    const match=part.match(new RegExp("^"+number+"(?: runes?)?(?: (?:d'|de )?([a-z]+))?$"));
+    const count=match&&num(match[1]);
+    const domain=match&&match[2]&&Object.hasOwn(domainNames,match[2])?domainNames[match[2]]:null;
+    const candidates=pool.filter(r=>!uids.includes(r.uid)&&(!domain||runeDomain(r)===domain));
+    if(!count||count+uids.length>waiting.count||candidates.length<count||match[2]&&!domain||
+       !domain&&count!==candidates.length&&new Set(candidates.map(runeDomain)).size>1)
+     return fail("Indique le nombre et le domaine des runes à redresser, ou choisis-les sur le plateau.",
+      "Give the number and domain of the runes to ready, or select them on the board.");
+    uids.push(...candidates.slice(0,count).map(r=>r.uid));
+   }
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,uids}],recognized:true};
+  }
+ }
  if(waiting?.trigger==="hidden-reveal"){
   const reveal=text.match(/^(?:je revele|i reveal)\s+(.+)$/);
   if(reveal){
@@ -365,7 +386,7 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   }
   if(endTurn){
    if(preview.phase!=="Ending")add({type:"phase",phase:"Ending"});
-   if(!preview.pendingEffects?.length)add({type:"next-turn"});
+   if(!preview.pendingEffects?.length&&!preview.spellChain)add({type:"next-turn"});
   }
   return {commands,recognized:true,summary:commands.length?preview.message:""};
  }catch(error){return fail("Action non appliquée : "+String(error.message||error),

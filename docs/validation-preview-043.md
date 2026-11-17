@@ -12,6 +12,7 @@ Le dépôt conserve l’interface, le relais local, le gestionnaire Windows et l
 - Le deuxième rapport de partie a fourni des cas Shen–Jinx indépendants. « Je passe… non, je réagis » annule le premier passage dans la même annonce finale. La dernière quantité d’une canalisation corrigée sert à identifier les runes déjà présentes. Les envois répétés avec le même identifiant retrouvent le message d’origine après redémarrage. La correction de destination du cas Shen–Zed déplace le Shen déjà présent et conserve son identité.
 - Get Excited! reste en chaîne et défausse à la résolution. Discipline peut se résoudre au-dessus, avec une nouvelle fenêtre de priorité entre les deux résolutions. Fight or Flight ramène la même unité en base avec ses dégâts et attachements. Le cas Field Musicians joue l’unité en base quand l’annonce omet sa destination, place son effet ciblé sur la chaîne, puis lance l’attaque annoncée après la résolution. Le bonus expire en fin de tour.
 - Qwen reçoit les forces provisoires de la confrontation et les dégâts du dernier combat calculés par le moteur. L’historique garde les affectations au moment de la résolution et signale explicitement un combat sans étape de dégâts. Le serveur confirme une action conversationnelle d’après le résultat enregistré.
+- Targon's Peak enregistre son effet lors de la conquête. Le joueur choisit jusqu’à deux runes en fin de tour, par exemple « Je redresse une Calm et une Order ». Le moteur ouvre ensuite les réactions et redresse les runes à la résolution. Le tour suivant démarre après ce dernier effet. La sauvegarde conserve aussi le choix en attente après un redémarrage. Voir les règles RUP5 317.1.a, 355.5.b et 359.3.e.16.
 - Aucune modification des poids Qwen ou Whisper. Pas de fine-tuning : les cas annotés actuels sont mieux adaptés à l’évaluation qu’à un entraînement, et la couverture doit s’étendre avant de générer des exemples d’apprentissage.
 
 ## Résultats mesurés
@@ -20,7 +21,7 @@ Le dépôt conserve l’interface, le relais local, le gestionnaire Windows et l
 | --- | --- |
 | 300 duels à cartes synthétiques, opposition passive, occupation ou pression | 300 terminés, 0 blocage/commande invalide ; 270 victoires IA (70/100 contre la politique de pression) |
 | 120 duels des listes Shen et Zed de Vendetta, avec le catalogue de référence | 120 terminés, 0 blocage/commande invalide, 108 victoires IA (29/40 contre la politique de pression) et 18 résolutions de sorts |
-| 120 duels Shen contre le préconstruit Jinx Origins imprimé | 75 terminés, 45 arrêtés sur le choix de runes différé de Targon's Peak, aucune commande invalide |
+| 120 duels Shen contre le préconstruit Jinx Origins imprimé | 120 terminés, aucun blocage ni commande invalide, 97 victoires IA (17/40 contre la politique de pression) et 33 résolutions de sorts |
 | Choix de stratégie par le moteur seul | moyenne d’environ 1 à 2,5 ms par décision selon le parcours, sur la machine d’essai |
 | Qwen3.5 9B sur RX 7900 XT, Vulkan | démarrage env. 2,9 s ; décision JSON d’essai env. 2,2 s |
 | Qwen3.5 9B Vulkan, questions issues du nouveau rapport | Deux réponses 9 contre 1 vérifiées, avant réactions et après résolution, en env. 1,7 s et 1,6 s. Aucune mutation du plateau |
@@ -48,7 +49,7 @@ Sous Windows, avec les installations déjà présentes, le script `scripts/check
 ## Ce qu’il reste à valider
 
 - Faire une partie complète avec le vrai deck physique et plusieurs échantillons micro, dont un accent français naturel, un environnement bruyant et des interruptions. Les corrections de ce test s’exercent dans une même transcription finale. Une correction qui arrive après un premier envoi déjà exécuté passe par l’annulation locale.
-- Rejouer la chronologie Shen–Jinx intégrale. Plusieurs sessions simulées nécessitent encore le traitement de Targon's Peak. L’activation de la légende Shen et la révélation de Pakaa Protector demandent également une validation dédiée.
+- Rejouer la chronologie Shen–Jinx intégrale. L’activation de la légende Shen et la révélation de Pakaa Protector demandent une validation dédiée.
 - Étendre la chaîne aux capacités et aux autres cartes. L’aperçu traite depuis la zone cachée Disciple of Shen et Resonating Strike. Flux est disponible pour Lacerate, Dragon Form, Perfect Execution et Twilight Shroud. Les autres cartes à jouer depuis ces zones, certaines activations, le choix des effets multiples et plusieurs interactions de terrain demandent encore un arbitrage.
 - Mesurer le comportement sur d’autres machines : le mode CPU a été essayé sur le même PC, pas sur un second appareil ni un processeur de génération plus ancienne. Vérifier aussi le rythme de la synthèse sur les PC modestes.
 - La reprise après redémarrage conserve le plateau et le point de retour au combat du tour courant. La pile d’annulation transaction par transaction et les suites vocales en attente restent en mémoire pendant la session. Les joueurs doivent replacer les cartes physiques après un retour et tenir compte des révélations déjà vues.

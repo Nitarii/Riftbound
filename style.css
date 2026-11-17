@@ -1951,6 +1951,12 @@ body:not(.home-visible) #game-app.history-collapsed{
 #pending-effect-panel strong{color:#f2d78e;font-size:14px}
 #pending-effect-panel p{margin:5px 0;color:#f2eee4;font-size:13px;line-height:1.5;white-space:pre-wrap}
 #pending-effect-panel small{color:#b5c7cf;font-size:11px;line-height:1.4}
+#pending-effect-runes[hidden]{display:none}
+#pending-effect-runes{min-inline-size:0;margin:8px 0 0;padding:6px 8px;border:1px solid #6b7980;border-radius:6px}
+#pending-effect-runes legend{font-size:12px}
+#pending-effect-rune-options{display:flex;flex-wrap:wrap;gap:4px 12px}
+#pending-effect-rune-options label{flex-direction:row;align-items:center;gap:5px;min-height:30px;margin:0;font-size:12px}
+#pending-effect-rune-options input[type="checkbox"]{flex:none;width:auto;margin:0;padding:0}
 #pending-effect-panel button{min-height:42px;max-width:100%;white-space:normal}
 
 /* Completed match: keep scores visible without leaving the playmat. */

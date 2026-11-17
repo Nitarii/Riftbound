@@ -44,10 +44,11 @@ function game(seed,mode,metrics){
  s=applyCommand(s,{type:"setup-ai",...ai,mainIncludesChampion:!!source});
  const apply=cmd=>{
   const before=s.players.human.deckCount;
-  const chainBefore=s.spellChain?.items.length||0;
+  const active=s.active;
+  const chainBefore=s.spellChain?.items.filter(item=>!item.ability).map(item=>item.uid)||[];
   s=applyCommand(s,cmd);
-  if(chainBefore>(s.spellChain?.items.length||0))metrics.spellResolutions++;
-  if(["start","next-turn","effect-confirm"].includes(cmd.type))s=advanceMandatoryTurn(s);
+  metrics.spellResolutions+=chainBefore.filter(uid=>!s.spellChain?.items.some(item=>item.uid===uid)).length;
+  if(s.active!==active||["start","next-turn","effect-confirm"].includes(cmd.type))s=advanceMandatoryTurn(s);
   if(!cmd.cards)for(let i=0;i<before-s.players.human.deckCount&&cursor<follow.length;i++)hand.push(follow[cursor++]);
   check(s);
  };
@@ -85,6 +86,11 @@ function game(seed,mode,metrics){
  for(let step=0;step<220;step++){
   if(s.finished){metrics.finished++;metrics[s.winner]++;return;}
   const effect=s.pendingEffects[0];
+  if(effect?.trigger==="ending-ready-runes"){
+   const uids=s.cards.filter(c=>c.owner===effect.player&&c.zone==="runes"&&c.exhausted)
+    .slice(0,effect.count).map(c=>c.uid);
+   apply({type:"effect-confirm",confirm:true,id:effect.id,uids});continue;
+  }
   if(effect?.choice?.kind==="discard-draw"&&hand.length){
    apply({type:"effect-confirm",confirm:true,id:effect.id,card:hand.shift()});continue;
   }

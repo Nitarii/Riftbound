@@ -324,7 +324,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
     enacted.push("caché une carte à "+view.battlefields[concealed.battlefield].card.name);
    }
    apply({type:"phase",phase:"Ending"});
-   if(!view.pendingEffects?.length)apply({type:"next-turn"});
+   if(!view.pendingEffects?.length&&!view.spellChain)apply({type:"next-turn"});
   }
   return {commands,state:view,enacted,refused,summary:enacted.join(", ")};
  }catch(error){

@@ -76,6 +76,8 @@ export function applyCommand(old, command) {
   s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
+  if(type==="phase"&&s.pendingEffects.some(effect=>effect.trigger==="ending-ready-runes"))
+   throw Error("Choisis les runes à redresser avant de quitter la phase de fin.");
   const p=c.player||"ai";
   if(s.finished&&["next-turn","play-paid","play-physical","cast","chain-pass","combat-attack","draw","channel","equip","hide","play-hidden"].includes(type))
    throw Error("Partie terminée : le vainqueur est "+s.winner+".");
@@ -204,7 +206,33 @@ export function applyCommand(old, command) {
      priority:owner,lastPass:null,opener:owner};
     return "capacité +3 en attente sur "+target.name;
   }
+  const chainOwner=item=>item.owner??getCard(s,item.uid).owner;
+  function stageEndingRunes(effect,uids){
+    s.spellChain={items:[{uid:effect.id,ability:"ready-runes-ending",owner:effect.player,
+     cardName:effect.cardName,runeUids:uids}],priority:effect.player,lastPass:null,opener:effect.player};
+    return effect.cardName+" · "+uids.length+" rune(s) choisie(s), capacité sur la chaîne";
+  }
+  function startNextEndingEffect(){
+    if(s.finished||s.phase!=="Ending"||s.spellChain||s.pendingEffects.length||!s.delayedEnding?.length)
+      return "";
+    const effect=s.delayedEnding.shift();
+    if(effect.player==="ai"){
+      const uids=s.cards.filter(rune=>rune.owner==="ai"&&rune.zone==="runes"&&rune.exhausted)
+       .slice(0,effect.count).map(rune=>rune.uid);
+      return stageEndingRunes(effect,uids);
+    }
+    s.pendingEffects.push({...effect,trigger:"ending-ready-runes",
+      text:"Choisis jusqu’à "+effect.count+" de tes runes à redresser.",
+      reason:"Les runes seront redressées après les réactions."});
+    return effect.cardName+" attend ton choix de runes.";
+  }
   function spellResolution(item,physicalDiscard){
+    if(item.ability==="ready-runes-ending"){
+      const runes=s.cards.filter(rune=>item.runeUids.includes(rune.uid)&&
+       rune.owner===item.owner&&rune.zone==="runes"&&rune.exhausted);
+      runes.forEach(rune=>{rune.exhausted=false;});
+      return item.cardName+" · "+runes.length+" rune(s) redressée(s)";
+    }
     const source=getCard(s,item.uid),rule=verifiedSpell(source);
     const target=s.cards.find(v=>v.uid===item.targetUid);
     if(item.ability==="field-musicians"){
@@ -271,7 +299,7 @@ export function applyCommand(old, command) {
     const resolved=spellResolution(item,physicalDiscard);
     chain.items.pop();
     if(chain.items.length){
-      chain.priority=getCard(s,chain.items.at(-1).uid).owner;
+      chain.priority=chainOwner(chain.items.at(-1));
       chain.lastPass=null;
     }else{
       s.spellChain=null;
@@ -410,6 +438,53 @@ export function applyCommand(old, command) {
     }
     return scored;
   }
+  function enterEnding(){
+    s.phase="Ending";
+    if(s.delayedEnding?.length)s.finishAfterDelayedEnding=true;
+    const triggered=processCardEvent(s,{trigger:"ending",actor:s.active},runtime);
+    return ["Phase Ending",...triggered,startNextEndingEffect()].filter(Boolean).join(" · ");
+  }
+  function advanceToNextTurn(){
+    delete s.combatRewindId;
+    delete s.delayedEnding;
+    delete s.finishAfterDelayedEnding;
+    // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
+    for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
+      unit.damage=0;unit.stunned=false;
+      if(unit.counters){
+       for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud"])
+        delete unit.counters[key];
+      }
+    }
+    s.active=s.active==="human"?"ai":"human";
+    if(s.active===(s.firstPlayer||"human"))s.turn++;
+    s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};
+    s.energyPool={human:0,ai:0};
+    s.scoredFields??={human:[],ai:[]};
+    s.scoredFields[s.active]=[];
+    // Awaken precedes Beginning. Ready the active player's cards, then
+    // automatically mark obvious uncontested Hold scores; card effects stay manual.
+    for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
+    s.phase="Beginning";s.started=true;
+    // Temporary units die before beginning-of-turn Hold scoring.
+    const temporaryDeaths=[];
+    for(const card of s.cards.filter(x=>x.owner===s.active&&
+      ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
+     const lastKnown={...card};
+     card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
+     temporaryDeaths.push(card.name);
+     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},{place,deckCard});
+    }
+    s.beginningScoringDue=true;
+    // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
+    const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
+    const holds=finishBeginningScoring();
+    const message="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
+     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", "):"")+
+     (triggered.length?" · "+triggered.join(" · "):"")+
+     (holds.length?" · "+holds.join(" · "):"");
+    return message+(s.beginningScoringDue?" · effet(s) à résoudre avant le maintien":"");
+  }
   if(type==="reset") {
     const fresh=createState();fresh.revision=(old?.revision||0)+1;
     fresh.history=[{revision:fresh.revision,at:new Date().toISOString(),text:"Partie réinitialisée"}];
@@ -458,46 +533,12 @@ export function applyCommand(old, command) {
     summary=(who==="ai"?"IA":"Joueur")+" : "+s.players[who].legend.name+" / "+s.players[who].champion.name;
   } else if(type==="start") {
     delete s.combatRewindId;
+    delete s.delayedEnding;
+    delete s.finishAfterDelayedEnding;
     checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
-    delete s.combatRewindId;
-    // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
-    for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
-      unit.damage=0;unit.stunned=false;
-      if(unit.counters){
-       for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud"])
-        delete unit.counters[key];
-      }
-    }
-    s.active=s.active==="human"?"ai":"human";
-    if(s.active===(s.firstPlayer||"human"))s.turn++;
-    s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};
-    s.energyPool={human:0,ai:0};
-    s.scoredFields??={human:[],ai:[]};
-    s.scoredFields[s.active]=[];
-    // Awaken precedes Beginning. Ready the active player's cards, then
-    // automatically mark obvious uncontested Hold scores; card effects stay manual.
-    for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
-    s.phase="Beginning";s.started=true;
-    // Temporary units die before beginning-of-turn Hold scoring.
-    const temporaryDeaths=[];
-    for(const card of s.cards.filter(x=>x.owner===s.active&&
-      ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
-     const lastKnown={...card};
-     card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
-     temporaryDeaths.push(card.name);
-     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},{place,deckCard});
-    }
-    s.beginningScoringDue=true;
-    // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
-    const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
-    const holds=finishBeginningScoring();
-    summary="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
-     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", "):"")+
-     (triggered.length?" · "+triggered.join(" · "):"")+
-     (holds.length?" · "+holds.join(" · "):"");
-    if(s.beginningScoringDue)summary+=" · effet(s) à résoudre avant le maintien";
+    summary=s.started&&s.phase!=="Ending"&&s.delayedEnding?.length?enterEnding():advanceToNextTurn();
   } else if(type==="phase") {
     const phase=string(c.phase,30);
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
@@ -505,8 +546,7 @@ export function applyCommand(old, command) {
     s.phase=phase;summary="Phase "+phase;
     if(entering&&phase==="Main")s.energyPool={human:0,ai:0};
     if(entering&&phase==="Ending"){
-     const triggered=processCardEvent(s,{trigger:"ending",actor:s.active},{place,deckCard});
-     if(triggered.length)summary+=" · "+triggered.join(" · ");
+     summary=enterEnding();
      if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
     }
   } else if(type==="add") {
@@ -554,7 +594,8 @@ export function applyCommand(old, command) {
     summary=(p==="ai"?"IA":"Joueur")+" : une carte cachée à "+s.battlefields[field].card.name+payLabel(paid);
   } else if(type==="play-hidden"){
     checkOwner(p);
-    if(!s.started||s.phase!=="Main"||s.pendingEffects.length||!hasPriority(p))
+    if(!s.started||(s.phase!=="Main"&&!(s.phase==="Ending"&&s.spellChain))||
+       s.pendingEffects.length||!hasPriority(p))
       throw Error("Attends ta priorité pour jouer la carte cachée.");
     const {slot,card,field}=readHidden(p,c.uid,c.card);
     if(!hiddenDisciple(card))throw Error("Révélation de ce permanent caché à arbitrer manuellement.");
@@ -564,7 +605,7 @@ export function applyCommand(old, command) {
     s.turnActions.played[p]++;
     if(!s.pendingEffects.length)played.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:slot},runtime));
     if(s.spellChain){
-      s.spellChain.priority=getCard(s,s.spellChain.items.at(-1).uid).owner;
+      s.spellChain.priority=chainOwner(s.spellChain.items.at(-1));
       s.spellChain.lastPass=null;
     }else if(s.pendingCombat){
       s.pendingCombat.focus=OPPOSITE[p];
@@ -620,7 +661,7 @@ export function applyCommand(old, command) {
       payLabel(paid)+(logs.length?" · "+logs.join(" · "):"");
   } else if(type==="cast"){
     checkOwner(p);
-    if(!s.started||s.phase!=="Main"||s.pendingEffects.length)
+    if(!s.started||(s.phase!=="Main"&&!(s.phase==="Ending"&&s.spellChain))||s.pendingEffects.length)
       throw Error("Aucune fenêtre de sort disponible.");
     const chain=s.spellChain,fight=s.pendingCombat;
     if(!hasPriority(p))
@@ -675,7 +716,8 @@ export function applyCommand(old, command) {
     if(!chain||chain.priority!==p)throw Error("Tu n'as pas la priorité sur la chaîne.");
     if(s.pendingEffects.length)throw Error("Résous l'effet en attente.");
     if(chain.lastPass===OPPOSITE[p]){
-      const source=getCard(s,chain.items.at(-1).uid);
+      const item=chain.items.at(-1);
+      const source=item.ability?null:getCard(s,item.uid);
       if(verifiedSpell(source)?.damageFromDiscard&&source.owner==="human"&&s.players.human.handCount>0){
         s.pendingEffects.push({id:"discard-"+source.uid,player:"human",sourceUid:source.uid,
          cardName:source.name,trigger:"spell-discard",text:"Défausse une carte de ta main.",
@@ -749,6 +791,12 @@ export function applyCommand(old, command) {
         throw Error("Le sort en attente de défausse a changé.");
       s.pendingEffects.shift();
       summary=resolveChainTop(c.card);
+    }else if(pending.trigger==="ending-ready-runes"){
+      const uids=c.uids;
+      if(!Array.isArray(uids)||uids.length>pending.count||new Set(uids).size!==uids.length||
+         !uids.every(uid=>s.cards.some(r=>r.uid===uid&&r.owner===pending.player&&r.zone==="runes")))
+        throw Error("Choisis jusqu’à "+pending.count+" runes distinctes de ta zone de runes.");
+      summary=stageEndingRunes(pending,uids);
     }else if(pending.trigger==="hidden-reveal"){
       const slot=getCard(s,pending.sourceUid),revealed=validateCard(c.card);
       if(slot.zone!=="hidden-reveal"||!hasHidden(revealed))
@@ -777,8 +825,8 @@ export function applyCommand(old, command) {
     }
     if(pending.trigger!=="spell-discard"){
       s.pendingEffects.shift();
-      summary=pending.trigger==="hidden-reveal"?"Carte cachée révélée : "+getCard(s,pending.sourceUid).name:
-        "Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
+      if(!summary)summary=pending.trigger==="hidden-reveal"?"Carte cachée révélée : "+getCard(s,pending.sourceUid).name:
+       "Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
     }
     const holds=finishBeginningScoring();
     if(holds.length)summary+=" · "+holds.join(" · ");
@@ -993,6 +1041,10 @@ export function applyCommand(old, command) {
   } else if(type==="note") {
     summary=string(c.text,600);
   } else throw Error("Type de commande inconnu : "+type);
+  const delayedSummary=startNextEndingEffect();
+  if(delayedSummary)summary+=" · "+delayedSummary;
+  if(s.finishAfterDelayedEnding&&s.phase==="Ending"&&!s.finished&&!s.pendingEffects.length&&!s.spellChain)
+   summary+=" · "+advanceToNextTurn();
   for(const gear of s.cards.filter(v=>v.attachedTo)){
     const host=s.cards.find(v=>v.uid===gear.attachedTo);
     if(!onBoard(host)){

@@ -205,6 +205,12 @@ function applySteps(state,source,steps,actor,place,deckCard){
    const result=drawMainCards(state,actor,n,{place,deckCard});
    logs.push("pioche "+result.actual+" carte(s)"+
     (result.burnOuts?" (Burn Out ×"+result.burnOuts+")":""));
+  }else if(step.kind==="ready-runes-ending"){
+   if(state.phase==="Ending")continue;
+   state.delayedEnding??=[];
+   const id="ending-"+(state.effectSerial||0)+"-"+state.delayedEnding.length;
+   state.delayedEnding.push({id,player:actor,cardName:source.name,count:n});
+   logs.push("jusqu’à "+n+" rune(s) à redresser à la fin de ce tour");
   }else if(step.kind==="ready-runes"||step.kind==="exhaust-runes"){
    const exhaust=step.kind==="exhaust-runes";
    const cards=state.cards.filter(c=>c.owner===actor&&c.zone==="runes"&&

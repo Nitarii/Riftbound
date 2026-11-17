@@ -36,6 +36,15 @@ async function request(route,body,authenticated=true){
 const cmd=(command,ifRevision)=>request("/api/command",{
  commandId:crypto.randomUUID(),...command,ifRevision
 });
+async function waitForAnnouncement(id){
+ for(let i=0;i<30;i++){
+  const {value:thread}=await request("/api/messages");
+  const message=thread.messages.find(m=>m.id===id);
+  if(message?.table?.status&&message.table.status!=="pending")return message;
+  await delay(50);
+ }
+ throw Error("Announcement did not reach a final status");
+}
 async function ready(){
  for(let i=0;i<40;i++){
   try{const health=(await request("/api/health")).value;if(health.ok)return health;}catch{}
@@ -153,13 +162,7 @@ try{
  const rewind=await request("/api/messages",announcement);
  assert.equal(rewind.status,200);
  assert.equal((await request("/api/messages",announcement)).value.message.id,rewind.value.message.id);
- let message;
- for(let i=0;i<30;i++){
-  const {value:thread}=await request("/api/messages");
-  message=thread.messages.find(m=>m.id===rewind.value.message.id);
-  if(message?.table?.status&&message.table.status!=="pending")break;
-  await delay(50);
- }
+ const message=await waitForAnnouncement(rewind.value.message.id);
  assert.equal(message?.table?.status,"applied");
  state=(await request("/api/state")).value.state;
  assert.equal(state.revision,abandonedRevision+1);
@@ -184,8 +187,43 @@ try{
  await apply({type:"combat-pass",player:"human"});
  await apply({type:"next-turn"});
  assert.equal((await cmd({type:"rewind-combat"},state.revision)).status,400);
+ await apply({type:"reset"});
+ await apply({...shenDeck,battlefield:{...card("Targon's Peak","Battlefield"),code:"OGN-289",
+  text:"When you conquer here, ready up to 2 runes at the end of this turn."}});
+ await apply(zedDeck);
+ await apply({type:"start",player:"human"});
+ await put("human",disciple,"base");
+ for(const domain of ["Calm","Order"])await put("human",{...card(domain+" Rune","Rune"),domains:[domain]},"runes");
+ const selected=state.cards.filter(c=>c.zone==="runes"&&c.owner==="human"&&c.domains.length).map(c=>c.uid);
+ assert.equal(selected.length,2);
+ for(const uid of selected)await apply({type:"exhaust",uid});
+ await apply({type:"move",uid:state.cards.find(c=>c.code==="VEN-117").uid,zone:"battlefield",battlefield:0});
+ await apply({type:"combat-pass",player:"human"});
+ await apply({type:"combat-pass",player:"ai"});
+ assert.equal(state.delayedEnding?.length,1);
+ assert.deepEqual(state.pendingEffects,[]);
+ const end=await request("/api/messages",{text:"Je termine mon tour."});
+ assert.equal((await waitForAnnouncement(end.value.message.id)).table.status,"applied");
+ state=(await request("/api/state")).value.state;
+ const endingChoice=state.pendingEffects[0];
+ assert.equal(endingChoice.trigger,"ending-ready-runes");
  await stop();
- console.log("PASS: packaged Windows, priority, receipts, race, undo, hidden data, opponent without Qwen, Shen–Zed attack rewind after restart.");
+ launch();
+ await ready();
+ assert.deepEqual((await request("/api/state")).value.state.pendingEffects[0],endingChoice);
+ const readyRunes=await request("/api/messages",{text:"Je redresse une Calm et une Order."});
+ assert.equal((await waitForAnnouncement(readyRunes.value.message.id)).table.status,"applied");
+ state=(await request("/api/state")).value.state;
+ assert.deepEqual(state.spellChain.items[0].runeUids,selected);
+ assert.ok(state.cards.filter(c=>selected.includes(c.uid)).every(c=>c.exhausted));
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.active,"ai");
+ assert.equal(state.phase,"Main");
+ assert.equal(state.spellChain,null);
+ assert.ok(state.cards.filter(c=>selected.includes(c.uid)).every(c=>!c.exhausted));
+ await stop();
+ console.log("PASS: packaged Windows, receipts, hidden data, opponent without Qwen, combat rewind and Targon’s Peak after restart.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

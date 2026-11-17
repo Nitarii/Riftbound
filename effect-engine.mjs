@@ -79,6 +79,11 @@ function parseInstructions(raw){
   .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
   .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
+ const delayedRunes=new RegExp("^ready up to ("+AMOUNT+") runes? at the end of (?:this|the) turn$","i").exec(expr);
+ if(delayedRunes){
+  const count=toCount(delayedRunes[1]);
+  if(count>=1&&count<=12)return {steps:[{kind:"ready-runes-ending",count}],reason:""};
+ }
  if(/\b(?:if|unless|instead|as long as|until|otherwise|for each|for every|equal to|per |choose one|either|up to|look at|reveal|scry|search|shuffle|pay |spend |sacrifice|extra cost)\b/i.test(expr))
   return {steps:[],reason:"condition, choix ou coût non automatisé : "+raw.slice(0,130)};
  const parts=expr.split(/\s*(?:;\s*|\.\s+|\s+then\s+|\s+and\s+)\s*/i).filter(Boolean);

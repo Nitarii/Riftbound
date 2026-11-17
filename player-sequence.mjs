@@ -158,7 +158,8 @@ export function planPlayerSequence(message,state,catalog=[]){
    uids:[chosen.unit.uid],battlefield:index});
   else add({type:"move",uid:chosen.unit.uid,zone:"battlefield",battlefield:index});
   if(wantsEnd&&!preview.pendingCombat){
-   add({type:"phase",phase:"Ending"});add({type:"next-turn"});
+   add({type:"phase",phase:"Ending"});
+   if(!preview.pendingEffects?.length&&!preview.spellChain)add({type:"next-turn"});
   }
   return {commands,recognized:true,summary:preview.message};
  }catch(e){

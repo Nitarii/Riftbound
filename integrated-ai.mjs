@@ -48,6 +48,7 @@ export function modelBoardState(state){
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
   firstPlayer:state.firstPlayer,turnActions:state.turnActions,pendingEffects:(state.pendingEffects||[]).slice(0,5),
   spellChain:state.spellChain||null,
+  delayedEnding:state.delayedEnding||[],
   confrontation:fight?{battlefield:state.battlefields[fight.battlefield]?.card?.name,
    kind:fight.kind,attacker:fight.attacker,focus:fight.focus,passes:fight.passes,
    ...(preview?.ready&&preview.attackers.length&&preview.defenders.length?

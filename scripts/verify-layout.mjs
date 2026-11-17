@@ -128,21 +128,33 @@ try{
    const rect=()=>board.getBoundingClientRect();
    const before=rect();
    const pending=document.querySelector("#pending-effect-panel");
-   document.querySelector("#pending-effect-card").textContent="Disciple of Shen";
+   document.querySelector("#pending-effect-card").textContent="Targon's Peak";
    document.querySelector("#pending-effect-description").textContent=
-    "I have [Shield 3] while I'm at a battlefield with exactly one other unit you control.";
+    "Choisis jusqu’à deux de tes runes à redresser.";
+   const runeField=document.querySelector("#pending-effect-runes");
+   const runeOptions=document.querySelector("#pending-effect-rune-options");
+   for(let i=1;i<=12;i++){
+    const label=document.createElement("label"),input=document.createElement("input");
+    input.type="checkbox";label.append(input,(i<=6?"Calm":"Order")+" Rune "+i+" · épuisée");
+    runeOptions.append(label);
+   }
+   runeField.hidden=false;
    pending.hidden=false;
    const effect=pending.getBoundingClientRect();
    const boardWithEffect=rect();
    const effectPosition=getComputedStyle(pending).position;
+   const runeChoicesFit=runeOptions.scrollWidth<=runeOptions.clientWidth+1&&
+    runeOptions.getBoundingClientRect().bottom<=effect.bottom;
    pending.hidden=true;
+   runeField.hidden=true;
+   runeOptions.replaceChildren();
    const victory=document.querySelector("#game-victory");
    victory.hidden=false;
    const win=victory.getBoundingClientRect();
    const boardWithVictory=rect();
    const victoryPosition=getComputedStyle(victory).position;
    victory.hidden=true;
-   return {effectWidth:effect.width,effectHeight:effect.height,
+   return {effectWidth:effect.width,effectHeight:effect.height,runeChoicesFit,
     effectLeft:effect.left,effectRight:effect.right,effectPosition,
     winWidth:win.width,winLeft:win.left,winRight:win.right,victoryPosition,
     boardShift:Math.max(Math.abs(before.width-boardWithEffect.width),
@@ -155,6 +167,7 @@ try{
    "Rule prompt or winner banner incorrectly participates in the three-column grid");
   ensure(notificationGeometry.effectWidth>Math.min(300,viewport.width*.65)&&
    notificationGeometry.effectHeight<viewport.height*.6&&
+   notificationGeometry.runeChoicesFit&&
    notificationGeometry.effectLeft>=0&&notificationGeometry.effectRight<=viewport.width+2,
    "Pending ability panel is squeezed or cropped: "+JSON.stringify(notificationGeometry));
   ensure(notificationGeometry.boardShift<2,

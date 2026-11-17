@@ -184,6 +184,10 @@ function renderCombatPanel(){
   $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
    const info=document.createElement("div"),spell=state.cards.find(c=>c.uid===item.uid);
    const target=state.cards.find(c=>c.uid===item.targetUid);
+   if(item.ability==="ready-runes-ending"){
+    info.textContent=item.cardName+" · "+item.runeUids.length+" rune(s) à redresser";
+    return info;
+   }
    info.textContent=(spell?.name||"Sort")+" → "+(target?.name||"cible absente")+
     (item.damage?" · "+item.damage+" dégâts":"");
    if(spell){info.className="clickable";info.onclick=()=>showInstance(spell);}
@@ -297,20 +301,49 @@ function renderPendingEffects(){
  if(!panel)return;
  panel.hidden=!pending;
  $("next-turn").disabled=Boolean(pending)||Boolean(state.finished);
+ const runeField=$("pending-effect-runes"),runeOptions=$("pending-effect-rune-options");
+ const chooseRunes=pending?.trigger==="ending-ready-runes";
+ runeField.hidden=!chooseRunes;
+ if(chooseRunes){
+  const previous=runeOptions.dataset.effectId===pending.id?
+   new Set([...runeOptions.querySelectorAll("input:checked")].map(input=>input.value)):new Set();
+  const runes=state.cards.filter(r=>r.owner===pending.player&&r.zone==="runes");
+  runeOptions.dataset.effectId=pending.id;
+  runeOptions.replaceChildren(...runes.map((rune,index)=>{
+   const label=document.createElement("label"),input=document.createElement("input");
+   input.type="checkbox";input.value=rune.uid;input.checked=previous.has(rune.uid);
+   input.onchange=()=>{
+    if(runeOptions.querySelectorAll("input:checked").length>pending.count){
+     input.checked=false;
+     notify("Choisis au maximum "+pending.count+" runes.",true);
+    }
+   };
+   label.append(input,rune.name+" "+(index+1)+(rune.exhausted?" · épuisée":" · prête"));
+   return label;
+  }));
+ }else if(runeOptions.dataset.effectId){
+  delete runeOptions.dataset.effectId;
+  runeOptions.replaceChildren();
+ }
  if(!pending)return;
  $("pending-effect-card").textContent=pending.cardName+
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
   (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
  $("pending-effect-description").textContent=pending.text;
  const announce={"hidden-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
- $("pending-effect-confirm").textContent=announce?"Indiquer la carte":"Confirmer l’effet";
- $("pending-effect-reason").textContent=pending.reason+(announce?
+ $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":announce?"Indiquer la carte":"Confirmer l’effet";
+ $("pending-effect-reason").textContent=pending.reason+(chooseRunes?" Tu peux n’en choisir aucune.":announce?
   " · Annonce « "+announce+" » suivi du nom de la carte.":
   " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
+ if(pending.trigger==="ending-ready-runes"){
+  const uids=[...$("pending-effect-rune-options").querySelectorAll("input:checked")].map(input=>input.value);
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,uids});
+  return;
+ }
  const announce={"hidden-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
  if(announce){
   $("notes").value=announce+" ";

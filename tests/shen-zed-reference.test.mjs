@@ -207,6 +207,74 @@ test("The last spoken rune quantity wins without channeling again",()=>{
  assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.domains[0]==="Order").length,2);
  assert.equal(s.turnActions.channeled,2);
 });
+const targon=card("Targon's Peak","OGN-289","Battlefield",0,null,
+ {text:"When you conquer here, ready up to 2 runes at the end of this turn."});
+test("Targon's Peak chooses at Ending, keeps a reaction window and advances exactly once",()=>{
+ let s=table();
+ s=applyCommand(s,{type:"setup-human",legend:card("Shen","legend","Legend"),
+  champion:card("Shen Chosen","champion"),battlefield:targon});
+ s=add(s,"human",witness);
+ for(const domain of ["Calm","Order","Order","Calm","Calm"])s=add(s,"human",rune(domain),"runes");
+ s=applyCommand(s,{type:"exhaust-runes",player:"human",count:3});
+ const [calm,order,untouched]=s.cards.filter(c=>c.owner==="human"&&c.zone==="runes");
+ s=passShowdown(applyCommand(s,{type:"move",uid:get(s,witness.name).uid,zone:"battlefield",battlefield:0}));
+ assert.equal(s.players.human.score,1);
+ assert.equal(s.pendingEffects.length,0);
+ assert.equal(s.spellChain,null);
+ assert.equal(s.delayedEnding.length,1);
+ assert.deepEqual(s.cards.filter(c=>c.zone==="runes"&&c.exhausted).map(c=>c.uid),[calm.uid,order.uid,untouched.uid]);
+ const end=planPlayerSequence("Je termine mon tour.",s);
+ assert.deepEqual(end.commands,[{type:"phase",phase:"Ending"}]);
+ s=end.commands.reduce(applyCommand,s);
+ const choice=s.pendingEffects[0];
+ assert.equal(choice.trigger,"ending-ready-runes");
+ assert.equal(s.active,"human");
+ assert.throws(()=>applyCommand(s,{type:"next-turn"}),/en attente/);
+ const announced=planPlayerSequence("Je redresse une Calm et une Order.",s);
+ assert.deepEqual(announced.commands,[{type:"effect-confirm",id:choice.id,confirm:true,uids:[calm.uid,order.uid]}]);
+ assert.throws(()=>applyCommand(s,{...announced.commands[0],uids:[calm.uid,calm.uid]}),/distinctes/);
+ const decoded=JSON.parse(JSON.stringify(s));
+ s=announced.commands.reduce(applyCommand,decoded);
+ assert.equal(s.cards.find(c=>c.uid===calm.uid).exhausted,true);
+ assert.equal(s.spellChain.items[0].ability,"ready-runes-ending");
+ s=applyCommand(s,{type:"cast",player:"human",card:discipline,targetUid:get(s,witness.name).uid});
+ s=pass(pass(s,"human"),"ai");
+ assert.equal(s.phase,"Ending");
+ assert.equal(get(s,witness.name).counters.tempMight,2);
+ assert.equal(s.cards.find(c=>c.uid===calm.uid).exhausted,true);
+ s=pass(pass(s,"human"),"ai");
+ assert.equal(s.active,"ai");
+ assert.equal(s.phase,"Beginning");
+ assert.equal(s.spellChain,null);
+ assert.equal(s.delayedEnding,undefined);
+ assert.equal(s.cards.find(c=>c.uid===calm.uid).exhausted,false);
+ assert.equal(s.cards.find(c=>c.uid===order.uid).exhausted,false);
+ assert.equal(s.cards.find(c=>c.uid===untouched.uid).exhausted,true);
+ assert.equal(get(s,witness.name).counters.tempMight,undefined);
+ assert.throws(()=>applyCommand(s,announced.commands[0]),/Aucun effet/);
+});
+test("Targon's Peak accepts zero runes and does not queue a missed Ending trigger",()=>{
+ let s=table();
+ s=applyCommand(s,{type:"setup-human",legend:card("Shen","legend","Legend"),
+  champion:card("Shen Chosen","champion"),battlefield:targon});
+ s=add(s,"human",witness);
+ s=applyCommand(s,{type:"move",uid:get(s,witness.name).uid,zone:"battlefield",battlefield:0});
+ s=passShowdown(s);
+ s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.phase,"Ending");
+ assert.deepEqual(planPlayerSequence("Aucune rune.",s).commands[0].uids,[]);
+ s=planPlayerSequence("Aucune rune.",s).commands.reduce(applyCommand,s);
+ s=pass(pass(s,"human"),"ai");
+ assert.equal(s.active,"ai");
+ let ending=table();
+ ending=applyCommand(ending,{type:"setup-human",legend:card("Shen","legend","Legend"),
+  champion:card("Shen Chosen","champion"),battlefield:targon});
+ ending=applyCommand(ending,{type:"phase",phase:"Ending"});
+ ending=add(ending,"human",witness,"battlefield",0);
+ assert.equal(ending.players.human.score,1);
+ assert.equal(ending.delayedEnding,undefined);
+ assert.deepEqual(ending.pendingEffects,[]);
+});
 test("Undercover Agent discards the one AI card available, then draws both cards",()=>{
  let s=table();
  for(const c of s.cards.filter(c=>c.owner==="ai"&&c.zone==="hand").slice(1))
