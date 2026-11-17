@@ -140,9 +140,9 @@ export function createRemoteAccess({
      /^(?:GET|POST) \/api\/(?:guide|state|catalog|decks|messages|command)(?:\?|$)/.test(endpoint)));
     remoteEndpoints["POST /api/messages"]="Reply to the physical player with JSON {text}.";
     const remoteCommands=Object.fromEntries(Object.entries(commands).filter(([key])=>
-     !["reset","setup-human|setup-ai","undo"].includes(key)));
+     !["reset","setup-human|setup-ai","undo","rewind-combat"].includes(key)));
     send(res,200,{...guide,endpoints:remoteEndpoints,commands:remoteCommands,
-      allCommandTypes:allCommandTypes.filter(type=>!["reset","setup-human","undo"].includes(type)),
+      allCommandTypes:allCommandTypes.filter(type=>!["reset","setup-human","undo","rewind-combat"].includes(type)),
       remote:true,
       note:"Poll /api/messages?after=ID with the temporary token. Do not repeat announcements that are applied or unchanged. A delegated announcement is available to interpret. Treat clarification or rejection as a request to coordinate with the player. Use state.revision as ifRevision for commands and check the receipt."});return;
    }
@@ -165,7 +165,7 @@ export function createRemoteAccess({
     }
     // In a physical game the agent must never reset the player's session or
     // rewrite the player's private setup through remote access.
-    if(["reset","setup-human","undo"].includes(input.type)){
+    if(["reset","setup-human","undo","rewind-combat"].includes(input.type)){
       send(res,403,{error:"Cette action appartient au joueur local"});return;
     }
     const result=await performCommand(input);

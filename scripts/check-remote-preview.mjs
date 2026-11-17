@@ -66,11 +66,13 @@ try{
  const guide=(await agent("/api/guide")).data;
  assert.equal(guide.commands.cast.type,"cast");
  assert.equal(guide.commands["chain-pass"].type,"chain-pass");
+ assert.equal(guide.commands["rewind-combat"],undefined);
+ assert.equal((await agent("/api/command",{type:"rewind-combat"})).status,403);
  assert.equal(guide.endpoints["GET /api/ai/status"],undefined);
  assert.equal((await local("/api/ai/status")).data.enabled,false);
  assert.equal((await local("/api/ai/rules/activate",{})).status,409);
  const startState=await command({type:"start",player:"human"});
- await command({type:"add",player:"human",card:card("Public test defender"),zone:"battlefield",battlefield:0});
+ await command({type:"add",player:"human",card:{...card("Public test defender"),might:3},zone:"battlefield",battlefield:0});
  const hide=await local("/api/messages",{text:"Je cache une carte au Grove."});
  const pass=await poll(async()=>{
   const r=await agent("/api/messages?after=0");
@@ -103,13 +105,35 @@ try{
  assert.equal(response.data.message.role,"ai");
  const localMessages=(await local("/api/messages?after=0")).data.messages;
  assert.ok(localMessages.some(m=>m.id===response.data.message.id&&m.text===response.data.message.text));
- const turnEnd=await agent("/api/command",{type:"next-turn",ifRevision:played.data.state.revision,
+ const ready=await agent("/api/command",{type:"ready",uid:playable.uid,
+  ifRevision:played.data.state.revision,commandId:crypto.randomUUID()});
+ assert.equal(ready.status,200,ready.data.error);
+ const attack=await agent("/api/command",{type:"combat-attack",player:"ai",battlefield:0,uids:[playable.uid],
+  ifRevision:ready.data.state.revision,commandId:crypto.randomUUID()});
+ assert.equal(attack.status,200,attack.data.error);
+ const opening=await agent("/api/command",{type:"combat-pass",player:"ai",
+  ifRevision:attack.data.state.revision,commandId:crypto.randomUUID()});
+ assert.equal(opening.status,200,opening.data.error);
+ await command({type:"combat-pass",player:"human"});
+ const rewind=await local("/api/messages",{text:"Non, on annulait ça. Reviens au moment où tu m’attaques."});
+ assert.equal(rewind.status,200);
+ const rewound=await poll(async()=>{
+  const {data}=await agent("/api/messages?after="+response.data.message.id);
+  return data.messages?.find(m=>m.id===rewind.data.message.id&&m.table?.status==="applied");
+ },"L’agent n’a pas reçu l’annulation locale.");
+ const resumed=(await agent("/api/state")).data.state;
+ assert.equal(resumed.revision,rewound.table.revision);
+ assert.equal(resumed.combatRewindId,undefined);
+ assert.deepEqual(resumed.pendingCombat,opening.data.state.pendingCombat);
+ const resolved=await command({type:"combat-pass",player:"human"});
+ const turnEnd=await agent("/api/command",{type:"next-turn",ifRevision:resolved.revision,
   commandId:crypto.randomUUID()});
+ assert.equal(turnEnd.status,200,turnEnd.data.error);
  assert.equal(turnEnd.data.state.active,"human");
  const stop=await local("/api/remote/stop",{});
  assert.equal(stop.data.active,false);
  assert.equal((await local("/api/remote/status")).data.active,false);
- console.log("PASS: accès HTTPS, prise de relais, annonce vocale simulée, contrôle du plateau, réponse et fermeture.");
+ console.log("PASS: accès HTTPS, prise de relais, annonces du joueur, retour à l’attaque, contrôle du plateau, réponse et fermeture.");
 }finally{
  try{await local("/api/remote/stop",{},2000);}catch{}
  try{await local("/api/manager/stop",{confirm:"STOP_RIFTBOUND"},2000);}catch{}

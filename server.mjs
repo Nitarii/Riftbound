@@ -20,6 +20,7 @@ import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs"
 import {planPlayerSequence} from "./player-sequence.mjs";
 import {correctSpokenCardPhrase} from "./card-voice.mjs";
 import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
+import {captureCombatOpening,matchesCombatOpening,requestsCombatRewind,rewindCombat} from "./combat-rewind.mjs";
 import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
 import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
 import {createLocalWhisper,WHISPER_MODEL} from "./whisper-local.mjs";
@@ -61,6 +62,7 @@ const port=Number(process.env.PORT||8787);
 const host="127.0.0.1";
 const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
 const stateFile=path.join(userData,".riftbound-local-state.json");
+const combatCheckpointFile=path.join(userData,".riftbound-combat-checkpoint.json");
 const conversation=createConversation({file:path.join(userData,".riftbound-conversation.json")});
 const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
@@ -106,13 +108,17 @@ for(const filename of [stateFile,backupStateFile]){
   if(validSavedState(candidate)){state=migrateLegacyPassivePendingEffects(candidate);primaryStateHealthy=filename===stateFile;break;}
  }catch{}
 }
-function save(next=state){
- const temp=stateFile+"."+crypto.randomBytes(6).toString("hex")+".tmp";
+let savedCombatOpenings=[];
+try{
+ const saved=JSON.parse(fs.readFileSync(combatCheckpointFile,"utf8"));
+ if(Array.isArray(saved))savedCombatOpenings=saved.slice(0,2);
+}catch{}
+function saveAtomic(file,value,{backup=false}={}){
+ const temp=file+"."+crypto.randomBytes(6).toString("hex")+".tmp";
  try{
-  fs.writeFileSync(temp,JSON.stringify(next),{flag:"wx",mode:0o600});
-  if(primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
-  fs.renameSync(temp,stateFile);
-  primaryStateHealthy=true;
+  fs.writeFileSync(temp,JSON.stringify(value),{flag:"wx",mode:0o600});
+  if(backup&&primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
+  fs.renameSync(temp,file);
  }finally{try{fs.rmSync(temp,{force:true});}catch{}}
 }
 function json(res,status,obj,req){
@@ -139,7 +145,7 @@ function authorized(req){
 }
 function msg(res,status,text,req){json(res,status,{error:text},req);}
 function sharedState(view=state,{agent=false}={}){
- const {rng,cardSerial,decks,...publicView}=view;
+ const {rng,cardSerial,decks,combatRewindId,...publicView}=view;
  const cards=view.cards.flatMap(c=>{
   if(c.zone==="deck"||c.zone==="rune-deck"||c.owner==="human"&&c.zone==="hand")return [];
   if(c.owner==="ai"&&c.zone==="hand"&&!agent||c.faceDown&&(!agent||c.owner==="human"))
@@ -193,6 +199,7 @@ const guide={
  "chain-pass":{type:"chain-pass",player:"ai"},
  "combat-attack":{type:"combat-attack",player:"ai",battlefield:0,uids:["ready unit UID"]},
  "combat-pass":{type:"combat-pass",player:"ai"},
+ "rewind-combat":{type:"rewind-combat",ifRevision:"current revision (local physical player only)"},
  phase:{type:"phase",phase:"Main"},
  add:{type:"add",player:"ai",zone:"base",card:{name:"Card Name",type:"Unit",image:"optional HTTPS image URL"}},
  move:{type:"move",uid:"read from state.cards",zone:"battlefield",battlefield:0},
@@ -220,12 +227,21 @@ function ensureRevision(revision){
  if(Number.isInteger(revision)&&revision!==state.revision)
   throw Error("Version obsolète; recharge /api/state");
 }
-function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",remember=true}={}){
+function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",remember=true,opening=null}={}){
  const previous=state;
  const receipt={id,status:"applied",origin,before:previous.revision,after:next.revision,
   actions:commands.map(c=>c.type),result:next.message};
  next.history=(next.history||[]).map((event,index)=>index===0?{...event,commandId:id,origin}:event);
- save(next);
+ opening=captureCombatOpening(next)||opening;
+ if(opening&&matchesCombatOpening(opening,next)){
+  // Keep the checkpoint matching the previous save until the board commits.
+  const previousOpening=savedCombatOpenings.find(candidate=>matchesCombatOpening(candidate,previous));
+  const records=previousOpening?[opening,previousOpening]:[opening];
+  saveAtomic(combatCheckpointFile,records);
+  savedCombatOpenings=records;
+ }
+ saveAtomic(stateFile,next,{backup:true});
+ primaryStateHealthy=true;
  if(remember){
   checkpoints.push({state:previous,receipt});
   if(checkpoints.length>30)checkpoints.shift();
@@ -245,7 +261,7 @@ function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",reme
  }
  return receipt;
 }
-async function executeGameCommand(input,{origin="local",withReceipt=false}={}){
+async function executeGameCommand(input,{origin="local",withReceipt=false,english=false}={}){
  // Shared between local authenticated server and restricted remote agent gateway.
  if(!manager.status().canLaunch)throw Error("Mets à jour ou vérifie le compagnon avant de modifier la partie.");
  if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Commande JSON invalide.");
@@ -276,7 +292,15 @@ async function executeGameCommand(input,{origin="local",withReceipt=false}={}){
    ensureRevision(revision);
  }
  let next,receipt;
- if(command.type==="undo"){
+ if(command.type==="rewind-combat"){
+  if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Retour à l’attaque réservé à la table locale avec révision.");
+  const opening=savedCombatOpenings.find(candidate=>matchesCombatOpening(candidate,state));
+  const restored=rewindCombat(opening,state,{english});
+  pendingCompound=null;
+  receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
+  pendingHumanAction=null;pendingSpokenPlay=null;
+  while(checkpoints.at(-1)?.receipt.after>opening.revision)checkpoints.pop();
+ }else if(command.type==="undo"){
   if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
   const checkpoint=checkpoints.at(-1);
   if(!checkpoint)throw Error("Aucune transaction de cette session à annuler.");
@@ -302,7 +326,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false}={}){
  // Every transition into AI control starts the deterministic turn immediately,
  // including toolbar "Tour suivant", reactions and effect confirmations.
  // The runner coalesces requests by state revision.
- if(command.type!=="undo")integratedAI.advanceTurnIfAI();
+ if(!["undo","rewind-combat"].includes(command.type))integratedAI.advanceTurnIfAI();
  return withReceipt?{state,receipt}:state;
 }
 const readMessages=after=>conversation.list(after);
@@ -310,12 +334,13 @@ const receiveAgentMessage=text=>conversation.post("ai",text);
 function applyAgentBatch(actions,revision,origin="ai"){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
- let next=state;
+ let next=state,opening=null;
  for(const cmd of actions){
   next=applyCommand(next,cmd);
   if(["start","next-turn","effect-confirm"].includes(cmd.type))next=advanceMandatoryTurn(next);
+  opening=captureCombatOpening(next)||opening;
  }
- commitGame(next,{commands:actions,origin});
+ commitGame(next,{commands:actions,origin,opening});
  // Some AI actions finish an effect or advance into another playable state.
  // Re-evaluate only after the current batch has been committed.
  queueMicrotask(()=>integratedAI.advanceTurnIfAI());
@@ -361,6 +386,12 @@ const receiveHumanMessage=text=>{
   const english=detectMessageLanguage(entry.text)==="en";
   const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
    .toLowerCase().replace(/[.!?]+$/g,"").trim();
+  if(requestsCombatRewind(normalized)){
+   await executeGameCommand({type:"rewind-combat",ifRevision:receivedRevision},{english});
+   outcome="applied";
+   receiveAgentMessage(state.message);
+   return;
+  }
   const barePlay=/^(?:(?:et|and)\s+)?(?:(?:je|j'|i)\s+)?(?:joue|jouer|pose|play|playing|place|mets)\s*(?:une?\s+carte|a\s+card)?$/i.test(normalized);
   if(barePlay){
    outcome="clarification";

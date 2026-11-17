@@ -252,6 +252,8 @@ export function applyCommand(old, command) {
       processCardEvent(s,{trigger:"showdown",actor:attacker,field},{place,deckCard});
       return;
     }
+    delete s.combatRewindId;
+    s.pendingCombat.id="combat-"+(s.revision+1);
     if(thresholdOfGray(s.battlefields[field].card)){
       s.energyPool.human++;s.energyPool.ai++;
     }
@@ -343,6 +345,7 @@ export function applyCommand(old, command) {
     return fresh;
   }
   if(type==="setup-human"||type==="setup-ai") {
+    delete s.combatRewindId;
     const who=type==="setup-human"?"human":"ai";
     if(!c.legend||!c.champion||!c.battlefield) throw Error("legend, champion et battlefield requis");
     s.players[who].legend=validateCard(c.legend);
@@ -383,9 +386,11 @@ export function applyCommand(old, command) {
     }
     summary=(who==="ai"?"IA":"Joueur")+" : "+s.players[who].legend.name+" / "+s.players[who].champion.name;
   } else if(type==="start") {
+    delete s.combatRewindId;
     checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
+    delete s.combatRewindId;
     // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
     for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
       unit.damage=0;unit.stunned=false;

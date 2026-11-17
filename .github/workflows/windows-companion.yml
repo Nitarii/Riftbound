@@ -48,6 +48,7 @@ on:
       - 'clarification.mjs'
       - 'ai-turn.mjs'
       - 'combat-engine.mjs'
+      - 'combat-rewind.mjs'
       - 'combat-voice.mjs'
       - 'rune-payment.mjs'
       - 'play-effects.mjs'
@@ -59,6 +60,7 @@ on:
       - 'index.html'
       - 'style.css'
       - 'scripts/build-sea.mjs'
+      - 'scripts/check-preview-http.mjs'
       - 'scripts/apply-icon.mjs'
       - 'assets/companion-icon.svg'
       - '.github/workflows/windows-companion.yml'
@@ -152,6 +154,9 @@ jobs:
           $icon.Dispose()
           if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
           Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.43.exe" -Force
+      - name: Validate physical duel and restart on the packaged executable
+        shell: pwsh
+        run: node scripts/check-preview-http.mjs
       - name: Smoke test executable with authentication and static assets
         shell: pwsh
         run: |
