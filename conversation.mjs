@@ -28,7 +28,7 @@ export function createConversation({file=null}={}){
    fs.renameSync(temp,file);
   }finally{try{fs.unlinkSync(temp);}catch{}}
  }
- function post(role,text,{trackTable=false,requestId}={}){
+ function post(role,text,{trackTable=false,requestId,view}={}){
   if(role!=="human"&&role!=="ai")throw Error("Émetteur non autorisé");
   if(typeof text!=="string"||!text.trim()||text.length>TEXT_LIMIT)
    throw Error("Message obligatoire de 1 à "+TEXT_LIMIT+" caractères");
@@ -36,6 +36,7 @@ export function createConversation({file=null}={}){
    throw Error("Identifiant d’annonce invalide.");
   const entry={id:++seq,role,text:text.trim(),at:new Date().toISOString(),
    ...(requestId?{requestId}:{}),
+   ...(role==="ai"&&view?{view}:{}),
    ...(role==="human"&&trackTable?{table:{status:"pending"}}:{})};
   entries.push(entry);entries=entries.slice(-LIMIT);save();
   return entry;

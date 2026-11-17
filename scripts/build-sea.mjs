@@ -10,6 +10,8 @@ for(const name of ["index.html","manager.html","style.css","app.mjs","release-po
  assets[name]=path.join(root,name);
 }
 assets["verified-cards.mjs"]=path.join(root,"verified-cards.mjs");
+assets["public-table.mjs"]=path.join(root,"public-table.mjs");
+assets["card-voice.mjs"]=path.join(root,"card-voice.mjs");
 // Bundle a compressed copy of the official cloudflared Windows client.
 // Compression happens once on CI, not when the player starts a game.
 const tunnelBinary=path.join(dist,"cloudflared.exe");

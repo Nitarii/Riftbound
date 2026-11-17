@@ -21,6 +21,7 @@ on:
       - 'picker.mjs'
       - 'manual-bridge.mjs'
       - 'conversation.mjs'
+      - 'public-table.mjs'
       - 'integrated-ai.mjs'
       - 'game-knowledge.mjs'
       - 'rules-compendium.mjs'

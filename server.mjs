@@ -31,6 +31,7 @@ import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyData
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 import {runUpdateHelper} from "./update-helper.mjs";
 import {runUninstallHelper} from "./uninstall-helper.mjs";
+import {publicTableReply} from "./public-table.mjs";
 if(process.argv.includes("--riftbound-update-helper")){
  // Run the downloaded EXE as a dedicated updater WITHOUT opening the board,
  // creating a second HTTP server, or prompting for another installation path.
@@ -362,7 +363,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
  return withReceipt?{state,receipt}:state;
 }
 const readMessages=after=>conversation.list(after);
-const receiveAgentMessage=text=>conversation.post("ai",text);
+const receiveAgentMessage=(text,view)=>conversation.post("ai",text,{view});
 function applyAgentBatch(actions,revision,origin="ai",followUp=null){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
@@ -420,6 +421,12 @@ const receiveHumanMessage=(text,requestId)=>{
   const english=detectMessageLanguage(entry.text)==="en";
   const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
    .toLowerCase().replace(/[.!?]+$/g,"").trim();
+  const publicReply=publicTableReply(entry.text,sharedState(),{english});
+  if(publicReply){
+   outcome="unchanged";
+   receiveAgentMessage(publicReply.text,publicReply.view);
+   return;
+  }
   if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(normalized)&&state.pendingFollowUp){
    await executeGameCommand({type:"cancel-follow-up",ifRevision:state.revision});
    outcome="applied";
@@ -612,7 +619,7 @@ const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,r
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","rules-compendium.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","turn-upkeep.mjs","verified-cards.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","rules-compendium.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","turn-upkeep.mjs","verified-cards.mjs","public-table.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){

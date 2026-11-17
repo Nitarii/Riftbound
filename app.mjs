@@ -9,6 +9,7 @@ import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat} from "./combat-engine.mjs";
 import {shenLegend} from "./verified-cards.mjs";
+import {publicCardVisible,publicChainDetail} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
@@ -188,7 +189,8 @@ function renderCombatPanel(){
    if(field)$("combat-details").textContent+=" · Attaque prévue sur "+field+" après la chaîne.";
   }
   $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
-   const info=document.createElement("div"),spell=state.cards.find(c=>c.uid===(item.sourceUid??item.uid));
+   const spell=state.cards.find(c=>c.uid===(item.sourceUid??item.uid)&&publicCardVisible(c));
+   const info=document.createElement(spell?"button":"div");
    const target=state.cards.find(c=>c.uid===item.targetUid);
    if(item.ability==="ready-runes-ending"){
     info.textContent=item.cardName+" · "+item.runeUids.length+" rune(s) à redresser";
@@ -197,7 +199,11 @@ function renderCombatPanel(){
    info.textContent=item.ability==="pakaa-reveal"?item.cardName+" · révélation du dessus du deck":
     (spell?.name||item.cardName||"Sort")+" → "+(target?.name||"cible absente")+
     (item.ability==="shen-tank"?" · Tank":item.damage?" · "+item.damage+" dégâts":"");
-   if(spell){info.className="clickable";info.onclick=()=>showInstance(spell);}
+   if(spell){
+    info.type="button";
+    info.className="chain-card";
+    info.onclick=()=>showReadOnlyCard(spell,publicChainDetail(state,spell,{english:uiLanguage==="en"}));
+   }
    return info;
   }));
   return;
@@ -466,17 +472,21 @@ function selectCard(c){
   $("detail-state").textContent=c.exhausted?"Épuisée · aperçu redressé":"";
   $("detail-image").innerHTML=cardHTML({...c,exhausted:false},true,true);$("card-dialog").showModal();
 }
+function showReadOnlyCard(card,context=""){
+ selectCard(card);
+ selected=null;
+ $("detail-state").textContent=context;
+ $("detail-add").parentElement.hidden=true;
+ $("card-dialog").querySelector(".dialog-edit-fields").hidden=true;
+ $("card-dialog").classList.add("battlefield-readonly");
+}
 function showBattlefieldDetails(index){
  const raw=state.battlefields?.[index]?.card;
  if(!raw)return notify("Aucun champ de bataille sélectionné.",true);
  const match=catalog.find(c=>c.code&&c.code===raw.code)||
   catalog.find(c=>c.name?.toLowerCase()===raw.name?.toLowerCase()&&c.type?.toLowerCase().includes("battlefield"));
  const card={...raw,...match,text:match?.text||raw.text||""};
- selectCard(card);
- selected=null;
- $("detail-add").parentElement.hidden=true;
- $("card-dialog").querySelector(".dialog-edit-fields").hidden=true;
- $("card-dialog").classList.add("battlefield-readonly");
+ showReadOnlyCard(card);
  $("detail-text").textContent=card.text||"Texte de l'effet non disponible dans ce catalogue. Actualise les cartes.";
 }
 document.addEventListener("keydown",e=>{
@@ -681,6 +691,32 @@ function renderChat({newMessages=false}={}){
   meta.textContent=(m.role==="ai"?(uiLanguage==="en"?"AI opponent":"Adversaire IA"):(uiLanguage==="en"?"You":"Toi"))+
    " · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const text=document.createElement("p");text.textContent=m.text;node.append(meta,text);list.append(node);
+  if(m.role==="ai"&&m.view?.kind==="board"){
+   const board=document.createElement("button");
+   board.type="button";board.className="chat-view";
+   board.textContent=uiLanguage==="en"?"Open board":"Voir le plateau";
+   board.onclick=()=>selectWorkspacePanel("board");
+   node.append(board);
+  }
+  if(m.role==="ai"&&m.view?.kind==="card"&&typeof m.view.uid==="string"){
+   const link=document.createElement("button");
+   link.type="button";link.className="chat-view";
+   const card=state.cards.find(c=>c.uid===m.view.uid&&publicCardVisible(c));
+   if(card?.image){
+    const thumb=document.createElement("img");
+    thumb.alt="";thumb.loading="lazy";thumb.src=imageForDisplay(card.image);
+    link.append(thumb);
+   }
+   link.append(card?.name||(uiLanguage==="en"?"View card":"Voir la carte"));
+   link.onclick=async()=>{
+    const current=relay;
+    if(current&&!await syncRelaySnapshot(current))return notify("Impossible de vérifier la carte sur le plateau.",true);
+    const faceUp=state.cards.find(c=>c.uid===m.view.uid&&publicCardVisible(c));
+    if(!faceUp)return notify("Cette carte n’est plus visible sur le plateau.",true);
+    showReadOnlyCard(faceUp,publicChainDetail(state,faceUp,{english:uiLanguage==="en"}));
+   };
+   node.append(link);
+  }
  }
  list.append(typing);
  renderChatStatus();
@@ -1501,13 +1537,15 @@ function disconnect(){
  resetChatView();aiDisplay("Serveur déconnecté.");notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
- if(relay!==session)return;
+ if(relay!==session)return false;
  try{
   const res=await fetch(session.url+"/api/state",{...localFetchOptions(session.url),headers:{Authorization:"Bearer "+session.token}});
-  if(!res.ok)return;
+  if(!res.ok)return false;
   const fresh=(await res.json()).state;
+  if(!fresh||relay!==session)return false;
   if(fresh&&fresh.revision>=lastSync){state=fresh;lastSync=fresh.revision;render();}
- }catch{}
+  return true;
+ }catch{return false;}
 }
 async function attachLiveEvents(session){
  if(relay!==session)return;

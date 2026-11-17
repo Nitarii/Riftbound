@@ -71,6 +71,8 @@ try{
  assert.equal((await request("/api/state",null,false)).status,401);
  assert.equal((await request("/api/speech/synthesis",{text:"test"},false)).status,401);
  assert.match((await request("/verified-cards.mjs")).value,/verifiedSpell/);
+ assert.match((await request("/public-table.mjs")).value,/publicTableReply/);
+ assert.match((await request("/card-voice.mjs")).value,/matchSpokenCard/);
  assert.match((await request("/manager.html")).value,/ai-rules-only/);
  const initial=(await request("/api/state")).value.state;
  const input={type:"note",ifRevision:initial.revision,commandId:crypto.randomUUID(),text:"test unique"};
@@ -139,7 +141,8 @@ try{
  const disciple={...card("Disciple of Shen"),code:"VEN-117",might:1,
   text:"I have [Shield 3] while I'm at a battlefield with exactly one other unit you control."};
  await put("human",disciple,"battlefield",0);
- for(let i=0;i<3;i++)await put("human",card("Physical Rune","Rune"),"runes");
+ for(const domain of ["Order","Order","Calm"])
+  await put("human",{...card(domain+" Rune","Rune"),domains:[domain]},"runes");
  await put("ai",{...card("Blade Twirler"),code:"VEN-002",might:4},"base");
  await put("ai",{...card("Shadow Assassin"),code:"VEN-013",might:5},"base");
  const blade=state.cards.find(c=>c.code==="VEN-002");
@@ -190,6 +193,14 @@ try{
  assert.equal(state.cards.filter(c=>c.owner==="ai"&&c.zone==="trash")[0].uid,burned.uid);
  assert.equal(previewCombat(state,0,"ai").attackingMight,9);
  assert.equal(previewCombat(state,0,"ai").defendingMight,1);
+ const board=await request("/api/messages",{text:"Tu peux m’afficher l’état du plateau actuel ?"});
+ const boardHandled=await waitForAnnouncement(board.value.message.id);
+ assert.deepEqual(boardHandled.table,{status:"unchanged",revision:state.revision});
+ const boardReply=(await request("/api/messages?after="+board.value.message.id)).value.messages.at(-1);
+ assert.deepEqual(boardReply.view,{kind:"board"});
+ assert.match(boardReply.text,/6–6.*\n.*IA attaque à 9, Joueur défend à 1/);
+ assert.match(boardReply.text,/runes prêtes 2 Order, 1 Calm/);
+ assert.doesNotMatch(boardReply.text,/Soulspinner|Secret \d/);
  await stop();
  launch();
  await ready();
@@ -344,8 +355,32 @@ try{
  assert.equal(state.queuedAttack,undefined);
  assert.equal(state.cards.find(c=>c.uid===blockedWitness).counters.tempMight,2);
  assert.match(state.message,/Attaque annoncée non appliquée/);
+ await apply({type:"reset"});
+ await apply(shenDeck);
+ await apply(zedDeck);
+ await apply({type:"start",player:"ai"});
+ await put("ai",card("Fury Rune","Rune"),"runes");
+ await put("ai",{...card("Ruthless Strike","Spell"),code:"VEN-008",energy:3,
+  image:"https://example.test/ruthless-strike.png"},"hand");
+ await put("ai",{...card("Public Discard"),code:"TEST-DISCARD"},"hand");
+ await put("ai",{...card("Confidential Preview Unit"),code:"TEST-PRIVATE"},"hand");
+ await put("human",witness,"battlefield",0);
+ const strikeUid=state.cards.filter(c=>c.owner==="ai"&&c.zone==="hand").at(-3).uid;
+ const discardUid=state.cards.filter(c=>c.owner==="ai"&&c.zone==="hand").at(-2).uid;
+ await apply({type:"cast",player:"ai",uid:strikeUid,targetUid:state.cards.find(c=>c.code==="VEN-028").uid,discardUid});
+ const inspect=await request("/api/messages",{text:"Je vois pas la carte Ruthless Strike."});
+ assert.deepEqual((await waitForAnnouncement(inspect.value.message.id)).table,{status:"unchanged",revision:state.revision});
+ const cardReply=(await request("/api/messages?after="+inspect.value.message.id)).value.messages.at(-1);
+ assert.deepEqual(cardReply.view,{kind:"card",uid:strikeUid});
+ assert.match(cardReply.text,/Ruthless Strike.*Mournful Witness.*5 dégâts prévus/);
+ assert.equal(state.cards.find(c=>c.uid===strikeUid).image,"https://example.test/ruthless-strike.png");
+ const hiddenInspect=await request("/api/messages",{text:"Montre-moi la carte Confidential Preview Unit."});
+ await waitForAnnouncement(hiddenInspect.value.message.id);
+ const hiddenReply=(await request("/api/messages?after="+hiddenInspect.value.message.id)).value.messages.at(-1);
+ assert.equal(hiddenReply.view,undefined);
+ assert.doesNotMatch(hiddenReply.text,/Confidential Preview Unit/);
  await stop();
- console.log("PASS: packaged Windows, hidden data, combat rewind, Targon and Pakaa after restart, Shen Tank, saved follow-up and cancellation.");
+ console.log("PASS: packaged Windows, hidden data, combat rewind, Targon and Pakaa after restart, Shen Tank, saved follow-up, public board and card.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

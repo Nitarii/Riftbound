@@ -87,6 +87,16 @@ try{
  assert.equal(hidden.faceDown,true);
  assert.equal(hidden.name,undefined);
  assert.equal(hidden.type,undefined);
+ const showBoard=await local("/api/messages",{text:"Tu peux m’afficher l’état du plateau actuel ?"});
+ const boardExchange=await poll(async()=>{
+  const {data}=await agent("/api/messages?after="+hide.data.message.id);
+  const read=data.messages?.find(m=>m.id===showBoard.data.message.id&&m.table?.status==="unchanged");
+  const reply=data.messages?.find(m=>m.id>showBoard.data.message.id&&m.view?.kind==="board");
+  return read&&reply?{read,reply}:null;
+ },"Le résumé public du plateau n’a pas été transmis à l’agent.");
+ assert.equal(boardExchange.read.table.revision,(await agent("/api/state")).data.state.revision);
+ assert.match(boardExchange.reply.text,/Public test defender/);
+ assert.doesNotMatch(boardExchange.reply.text,/AI test unit/);
  const end=await local("/api/messages",{text:"Je passe mon tour."});
  const announcement=await poll(async()=>{
   const r=await agent("/api/messages?after="+hide.data.message.id);

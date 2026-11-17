@@ -359,14 +359,29 @@ try{
  const gamePage=await browser.newPage({viewport:{width:1440,height:900}});
  let installedVersion="0.26.0";
  const localState=createState();
+ const publicStrike={uid:"layout-strike",owner:"ai",zone:"chain",name:"Ruthless Strike",type:"Spell",
+  image:"https://example.test/ruthless-strike.png"};
+ localState.cards.push(publicStrike,{uid:"layout-witness",owner:"human",zone:"battlefield",
+  name:"Mournful Witness",type:"Unit",battlefield:0,might:2});
+ localState.spellChain={items:[{uid:publicStrike.uid,targetUid:"layout-witness",damage:5}],priority:"human"};
+ const checkedAt=new Date().toISOString();
+ const chatMessages=[
+  {id:1,role:"ai",at:checkedAt,text:"Ruthless Strike. Cible Mournful Witness. 5 dégâts prévus.",
+   view:{kind:"card",uid:publicStrike.uid}},
+  {id:2,role:"ai",at:checkedAt,text:"Score 6–6.",view:{kind:"board"}}
+ ];
+ await gamePage.route("https://example.test/ruthless-strike.png",route=>route.fulfill({
+  contentType:"image/svg+xml",body:'<svg xmlns="http://www.w3.org/2000/svg" width="72" height="100"><rect width="72" height="100" fill="green"/></svg>'
+ }));
  await gamePage.route("http://127.0.0.1:8787/api/**",async route=>{
-  const pathname=new URL(route.request().url()).pathname;
+  const requestUrl=new URL(route.request().url()),pathname=requestUrl.pathname;
   const body=pathname==="/api/state"?{state:localState}:
    pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
    pathname==="/api/manager/status"?{canLaunch:installedVersion===CURRENT_VERSION,
     updateState:installedVersion===CURRENT_VERSION?"current":"outdated",
     mustUpdate:installedVersion!==CURRENT_VERSION,availableVersion:"0.26.0"}:
-   pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
+   pathname==="/api/messages"?{messages:chatMessages.filter(m=>m.id>Number(requestUrl.searchParams.get("after")||0)),
+    lastId:chatMessages.at(-1).id,session:"smoke"}:
    pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
   await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
    headers:{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,content-type"}});
@@ -389,6 +404,24 @@ try{
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));
  console.log("PASS site redirects old companion to first installation step");
+ await gamePage.evaluate(()=>document.body.classList.remove("home-visible"));
+ const cardLink=gamePage.locator("#chat-messages").getByRole("button",{name:"Ruthless Strike"});
+ await cardLink.click();
+ await gamePage.locator("#card-dialog").waitFor({state:"visible"});
+ ensure((await gamePage.locator("#detail-state").textContent()).includes("5 dégâts prévus"),
+  "The read-only spell dialog should show the current target and damage");
+ ensure(await gamePage.locator("#detail-image img").isVisible(),"The public spell artwork is missing");
+ ensure(await gamePage.locator("#detail-add").isHidden(),"Viewing the public spell exposes an edit action");
+ await gamePage.locator("#detail-close").click();
+ publicStrike.zone="hand";
+ localState.spellChain=null;
+ await cardLink.click();
+ await gamePage.waitForFunction(()=>document.getElementById("notice")?.textContent?.includes("plus visible"));
+ ensure(await gamePage.locator("#card-dialog").isHidden(),"An old public-card link reopened an AI hand card");
+ await gamePage.locator("#chat-messages").getByRole("button",{name:"Voir le plateau"}).click();
+ ensure(await gamePage.locator("#game-app").getAttribute("data-workspace-view")==="board","Board link did not return to the table");
+ console.log("PASS public spell and board links, read-only art, and hidden-card recheck");
+ await gamePage.evaluate(()=>document.body.classList.add("home-visible"));
  // From the welcome screen the manager must remain visible and take the user
  // back to the same authenticated manager tab, not spawn a second window.
  ensure(await gamePage.locator("#manager-open").isVisible(),
