@@ -107,7 +107,7 @@ async function checkTableQuestions(){
  await ask("combat-resolu","Quels étaient les totaux d’attaque puis de défense au dernier combat ?",
   /\b9\b[^\n]*\b1\b/);
  await ask("priorite","Comment fonctionne la priorité quand un sort est sur la chaîne ?",
-  /pass|r[ée]action/i,"qwen");
+  /(?=[\s\S]*priorit[ée])(?=[\s\S]*pass)(?=[\s\S]*(?:sommet|dernier|plus r[ée]cent))/i,"qwen");
 }
 
 if(wavArg){

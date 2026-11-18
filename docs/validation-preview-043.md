@@ -30,7 +30,7 @@ Le dépôt conserve l’interface, le relais local, le gestionnaire Windows et l
 | 120 duels Shen contre le préconstruit Jinx Origins imprimé | 120 terminés, aucun blocage ni commande invalide, 97 victoires IA (17/40 contre la politique de pression) et 33 résolutions de sorts |
 | Choix de stratégie par le moteur seul | moyenne d’environ 1 à 2,5 ms par décision selon le parcours, sur la machine d’essai |
 | Qwen3.5 9B sur RX 7900 XT, Vulkan | démarrage env. 2,9 s ; décision JSON d’essai env. 2,2 s |
-| Questions de combat et de règles sur le parcours Qwen 9B | Le moteur a donné 9 contre 1 avant réactions et après résolution, sans appel au modèle ni mutation. Une question sur la priorité a emprunté la voie Qwen, avec une réponse structurée en env. 2 s |
+| Questions de combat et de règles sur le parcours Qwen 9B | Le moteur a donné 9 contre 1 avant réactions et après résolution, sans appel au modèle ni mutation. Qwen a expliqué en env. 2 s qui peut jouer une Réaction, les passes consécutives et la résolution du dernier objet finalisé (RUP5 337–340) |
 | Qwen3 4B en mode CPU, quatre threads, sur Ryzen 7 7800X3D | démarrage env. 2,1 s ; décision JSON d’essai env. 1,1 s |
 | Whisper Small + Piper SIWIS en local | Piper a produit le WAV en env. 3,0 s ; Whisper a transcrit en env. 3,2 s depuis un démarrage à froid |
 | Windows et interface | Binaire autonome vérifié, mise à jour et restauration testées, désinstallation limitée aux fichiers gérés, disposition vérifiée de 390 × 844 à 1 792 × 900 |
