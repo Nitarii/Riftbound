@@ -55,3 +55,7 @@ test("R22 uses the current 6–6 encounter, visible units and ready runes",()=>{
  assert.deepEqual(state,snapshot);
  assert.match(publicTableReply("Show me the current board",state,{english:true}).text,/AI attacks at 9, Player defends at 1/);
 });
+test("a direct priority question explains the next priority window without changing the table",()=>{
+ const reply=publicTableReply("Comment fonctionne la priorité quand un sort est sur la chaîne ?",{});
+ assert.match(reply.text,/passes consécutives.*seul.*sommet.*reste un objet.*contrôleur reçoit la priorité/i);
+});

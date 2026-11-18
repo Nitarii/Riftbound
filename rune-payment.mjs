@@ -1,6 +1,7 @@
 // Official basic-rune accounting: exhaust => Energy, recycle => Power.
 // A rune may be exhausted first and recycled for Power in the SAME payment.
 // No synthetic resource or guessed cost is permitted.
+import {goldToken} from "./verified-cards.mjs";
 export const RUNE_DOMAINS=["Fury","Chaos","Calm","Body","Mind","Order"];
 const runeCodeDomains={
  "OGN-007":"Fury","OGN-166":"Chaos","OGN-042":"Calm",
@@ -20,8 +21,10 @@ export function cardPowerDomains(card){
 export function planRunePayment(state,owner,card,announced){
  if(!["human","ai"].includes(owner))return {error:"Propriétaire de rune inconnu."};
  const energy=card?.energy==null||card.energy===""?NaN:Number(card.energy);
- const power=card?.power==null?0:Number(card.power);
- if(!Number.isInteger(energy)||energy<0||!Number.isInteger(power)||power<0)
+ const colored=card?.power==null?0:Number(card.power);
+ const extraPower=Number(card?.extraPower??0),power=colored+extraPower;
+ if(!Number.isInteger(energy)||energy<0||!Number.isInteger(colored)||colored<0||
+    !Number.isInteger(extraPower)||extraPower<0)
   return {error:"Coût de carte incomplet : énergie ou Power inconnus."};
  const all=(state?.cards||[]).filter(c=>c.owner===owner&&c.zone==="runes");
  const ready=all.filter(c=>!c.exhausted);
@@ -33,24 +36,37 @@ export function planRunePayment(state,owner,card,announced){
   return {error:card.name+" demande "+fromRunes+" runes à épuiser et tu en as "+ready.length+" prêtes."};
  if(ready.length<fromRunes)return {error:"Énergie insuffisante : "+energy+" nécessaires, "+ready.length+" runes prêtes."};
  const domains=card.anyPower?RUNE_DOMAINS:cardPowerDomains(card);
- if(power&&!domains.length)return {error:"Domaine du Power non identifié pour "+card.name+"."};
- if(announced?.recycled!=null&&announced.recycled!==power)
-  return {error:card.name+" demande de recycler exactement "+power+" rune(s)."};
- if(announced?.domain&&(!power||!domains.includes(announced.domain)))
+ if(colored&&!domains.length)return {error:"Domaine du Power non identifié pour "+card.name+"."};
+ const reservedPower=Math.max(0,Number(state?.powerPool?.[owner])||0);
+ const recycled=announced?.recycled??(card.runeUid?power:null);
+ const poolPower=Math.min(power,reservedPower);
+ const readyGold=owner==="ai"&&recycled===null?(state.cards||[]).filter(c=>
+  c.owner===owner&&c.zone==="base"&&!c.exhausted&&!c.faceDown&&goldToken(c)):[];
+ const gold=readyGold.slice(0,power-poolPower);
+ const powerFromRunes=power-poolPower-gold.length;
+ if(recycled!==null&&(!Number.isInteger(recycled)||recycled<powerFromRunes||recycled>power))
+  return {error:card.name+" demande "+power+" Power et tu peux en payer "+poolPower+" avec ta réserve."};
+ const recycleCount=recycled??powerFromRunes;
+ const fromPool=power-recycleCount-gold.length;
+ const coloredRunes=Math.max(0,(card.anyPower?0:colored)-fromPool-gold.length);
+ if(announced?.domain&&(!recycleCount||coloredRunes>0&&!domains.includes(announced.domain)))
   return {error:card.name+" ne peut pas être payé en recyclant des runes "+announced.domain+"."};
- const paymentDomains=announced?.domain?[announced.domain]:domains;
- const matching=all.filter(c=>(!card.runeUid||card.runeUid===c.uid)&&
-  (card.anyPower&&!announced?.domain||paymentDomains.includes(runeDomain(c))));
- if(matching.length<power)
-  return {error:"Power insuffisant ("+paymentDomains.join("/")+") : "+power+
+ const eligible=all.filter(c=>(!card.runeUid||card.runeUid===c.uid)&&
+  (!announced?.domain||runeDomain(c)===announced.domain)).sort((a,b)=>Number(a.exhausted)-Number(b.exhausted));
+ const matching=eligible.filter(c=>domains.includes(runeDomain(c)));
+ if(matching.length<coloredRunes)
+  return {error:"Power insuffisant ("+domains.join("/")+") : "+coloredRunes+
    " demandé(s), "+matching.length+" rune(s) de ce domaine."};
+ const reserved=matching.slice(0,coloredRunes);
+ const remaining=eligible.filter(c=>!reserved.includes(c));
+ if(remaining.length<recycleCount-coloredRunes)
+  return {error:"Power insuffisant : "+recycleCount+" rune(s) à recycler."};
  // Pick ready Power runes first so they can pay both costs. Then fill Energy
  // with other ready runes. Recycled Power runes can be ready OR exhausted.
- const sortedMatching=[...matching].sort((a,b)=>Number(a.exhausted)-Number(b.exhausted));
- const recycle=sortedMatching.slice(0,power);
+ const recycle=[...reserved,...remaining.slice(0,recycleCount-coloredRunes)];
  const forEnergy=[...recycle.filter(c=>!c.exhausted),...ready.filter(c=>!recycle.some(r=>r.uid===c.uid))]
   .slice(0,fromRunes);
  if(forEnergy.length!==fromRunes)return {error:"Impossible de régler l'énergie exacte."};
- return {energy,poolEnergy,power,domains,exhaustUids:forEnergy.map(c=>c.uid),
-  recycleUids:recycle.map(c=>c.uid)};
+ return {energy,poolEnergy,power,poolPower:fromPool,domains,exhaustUids:forEnergy.map(c=>c.uid),
+  recycleUids:recycle.map(c=>c.uid),goldUids:gold.map(c=>c.uid)};
 }

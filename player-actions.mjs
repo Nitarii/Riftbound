@@ -2,7 +2,7 @@
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
-import {fieldMusicians,shenLegend,soulspinner} from "./verified-cards.mjs";
+import {fieldMusicians,shenLegend,soulspinner,goldToken} from "./verified-cards.mjs";
 import {compileCardAbilities,spellRule} from "./effect-engine.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
@@ -371,6 +371,38 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  }
  const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
+ if(waiting?.player==="human"&&waiting.trigger==="token-cost"){
+  const accept=/^(?:je paie|je paye|j'accepte|i pay|i accept|oui|yes)$/.test(text);
+  const decline=/^(?:je decline|je refuse|je ne paie pas|i decline|non|no)$/.test(text);
+  if(accept||decline){
+   const command={type:"effect-confirm",id:waiting.id,confirm:true,decline};
+   try{return {commands:[command],recognized:true,summary:applyCommand(state,command).message};}
+   catch(error){return fail(error.message,error.message);}
+  }
+ }
+ if(waiting?.player==="human"&&waiting.trigger==="bird-placement"){
+  const destination=text.replace(/^(?:je (?:joue|pose) (?:le jeton )?bird|i play (?:the )?bird)\s+/,"");
+  const base=basePlacement.test(destination);
+  const field=destination.match(fieldPlacement);
+  if(base||field){
+   const battlefield=base?null:spokenField(state,field[1]);
+   if(!base&&battlefield===null)return fail("Indique le champ du jeton Bird ou dis « en base ».",
+    "Name a battlefield for the Bird token or say “in my base”.");
+   const command={type:"effect-confirm",id:waiting.id,confirm:true,battlefield};
+   try{return {commands:[command],recognized:true,summary:applyCommand(state,command).message};}
+   catch(error){return fail(error.message,error.message);}
+  }
+ }
+ const spendGold=text.match(new RegExp("^(?:je |j'|i )(?:utilise|spend|use|sacrifie|sacrifice|active|activate) "+
+  "(?:"+number+" |(?:mon |mes |my |a |le |the ))?(?:jetons? (?:d')?)?(?:gold|or)(?: tokens?)?$"));
+ if(spendGold){
+  const count=spendGold[1]?num(spendGold[1]):1;
+  const ready=state.cards.filter(c=>goldToken(c)&&c.owner==="human"&&c.zone==="base"&&!c.exhausted&&!c.faceDown);
+  if(count<1||ready.length<count)return fail("Tu n’as pas assez de jetons Gold prêts.","You do not have enough ready Gold tokens.");
+  const commands=ready.slice(0,count).map(({uid})=>({type:"activate",player:"human",uid}));
+  try{return {commands,recognized:true,summary:commands.reduce(applyCommand,state).message};}
+  catch(error){return fail(error.message,error.message);}
+ }
  if(waiting?.trigger==="ending-ready-runes"){
   const select=text.match(/^(?:je redresse|je prepare|i ready) (.+)$/);
   const none=/^(?:aucune rune|je ne redresse aucune rune|no runes)$/.test(text);
@@ -390,6 +422,19 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
     uids.push(...candidates.slice(0,count).map(r=>r.uid));
    }
    return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,uids}],recognized:true};
+  }
+ }
+ if(waiting?.trigger==="burn"&&waiting.player==="human"){
+  const reveal=text.match(/^(?:je revele|i reveal)\s+(.+)$/);
+  const decline=waiting.optional&&/^(?:je decline|je refuse|i decline|non|no)$/.test(text);
+  if(decline)return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,decline:true}],recognized:true};
+  if(reveal){
+   const names=reveal[1].split(/\s+(?:et|and)\s+/);
+   if(names.length!==waiting.burnCount)return fail("Annonce uniquement les "+waiting.burnCount+" cartes mises en défausse.",
+    "Name only the "+waiting.burnCount+" cards put into the trash.");
+   const cards=names.map(name=>findAnnouncedCard(catalog,name));
+   if(cards.some(c=>!c))return unknownCard(catalog,names[cards.indexOf(null)]);
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,cards}],recognized:true};
   }
  }
  if(waiting?.trigger==="hidden-reveal"||waiting?.trigger==="pakaa-reveal"){

@@ -461,8 +461,40 @@ try{
  assert.equal(state.cards.find(c=>c.code===poro.code).zone,"trash");
  assert.equal(state.players.human.handCount,beforeLunar.handCount);
  assert.equal(state.players.human.deckCount,beforeLunar.deckCount-2);
+ await apply({type:"reset"});
+ await apply(shenDeck);
+ await apply(zedDeck);
+ await apply({type:"start",player:"human"});
+ await put("human",{...card("Plundering Poro"),code:"SFD-069",
+  text:"When I conquer, play a Gold gear token exhausted."},"base");
+ await apply({type:"move",uid:state.cards.find(c=>c.code==="SFD-069").uid,zone:"battlefield",battlefield:0});
+ await apply({type:"combat-pass",player:"human"});
+ await apply({type:"combat-pass",player:"ai"});
+ assert.equal(state.spellChain.items[0].ability,"create-gold");
+ assert.ok(!state.cards.some(c=>c.code==="TOKEN-GOLD"));
+ const beforeQuestion=state.revision;
+ const priority=await request("/api/messages",{text:"Comment fonctionne la priorité quand un sort est sur la chaîne ?"});
+ assert.deepEqual((await waitForAnnouncement(priority.value.message.id)).table,{status:"unchanged",revision:beforeQuestion});
+ assert.match((await request("/api/messages?after="+priority.value.message.id)).value.messages.at(-1).text,
+  /seul l’objet au sommet.*reste un objet.*contrôleur reçoit la priorité/);
+ await apply({type:"chain-pass",player:"human"});
  await stop();
- console.log("PASS: packaged Windows, combat restore, persisted effects, public chat, physical plays and payments, channel, Hold and Lunar Boon.");
+ launch();
+ await ready();
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.cards.find(c=>c.code==="TOKEN-GOLD").exhausted,true);
+ await announce("J’utilise un jeton d’Or.","rejected");
+ await apply({type:"next-turn"});
+ await apply({type:"next-turn"});
+ await announce("J’utilise un jeton d’Or.");
+ assert.equal(state.powerPool.human,1);
+ assert.ok(!state.cards.some(c=>c.code==="TOKEN-GOLD"));
+ const beforePayment=state.players.human.runeCount;
+ await apply({type:"play-physical",card:{...card("Order test unit"),energy:1,power:1,domains:["Order"]}});
+ assert.equal(state.players.human.runeCount,beforePayment);
+ assert.equal(state.powerPool.human,0);
+ await stop();
+ console.log("PASS: packaged Windows, persisted chains, physical plays and payments, Hold, Lunar Boon and Gold.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

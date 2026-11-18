@@ -84,6 +84,13 @@ const DATA=[
 ];
 export const CORE_RULE_ENTRIES=Object.freeze(DATA.map(([id,rules,page,summary,keywords])=>
  Object.freeze({id,rules,page,summary,keywords})));
+export function chainPriorityReply(normalized,{english=false}={}){
+ if(!/^(?:comment (?:fonctionne|marche|se passe)|how does)\b/.test(normalized)||
+    !/\b(?:priorite|priority)\b/.test(normalized)||!/\b(?:chaine|chain|stack)\b/.test(normalized))return "";
+ return english?
+  "The player with priority can play a legal Reaction or pass. After both players pass consecutively without adding anything, only the top item resolves. If an item remains, its controller gets priority before that item can resolve. See rules 337–340.":
+  "Le joueur qui a la priorité peut jouer une Réaction légale ou passer. Après deux passes consécutives sans ajout, seul l’objet au sommet se résout. S’il reste un objet, son contrôleur reçoit la priorité avant la résolution suivante. Voir les règles 337 à 340.";
+}
 const norm=x=>String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 export function selectCoreRules(query="",{state,limit=7}={}){
  const message=norm(query),parts=new Set((message.match(/[\p{L}\p{N}]+/gu)||[]).filter(x=>x.length>2));

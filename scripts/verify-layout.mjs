@@ -250,11 +250,18 @@ try{
   {type:"setup-human",legend:{code:"VEN-147",name:"Shen, Eye of Twilight",type:"Legend"},
    champion:{name:"Chosen Shen",type:"Unit"},battlefield:{name:"Grove",type:"Battlefield"}},
   {type:"start",player:"human"},{type:"phase",phase:"Main"},
+  {type:"add",player:"human",card:{code:"TOKEN-GOLD",name:"Gold",type:"Gear"},zone:"base"},
   {type:"add",player:"human",card:{code:"VEN-117",name:"Disciple of Shen",type:"Unit",might:1},zone:"base"}
  ].reduce(applyCommand,createState());
  await shenPage.addInitScript(state=>localStorage.setItem("riftbound-companion-state-v1",JSON.stringify(state)),shenFixture);
  await shenPage.goto(url,{waitUntil:"domcontentloaded"});
  await shenPage.evaluate(()=>document.body.classList.remove("home-visible"));
+ const gold=shenFixture.cards.find(c=>c.code==="TOKEN-GOLD");
+ const goldTile=shenPage.locator('#human-base [data-uid="'+gold.uid+'"]');
+ await goldTile.click();
+ await shenPage.getByRole("button",{name:"Dépenser Gold",exact:true}).click();
+ await shenPage.waitForFunction(()=>document.querySelector("#human-meta")?.textContent?.includes("1 Power en réserve"));
+ ensure(await goldTile.count()===0,"The spent Gold must leave the mobile table");
  await shenPage.locator("#human-legend [data-uid]").click();
  const tankChoice=shenPage.getByLabel("Unité qui reçoit Tank");
  ensure(await tankChoice.isVisible(),"Tank target must be selectable on the card dialog");
@@ -265,7 +272,7 @@ try{
  ensure(await shenPage.locator("#human-legend [data-card-state=exhausted]").count()===1,
   "Activating Shen should pay the exhaust cost");
  await shenPage.close();
- console.log("PASS Shen activation dialog and staged Tank on mobile");
+ console.log("PASS Gold spending and Shen activation on mobile");
  // UI integration regression: the manager MUST show the updater screen
  // before allowing game launch when an old release is installed.
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});

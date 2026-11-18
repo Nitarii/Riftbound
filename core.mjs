@@ -2,12 +2,12 @@
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
 import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
-import {processCardEvent} from "./effect-runtime.mjs";
+import {processCardEvent,unitBeforeDeath} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects,spellRule} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
- shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend} from "./verified-cards.mjs";
+ shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash","chain","hidden","hidden-reveal"]);
 const isHiddenSlot=card=>["hidden","hidden-reveal"].includes(card?.zone);
@@ -72,6 +72,7 @@ export function applyCommand(old, command) {
   const s=migrateLegacyPassivePendingEffects(cp(old||createState())), c=command, type=string(c.type,40);
   s.pendingEffects??=[];s.effectMarks??=[];
   s.energyPool??={human:0,ai:0};
+  s.powerPool??={human:0,ai:0};
   s.effectWork=0; // New action has its own bounded resolution budget.
   s.turnActions??=newTurnActions();
   s.turnActions.played??={human:0,ai:0};
@@ -96,7 +97,9 @@ export function applyCommand(old, command) {
     throw Error("Utilise l’action Cacher pour cette zone.");
   const participants=index=>s.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===index&&
     /^unit$/i.test(v.type||""));
-  const runtime={place,deckCard,random:()=>nextRandom(s)};
+  const stagedAbilities=[];
+  let stagedAbilitySerial=0;
+  const runtime={place,deckCard,random:()=>nextRandom(s),stageCardAbility};
   const movementTriggers=[];
   const onBoard=v=>v&&["base","battlefield"].includes(v.zone);
   const turnIndex=()=>s.turn*2+Number(s.active!==s.firstPlayer);
@@ -145,18 +148,21 @@ export function applyCommand(old, command) {
     if(paid.error)throw Error(paid.error);
     for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
     s.energyPool[owner]-=paid.poolEnergy;
+    s.powerPool[owner]-=paid.poolPower;
     for(const uid of paid.recycleUids){
       if(owner==="ai")s.decks.ai.runes.push(deckCard(getCard(s,uid)));
       else s.players.human.runeCount++;
     }
-    const recycled=new Set(paid.recycleUids);
-    s.cards=s.cards.filter(v=>!recycled.has(v.uid));
+    const spent=new Set([...paid.recycleUids,...paid.goldUids]);
+    s.cards=s.cards.filter(v=>!spent.has(v.uid));
     if(owner==="ai")s.players.ai.runeCount=s.decks.ai.runes.length;
     return paid;
   }
   function payLabel(paid){
-    return " · "+paid.energy+" énergie · "+paid.power+" Power ("+
-      paid.recycleUids.length+" rune(s) recyclée(s))";
+    const powerSources=[paid.recycleUids.length+" rune(s) recyclée(s)"];
+    if(paid.goldUids.length)powerSources.push(paid.goldUids.length+" Gold dépensé(s)");
+    if(paid.poolPower)powerSources.push(paid.poolPower+" Power de la réserve");
+    return " · "+paid.energy+" énergie · "+paid.power+" Power ("+powerSources.join(", ")+")";
   }
   function combatRole(unit){
     return s.pendingCombat?.kind==="combat"&&unit.zone==="battlefield"&&s.pendingCombat.battlefield===unit.battlefield?
@@ -181,7 +187,7 @@ export function applyCommand(old, command) {
     return true;
   }
   function defeatBySpell(target,logs){
-    const lastKnown={...target};
+    const lastKnown=unitBeforeDeath(s,target);
     target.zone="trash";
     target.battlefield=null;
     target.exhausted=false;
@@ -224,6 +230,45 @@ export function applyCommand(old, command) {
     s.spellChain.items.push(item);
     s.spellChain.priority=item.owner;
     s.spellChain.lastPass=null;
+  }
+  function stageCardAbility(source,ability,step,event){
+    const owner=event.actor;
+    const item={uid:"token-"+(s.revision+1)+"-"+(++stagedAbilitySerial),
+     ability:step.kind,owner,sourceUid:source.uid,cardName:source.name,
+     count:step.count,exhausted:Boolean(step.exhausted),field:event.field??null,
+     ...(step.kind==="create-units"&&{tokenName:step.tokenName,tokenMight:step.tokenMight})};
+    if(step.energy&&planRunePayment(s,owner,{name:source.name,energy:step.energy}).error)
+      return source.name+" · énergie insuffisante pour la capacité facultative";
+    if((ability.optional||step.energy)&&owner==="human"){
+      s.pendingEffects.push({id:item.uid,trigger:"token-cost",player:owner,optional:true,item,
+       energy:step.energy,cardName:source.name,text:step.energy?
+        "Paies-tu "+step.energy+" énergie pour cette capacité ?":"Veux-tu mettre cette capacité sur la chaîne ?",
+       reason:"Le jeton sera créé après les réactions."});
+      return source.name+" attend ton choix";
+    }
+    const cost=step.energy?payLabel(pay(owner,{name:source.name,energy:step.energy})):"";
+    stagedAbilities.push(item);
+    return source.name+" · capacité sur la chaîne"+cost;
+  }
+  function flushStagedAbilities(){
+    for(const trigger of stagedAbilities.splice(0))appendChainItem(trigger,{triggered:true});
+  }
+  function resolveTokens(item,birdField){
+    const isBird=item.ability==="create-bird",isGold=item.ability==="create-gold";
+    const token=isGold?{code:"TOKEN-GOLD",name:"Gold",type:"Gear",text:"[Reaction][>] Kill this, [T]: [Add] [A].",tags:["Token"]}:
+     isBird?{code:"TOKEN-BIRD",name:"Bird",type:"Unit",might:1,text:"[Deflect]",tags:["Token","Bird"]}:
+      {code:"TOKEN-"+item.tokenName.toUpperCase().replace(/[^A-Z0-9]+/g,"-"),name:item.tokenName,type:"Unit",
+       might:item.tokenMight,tags:["Token",item.tokenName]};
+    const field=isBird?(birdField??(item.owner==="ai"&&fieldController(item.field)===item.owner?item.field:null)):null;
+    if(field!==null&&(!Number.isInteger(field)||!s.battlefields[field]?.card||fieldController(field)!==item.owner))
+      throw Error("Choisis la base ou un champ que tu contrôles pour le jeton Bird.");
+    for(let n=0;n<item.count;n++){
+      const card=place(s,item.owner,{...token,energy:0,power:0},field===null?"base":"battlefield",field);
+      card.exhausted=!isGold||item.exhausted;
+    }
+    const location=field===null?"en base":"à "+s.battlefields[field].card.name;
+    return item.cardName+" · "+item.count+" jeton(s) "+token.name+" "+location+
+     (!isGold||item.exhausted?" · épuisé(s)":" · prêt(s)");
   }
   function stageEndingRunes(effect,uids){
     s.spellChain={items:[{uid:effect.id,ability:"ready-runes-ending",owner:effect.player,
@@ -271,7 +316,16 @@ export function applyCommand(old, command) {
     }
     return item.cardName+" · "+logs.join(" · ");
   }
-  function spellResolution(item,physicalCard){
+  function spellResolution(item,physicalCard,birdField){
+    if(["create-gold","create-bird","create-units"].includes(item.ability))return resolveTokens(item,birdField);
+    if(item.ability==="mill-main")
+      return item.cardName+" · "+burnMainCards(s,item.owner,item.count,
+       {uid:item.sourceUid,name:item.cardName},{...runtime,label:"Défausse du dessus du deck"});
+    if(item.ability==="draw"){
+      const result=drawMainCards(s,item.owner,item.count,runtime);
+      return item.cardName+" · pioche "+result.actual+" carte(s)"+
+       (result.burnOuts?" · Burn Out ×"+result.burnOuts:"");
+    }
     if(item.ability==="ready-runes-ending"){
       const runes=s.cards.filter(rune=>item.runeUids.includes(rune.uid)&&
        rune.owner===item.owner&&rune.zone==="runes"&&rune.exhausted);
@@ -358,9 +412,9 @@ export function applyCommand(old, command) {
     if(item.flow)logs.push(source.name+" banni après son lancement par Flux");
     return source.name+" résolu"+(logs.length?" · "+logs.join(" · "):"");
   }
-  function resolveChainTop(physicalCard){
+  function resolveChainTop(physicalCard,birdField){
     const chain=s.spellChain,item=chain.items.at(-1);
-    const resolved=spellResolution(item,physicalCard);
+    const resolved=spellResolution(item,physicalCard,birdField);
     chain.items.pop();
     for(const trigger of movementTriggers.splice(0))appendChainItem(trigger,{triggered:true});
     if(chain.items.length){
@@ -416,7 +470,7 @@ export function applyCommand(old, command) {
       confirmedEffects:false,initiators:arriving,
       warnings:[],createdAt:new Date().toISOString()};
     if(!opponents.length){
-      processCardEvent(s,{trigger:"showdown",actor:attacker,field},{place,deckCard});
+      processCardEvent(s,{trigger:"showdown",actor:attacker,field},runtime);
       return;
     }
     delete s.combatRewindId;
@@ -438,10 +492,10 @@ export function applyCommand(old, command) {
        combatEffects.push("Shadow Clone bannit "+food.name+" : Assault 4 ce tour");
       }
      }
-     combatEffects.push(...processCardEvent(s,{trigger:"attack",actor:attacker,source:unit},{place,deckCard}));
+     combatEffects.push(...processCardEvent(s,{trigger:"attack",actor:attacker,source:unit},runtime));
     }
     for(const unit of party.defenders)
-     combatEffects.push(...processCardEvent(s,{trigger:"defend",actor:unit.owner,source:unit},{place,deckCard}));
+     combatEffects.push(...processCardEvent(s,{trigger:"defend",actor:unit.owner,source:unit},runtime));
     if(combatEffects.length)s.pendingCombat.resolvedEffects=combatEffects;
     if(s.pendingEffects.length)s.pendingCombat.warnings.push(
      "Capacité déclenchée non résolue : "+s.pendingEffects[0].cardName);
@@ -461,7 +515,7 @@ export function applyCommand(old, command) {
       const scoring=owner===fight.attacker?
        scoreControlledBattlefield(s,owner,fight.battlefield,"conquer",runtime):null;
       const effects=scoring&&s.players[owner].score>previousScore?processCardEvent(s,{trigger:"conquer",actor:owner,
-       field:fight.battlefield},{place,deckCard}):[];
+       field:fight.battlefield},runtime):[];
       summary=["Confrontation terminée",scoring,...effects].filter(Boolean).join(" · ");
       return;
     }
@@ -471,8 +525,8 @@ export function applyCommand(old, command) {
     const exchanged=Boolean(preview.attackers.length&&preview.defenders.length);
     s.lastCombat={revision:s.revision+1,turn:s.turn,battlefield,attacker:fight.attacker,
       exchanged,attackingMight:exchanged?preview.attackingMight:null,
-      defendingMight:exchanged?preview.defendingMight:null,assignments:preview.damage};
-    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean).map(c=>({...c}));
+      defendingMight:exchanged?preview.defendingMight:null,assignments:preview.damage,excessDamage:preview.excessDamage};
+    const dying=preview.dead.map(uid=>s.cards.find(c=>c.uid===uid)).filter(Boolean).map(c=>unitBeforeDeath(s,c));
     const outcome=applyCombatResult(s,preview,{previousController:fight.previousController});
     for(const uid of [...preview.attackers,...preview.defenders]){
       const unit=s.cards.find(v=>v.uid===uid);
@@ -480,25 +534,30 @@ export function applyCommand(old, command) {
     }
     const triggered=[];
     for(const unit of dying)
-      triggered.push(...processCardEvent(s,{trigger:"die",actor:unit.owner,source:unit},{place,deckCard}));
-    const resolved=outcome.controller;
-    let scoring="";
-    if(resolved&&resolved!==outcome.previousController){
-      const previousScore=s.players[resolved].score;
-      scoring=scoreControlledBattlefield(s,resolved,fight.battlefield,"conquer",runtime)||"";
-      if(scoring&&s.players[resolved].score>previousScore)triggered.push(...processCardEvent(s,{
-       trigger:"conquer",actor:resolved,field:fight.battlefield},{place,deckCard}));
-    }
+      triggered.push(...processCardEvent(s,{trigger:"die",actor:unit.owner,source:unit},runtime));
+    const conquest={field:fight.battlefield,previousController:outcome.previousController,excessDamage:preview.excessDamage};
+    // Combat deaths can create abilities which resolve before the score task.
+    if(stagedAbilities.length||s.pendingEffects.length)s.pendingConquest=conquest;
+    else triggered.push(...finishCombatConquest(conquest));
     summary="Combat "+battlefield+" : "+(exchanged?
       preview.attackingMight+" Might attaque / "+preview.defendingMight+" Might défense":
       "aucun échange de dégâts, un camp a quitté le champ")+" · "+outcome.dead.length+" unités vaincues"+
       (outcome.recalled?" · "+outcome.recalled+" attaquant(s) rappelés":"")+
-      (scoring?" · "+scoring:"")+
       (triggered.length?" · "+triggered.join(" · "):"")+
       (s.pendingEffects?.length?" · Effet(s) en attente":"");
   }
+  function finishCombatConquest(conquest){
+    const {field,previousController,excessDamage}=conquest;
+    const owner=battlefieldController(s,field);
+    if(!owner||owner===previousController||s.finished)return [];
+    const priorScore=s.players[owner].score;
+    const scoring=scoreControlledBattlefield(s,owner,field,"conquer",runtime);
+    if(!scoring)return [];
+    return [scoring,...(s.players[owner].score>priorScore?
+     processCardEvent(s,{trigger:"conquer",actor:owner,field,excessDamage:excessDamage[owner]},runtime):[])];
+  }
   function finishBeginningScoring(){
-    if(!s.beginningScoringDue||s.pendingEffects.length)return [];
+    if(!s.beginningScoringDue||s.pendingEffects.length||s.spellChain||stagedAbilities.length)return [];
     const scored=[];
     s.beginningScoringDue=false;
     for(let i=0;i<s.battlefields.length;i++){
@@ -507,7 +566,7 @@ export function applyCommand(old, command) {
      if(!score)continue;
      scored.push(score);
      scored.push(...processCardEvent(s,{trigger:"hold",
-      actor:s.active,field:i},{place,deckCard}));
+      actor:s.active,field:i},runtime));
     }
     return scored;
   }
@@ -532,7 +591,7 @@ export function applyCommand(old, command) {
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
     s.turnActions=newTurnActions();
-    s.energyPool={human:0,ai:0};
+    s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};
     s.scoredFields??={human:[],ai:[]};
     s.scoredFields[s.active]=[];
     // Awaken precedes Beginning. Ready the active player's cards, then
@@ -543,14 +602,14 @@ export function applyCommand(old, command) {
     const temporaryDeaths=[];
     for(const card of s.cards.filter(x=>x.owner===s.active&&
       ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
-     const lastKnown={...card};
+     const lastKnown=unitBeforeDeath(s,card);
      card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
      temporaryDeaths.push(card.name);
-     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},{place,deckCard});
+     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},runtime);
     }
     s.beginningScoringDue=true;
     // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
-    const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},{place,deckCard});
+    const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},runtime);
     const holds=finishBeginningScoring();
     const message="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
      (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", "):"")+
@@ -608,6 +667,8 @@ export function applyCommand(old, command) {
     delete s.combatRewindId;
     delete s.delayedEnding;
     delete s.finishAfterDelayedEnding;
+    delete s.pendingConquest;
+    s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};
     checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions=newTurnActions();s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
@@ -617,7 +678,7 @@ export function applyCommand(old, command) {
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
     const entering=phase!==s.phase;
     s.phase=phase;summary="Phase "+phase;
-    if(entering&&phase==="Main")s.energyPool={human:0,ai:0};
+    if(entering&&phase==="Main"){s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};}
     if(entering&&phase==="Ending"){
      summary=enterEnding();
      if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
@@ -631,10 +692,10 @@ export function applyCommand(old, command) {
     if(p==="human"&&c.fromHand&&v.zone!=="hand")s.players.human.handCount=Math.max(0,s.players.human.handCount-1);
     summary=(p==="ai"?"IA":"Joueur")+" : "+v.name+" → "+v.zone;
     if(c.fromHand&&["base","battlefield"].includes(v.zone)){
-     const triggered=processCardEvent(s,{trigger:"play",actor:p,source:v},{place,deckCard});
+     const triggered=processCardEvent(s,{trigger:"play",actor:p,source:v},runtime);
      s.turnActions.played[p]=(s.turnActions.played[p]||0)+1;
      if(!s.pendingEffects.length)
-      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:v},{place,deckCard}));
+      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:p,source:v},runtime));
      if(triggered.length)summary+=" · "+triggered.join(" · ");
     }
   } else if(type==="rune-identify"){
@@ -726,9 +787,9 @@ export function applyCommand(old, command) {
     v.exhausted=!gear&&!(shadowAssassin(v)?
      s.cards.some(x=>x.owner==="human"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
     const logs=fieldMusicians(v)?[stageMusicians(v,c.targetUid)]:processCardEvent(s,{trigger:"play",actor:"human",source:v,
-     choices:{targetUid:c.targetUid}},{place,deckCard});
+     choices:{targetUid:c.targetUid}},runtime);
     s.turnActions.played.human++;
-    if(!s.pendingEffects.length)logs.push(...processCardEvent(s,{trigger:"ally-play",actor:"human",source:v},{place,deckCard}));
+    if(!s.pendingEffects.length)logs.push(...processCardEvent(s,{trigger:"ally-play",actor:"human",source:v},runtime));
     if(ambush){
       s.pendingCombat.focus="ai";s.pendingCombat.passes={human:false,ai:false};
     }
@@ -766,14 +827,21 @@ export function applyCommand(old, command) {
     if(restrictedToHiddenField&&target.battlefield!==hidden.field)
       throw Error("Choisis une unité sur le champ où le sort était caché.");
     if(!checkSpellTarget(rule,target,p,c.battlefield))throw Error("La cible ou le champ n'est pas légal pour ce sort.");
-    if(target&&target.owner!==p&&/\[Deflect(?: \d+)?\]/i.test(target.text||""))throw Error("Le coût Deflect supplémentaire n'est pas pris en charge pour ce sort.");
+    let extraPower=0;
+    if(target&&target.owner!==p){
+      for(const keyword of String(target.text||"").matchAll(/\[Deflect(?: (\d+))?\]/gi)){
+        if(keyword.index!==0&&target.text[keyword.index-1]!=="\n")
+          throw Error("Le coût Deflect conditionnel doit encore être vérifié.");
+        extraPower+=Number(keyword[1]||1);
+      }
+    }
     let discard=null;
     if(c.discardUid){
       discard=getCard(s,string(c.discardUid,80));
       if(p!=="ai"||!rule.discardDamage||discard.uid===source.uid||discard.owner!==p||discard.zone!=="hand")
         throw Error("Défausse supplémentaire invalide.");
     }
-    const paid=pay(p,{...(hidden?{energy:0,power:0}:flow?rule.flow:rule),name:source.name},c.payment);
+    const paid=pay(p,{...(hidden?{energy:0,power:0}:flow?rule.flow:rule),name:source.name,extraPower},c.payment);
     if(discard){discard.zone="trash";s.players[p].handCount--;}
     const v=hidden?.slot??(fromBoard?source:place(s,p,source,"chain"));
     if(hidden)turnFaceUp(v,source,"chain");
@@ -786,20 +854,31 @@ export function applyCommand(old, command) {
       ...(restrictedToHiddenField?{hiddenField:hidden.field}:{}),...(flow?{flow:true}:{})});
     s.spellChain.priority=p;s.spellChain.lastPass=null;
     summary=v.name+(flow?" par Flux":"")+" sur la chaîne"+(target?" → "+target.name:"")+payLabel(paid)+
-      (discard?" · défausse "+discard.name:"");
+      (extraPower?" · Deflect "+extraPower:"")+(discard?" · défausse "+discard.name:"");
   } else if(type==="activate"){
     checkOwner(p);
-    if(!s.started||s.phase!=="Main"||s.spellChain||s.pendingEffects.length||!hasPriority(p))
-      throw Error("Cette Action demande la priorité dans un état ouvert.");
-    const legend=getCard(s,string(c.uid,80)),target=getCard(s,string(c.targetUid,80));
-    if(legend.owner!==p||legend.zone!=="legend"||!shenLegend(legend)||legend.exhausted)
-      throw Error("Il faut ta légende Shen prête pour activer cette capacité.");
-    if(!checkSpellTarget({target:"friendly-unit"},target,p))
-      throw Error("Shen doit choisir une unité alliée en jeu.");
-    legend.exhausted=true;
-    appendChainItem({uid:"activate-"+(s.revision+1),sourceUid:legend.uid,cardName:legend.name,
-      targetUid:target.uid,ability:"shen-tank",owner:p});
-    summary=legend.name+" épuisé · Tank sur la chaîne → "+target.name;
+    const source=getCard(s,string(c.uid,80));
+    if(goldToken(source)){
+      if(!s.started||s.phase!=="Main"&&!s.spellChain||s.pendingEffects.length||!hasPriority(p))
+        throw Error("Attends ta priorité pour dépenser un jeton Gold.");
+      if(source.owner!==p||source.zone!=="base"||source.exhausted||source.faceDown||c.targetUid!=null)
+        throw Error("Choisis un de tes jetons Gold prêts.");
+      s.cards=s.cards.filter(card=>card.uid!==source.uid);
+      s.powerPool[p]++;
+      summary=(p==="ai"?"IA":"Joueur")+" · Gold dépensé · 1 Power ajouté à la réserve";
+    }else{
+      if(!s.started||s.phase!=="Main"||s.spellChain||s.pendingEffects.length||!hasPriority(p))
+        throw Error("Cette Action demande la priorité dans un état ouvert.");
+      const target=getCard(s,string(c.targetUid,80));
+      if(source.owner!==p||source.zone!=="legend"||!shenLegend(source)||source.exhausted)
+        throw Error("Il faut ta légende Shen prête pour activer cette capacité.");
+      if(!checkSpellTarget({target:"friendly-unit"},target,p))
+        throw Error("Shen doit choisir une unité alliée en jeu.");
+      source.exhausted=true;
+      appendChainItem({uid:"activate-"+(s.revision+1),sourceUid:source.uid,cardName:source.name,
+        targetUid:target.uid,ability:"shen-tank",owner:p});
+      summary=source.name+" épuisé · Tank sur la chaîne → "+target.name;
+    }
   } else if(type==="chain-pass"){
     checkOwner(p);
     const chain=s.spellChain;
@@ -814,6 +893,11 @@ export function applyCommand(old, command) {
          cardName:item.cardName,trigger:"pakaa-reveal",text:"Révèle la première carte de ton deck principal.",
          reason:"Annonce seulement la carte révélée."});
         summary=item.cardName+" attend la carte du dessus de ton deck.";
+      }else if(item.ability==="create-bird"&&item.owner==="human"&&
+       s.battlefields.some((b,i)=>b.card&&fieldController(i)==="human")){
+        s.pendingEffects.push({id:"place-"+item.uid,trigger:"bird-placement",player:"human",chainUid:item.uid,
+         cardName:item.cardName,text:"Où joues-tu le jeton Bird ?",reason:"Choisis la base ou un champ que tu contrôles."});
+        summary=item.cardName+" attend la destination du jeton Bird.";
       }else if(source?.owner==="human"&&s.players.human.handCount>0&&
        (rule?.damageFromDiscard||rule?.discardThenDraw)){
         s.pendingEffects.push({id:"discard-"+source.uid,player:"human",sourceUid:source.uid,
@@ -866,14 +950,16 @@ export function applyCommand(old, command) {
       !(shadowAssassin(v)?s.cards.some(x=>x.owner==="ai"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
     if(!accelerate&&!isGear&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=fieldMusicians(v)?[stageMusicians(v,c.targetUid)]:processCardEvent(s,{trigger:"play",actor:"ai",source:v,
-     choices:{discardUids}},{place,deckCard});
+     choices:{discardUids}},runtime);
     s.turnActions.played.ai++;
     if(!s.pendingEffects.length)
-     triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},{place,deckCard}));
+     triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},runtime));
     summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":"sur "+s.battlefields[field].card.name)+
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
-     paid.domains.join("/")+")"+(accelerate?" · Accelerate payé":"")+
+     paid.domains.join("/")+")"+
+     (paid.goldUids.length?" · "+paid.goldUids.length+" Gold dépensé(s)":"")+
+     (paid.poolPower?" · "+paid.poolPower+" Power de la réserve":"")+(accelerate?" · Accelerate payé":"")+
      (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"")+
      (triggered.length?" · "+triggered.join(" · "):"")+
      (s.pendingEffects.length?" · Effet en attente : "+s.pendingEffects[0].cardName:"");
@@ -882,12 +968,21 @@ export function applyCommand(old, command) {
     if(!pending)throw Error("Aucun effet de carte en attente.");
     if(!c.confirm||c.id!==pending.id)
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
-    const chainChoice=["spell-discard","pakaa-reveal"].includes(pending.trigger);
+    const chainChoice=["spell-discard","pakaa-reveal","bird-placement"].includes(pending.trigger);
     if(chainChoice){
       if(s.spellChain?.items.at(-1)?.uid!==(pending.chainUid??pending.sourceUid))
         throw Error("L’effet en attente sur la chaîne a changé.");
+      if(pending.trigger==="bird-placement"&&c.battlefield!==null&&!Number.isInteger(c.battlefield))
+        throw Error("Précise la base ou un champ pour le jeton Bird.");
       s.pendingEffects.shift();
-      summary=resolveChainTop(c.card);
+      summary=resolveChainTop(c.card,c.battlefield);
+    }else if(pending.trigger==="token-cost"){
+      if(c.decline)summary=pending.cardName+" · capacité déclinée";
+      else{
+        const cost=pending.energy?payLabel(pay(pending.player,{name:pending.cardName,energy:pending.energy})):"";
+        stagedAbilities.push(pending.item);
+        summary=pending.cardName+" · capacité sur la chaîne"+cost;
+      }
     }else if(pending.trigger==="ending-ready-runes"){
       const uids=c.uids;
       if(!Array.isArray(uids)||uids.length>pending.count||new Set(uids).size!==uids.length||
@@ -1071,10 +1166,10 @@ export function applyCommand(old, command) {
           (v.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
         const might=effectiveMight(v,role,s);
         if(might!==null&&v.damage>=might){
-          const lastKnown={...v};
+          const lastKnown=unitBeforeDeath(s,v);
           v.zone="trash";v.battlefield=null;v.exhausted=false;v.damage=0;
           summary=v.name+" vaincue par les dégâts.";
-          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:lastKnown},{place,deckCard});
+          const triggered=processCardEvent(s,{trigger:"die",actor:v.owner,source:lastKnown},runtime);
           if(triggered.length)summary+=" · "+triggered.join(" · ");
         }
       }
@@ -1123,7 +1218,7 @@ export function applyCommand(old, command) {
      (burnOuts?" · Burn Out ×"+burnOuts:"");
     if(type==="draw"&&drawn){
      for(let i=0;i<drawn;i++){
-      const triggered=processCardEvent(s,{trigger:"draw",actor:p},{place,deckCard});
+      const triggered=processCardEvent(s,{trigger:"draw",actor:p},runtime);
       if(triggered.length)summary+=" · "+triggered.join(" · ");
       if(s.pendingEffects.length)break;
      }
@@ -1145,6 +1240,14 @@ export function applyCommand(old, command) {
     summary=string(c.text,600);
   } else throw Error("Type de commande inconnu : "+type);
   for(const trigger of movementTriggers)appendChainItem(trigger,{triggered:true});
+  flushStagedAbilities();
+  if(s.pendingConquest&&!s.pendingEffects.length&&!s.spellChain){
+    const conquest=s.pendingConquest;
+    delete s.pendingConquest;
+    const scored=finishCombatConquest(conquest);
+    if(scored.length)summary+=" · "+scored.join(" · ");
+    flushStagedAbilities();
+  }
   const delayedSummary=startNextEndingEffect();
   if(delayedSummary)summary+=" · "+delayedSummary;
   if(s.finishAfterDelayedEnding&&s.phase==="Ending"&&!s.finished&&!s.pendingEffects.length&&!s.spellChain)
@@ -1166,16 +1269,19 @@ export function applyCommand(old, command) {
      if(scored){
       summary+=" · "+scored;
       const triggered=s.players[owner].score>previousScore?
-       processCardEvent(s,{trigger:"conquer",actor:owner,field:i},{place,deckCard}):[];
+       processCardEvent(s,{trigger:"conquer",actor:owner,field:i},runtime):[];
       if(triggered.length)summary+=" · "+triggered.join(" · ");
      }
     }
    }
   }
+  const holds=finishBeginningScoring();
+  if(holds.length)summary+=" · "+holds.join(" · ");
+  flushStagedAbilities();
   // Tokens exist only on the board, never in trash or a recycled Main Deck.
   s.cards=s.cards.filter(card=>
    !(card.tags||[]).some(tag=>String(tag).toLowerCase()==="token")&&
-   !/^TOKEN-/i.test(card.code||"")||
+   !/^TOKEN-/i.test(card.code||"")&&!goldToken(card)||
    ["base","battlefield"].includes(card.zone));
   if(!s.winner){
    // Victory is decided during cleanup only when the leader has at least

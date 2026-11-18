@@ -9,6 +9,10 @@ import {effectiveMight} from "./combat-engine.mjs";
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
 const ownerName=p=>p==="ai"?"IA":"Joueur";
+export function unitBeforeDeath(state,card){
+ return {...card,withAlly:state.cards.some(other=>other.uid!==card.uid&&unit(other)&&!other.faceDown&&
+  other.owner===card.owner&&activeZone(card.zone)&&other.zone===card.zone&&other.battlefield===card.battlefield)};
+}
 // Most triggered abilities happen every time their condition occurs. Only
 // text explicitly saying once (or N times) per turn is limited.
 const isTracked=ability=>Number.isInteger(ability.perTurnLimit)&&ability.perTurnLimit>0;
@@ -138,7 +142,8 @@ function buildSteps(state,source,ability,actor,choices){
   return {reason:"Le nombre de cartes défaussées ne correspond pas au texte."};
  return {instructions};
 }
-function applySteps(state,source,steps,actor,place,deckCard,trigger){
+function applySteps(state,source,steps,actor,runtime,trigger){
+ const {place,deckCard}=runtime;
  const logs=[];
  for(const step of steps){
   const n=step.count;
@@ -244,11 +249,11 @@ function applySteps(state,source,steps,actor,place,deckCard,trigger){
    logs.push(c.name+" est étourdie");
   }else if(step.kind==="kill-unit"||step.kind==="kill-enemy"){
    const c=state.cards.find(c=>c.uid===step.targetUid);
-   const lastKnown={...c};
+   const lastKnown=unitBeforeDeath(state,c);
    c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
    logs.push(c.name+" est détruite");
    const triggered=processCardEvent(state,{trigger:"die",actor:c.owner,source:lastKnown},
-    {place,deckCard});
+    runtime);
    if(triggered.length)logs.push(...triggered);
   }else if(step.kind==="create-units"){
    const destination=step.destination==="here"&&
@@ -273,11 +278,11 @@ function applySteps(state,source,steps,actor,place,deckCard,trigger){
    const might=effectiveMight(c,"none",state);
    if(might===null)throw Error("Might inconnue : dégâts non résolus.");
    if(c.damage>=might){
-    const lastKnown={...c};
+    const lastKnown=unitBeforeDeath(state,c);
     c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
     const triggered=processCardEvent(state,{
      trigger:"die",actor:lastKnown.owner,source:lastKnown
-    },{place,deckCard});
+    },runtime);
     logs.push(n+" dégâts à "+c.name+" (unité vaincue)");
     if(triggered.length)logs.push(...triggered);
    }else logs.push(n+" dégâts à "+c.name);
@@ -285,7 +290,8 @@ function applySteps(state,source,steps,actor,place,deckCard,trigger){
  }
  return logs;
 }
-export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
+export function processCardEvent(state,event,runtime={}){
+ const {place,deckCard=card=>card,stageCardAbility}=runtime;
  const {trigger,actor}=event;
  if(!["human","ai"].includes(actor)||!trigger)throw Error("Événement de capacité invalide.");
  state.effectWork=(Number(state.effectWork)||0)+1;
@@ -305,6 +311,8 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.minimumExcess!=null&&(event.excessDamage??0)<ability.minimumExcess)continue;
+   if(ability.condition==="did-not-die-alone"&&!source.withAlly)continue;
    if(ability.condition==="empowered"&&!source.counters?.empowered)continue;
    if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
       c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
@@ -327,13 +335,21 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
      compiled.unsupported.find(x=>x.text===ability.text)?.reason);
     continue;
    }
+   const token=ability.steps.length===1&&ability.steps[0];
+   if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main"].includes(token.kind)||
+      token.kind==="draw"&&ability.condition==="did-not-die-alone"||
+      token.kind==="create-units"&&token.destination==="base")){
+    const notice=stageCardAbility(source,ability,token,event);
+    if(notice)summaries.push(notice);
+    continue;
+   }
    const plan=buildSteps(state,source,ability,actor,event.choices||{});
    if(plan.reason){
     makePending(state,source,ability,actor,plan.reason);
     if(plan.choice)state.pendingEffects.at(-1).choice=plan.choice;
     continue;
    }
-   const logs=applySteps(state,source,plan.instructions,actor,place,deckCard,trigger);
+   const logs=applySteps(state,source,plan.instructions,actor,{...runtime,place,deckCard},trigger);
    if(logs.length)summaries.push(ownerName(actor)+" · "+source.name+" : "+logs.join(", "));
   }
  }

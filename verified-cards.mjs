@@ -36,6 +36,8 @@ export const shadowDisciple=card=>printedCode(card)==="VEN-095";
 export const zedChampion=card=>printedCode(card)==="VEN-112";
 export const zedLegend=card=>printedCode(card)==="VEN-143";
 export const shadowClone=card=>card?.code==="TOKEN-SHADOW-CLONE";
+export const goldToken=card=>/^gear$/i.test(card?.type||"")&&
+ ["TOKEN-GOLD","SFD-T03","UNL-T05"].includes(printedCode(card));
 export const thresholdOfGray=card=>printedCode(card)==="VEN-166";
 export const hiddenDisciple=card=>printedCode(card)==="VEN-117"&&/^unit$/i.test(card?.type||"");
 export const hasHidden=card=>hiddenDisciple(card)||["VEN-034","OGN-168"].includes(printedCode(card))||/\[(?:Hidden|Caché)\]/i.test(card?.text||"");

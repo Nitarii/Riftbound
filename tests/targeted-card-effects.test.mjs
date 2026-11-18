@@ -51,6 +51,7 @@ test("Deathknell creates precisely 3 Recruit tokens after Machine Evangel dies",
  }),"ai","base");
  const uid=s.cards.find(x=>x.name==="Machine Evangel").uid;
  s=applyCommand(s,{type:"damage",uid,value:1});
+ s=applyCommand(applyCommand(s,{type:"chain-pass",player:"ai"}),{type:"chain-pass",player:"human"});
  const tokens=s.cards.filter(x=>x.name==="Recruit"&&x.owner==="ai"&&x.zone==="base");
  assert.equal(tokens.length,3);
  assert.ok(tokens.every(x=>x.might===1&&x.exhausted));
@@ -59,10 +60,12 @@ test("Deathknell creates precisely 3 Recruit tokens after Machine Evangel dies",
 test("token generation works for other identities and amounts, not card-name special cases",()=>{
  let s=setup();
  s=add(s,c("Ferrous Forerunner","Unit",{might:1,
-  text:"[Deathknell] — Play two 3 {might} Mech unit tokens to your base. (When I die, get the effect.)"
+  text:"[Deathknell] — Play two 3 [S] Mech unit tokens to your base. (When I die, get the effect.)"
  }),"ai","base");
  const uid=s.cards.find(x=>x.name==="Ferrous Forerunner").uid;
  s=applyCommand(s,{type:"damage",uid,value:1});
+ assert.equal(s.cards.filter(x=>x.name==="Mech").length,0);
+ s=applyCommand(applyCommand(s,{type:"chain-pass",player:"ai"}),{type:"chain-pass",player:"human"});
  assert.equal(s.cards.filter(x=>x.name==="Mech"&&x.zone==="base"&&x.might===3).length,2);
 });
 test("unsupported targeting and conditions never invent an automatic effect",()=>{

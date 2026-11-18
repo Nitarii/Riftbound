@@ -17,7 +17,7 @@ export function advanceMandatoryTurn(state){
  if(!next.turnActions?.drawn&&!next.turnActions?.drawAttempted){
   next=applyCommand(next,{type:"phase",phase:"Draw"});
   next=applyCommand(next,{type:"draw",player:who,count:1});
-  if(next.pendingEffects?.length||next.finished)return next;
+  if(next.pendingEffects?.length||next.spellChain||next.finished)return next;
  }
  if(!next.pendingCombat&&!next.pendingEffects?.length&&next.phase!=="Main")next=applyCommand(next,{type:"phase",phase:"Main"});
  // Keep the reducer's exact revision and resource changes, but display a

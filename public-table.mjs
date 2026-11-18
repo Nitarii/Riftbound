@@ -1,6 +1,8 @@
 import {previewCombat} from "./combat-engine.mjs";
 import {normalizePlayerAnnouncement,spokenPublicTarget} from "./player-actions.mjs";
 import {runeDomain} from "./rune-payment.mjs";
+import {goldToken} from "./verified-cards.mjs";
+import {chainPriorityReply} from "./rules-compendium.mjs";
 
 const publicZones=new Set(["legend","champion","base","battlefield","runes","trash","banished","chain"]);
 export const publicCardVisible=card=>Boolean(card?.name&&!card.faceDown&&publicZones.has(card.zone));
@@ -48,6 +50,10 @@ function summarizeBoard(state,visible,english){
   }
   const list=[...totals].map(([domain,count])=>count+" "+domain).join(", ");
   lines.push(side(owner)+" · "+bilingual(english,"runes prêtes","ready runes")+" "+(list||"0")+".");
+  const reserve=state.powerPool?.[owner]||0;
+  const gold=visible.filter(card=>card.owner===owner&&card.zone==="base"&&goldToken(card));
+  if(reserve||gold.length)lines.push(side(owner)+" · "+bilingual(english,"Power en réserve ","Power in pool ")+reserve+
+   " · Gold "+gold.filter(c=>!c.exhausted).length+"/"+gold.length+" "+bilingual(english,"prêts","ready")+".");
  }
  const units=visible.filter(card=>/^unit$/i.test(card.type));
  const unitNames=(owner,zone,index)=>{
@@ -67,6 +73,8 @@ function summarizeBoard(state,visible,english){
 
 export function publicTableReply(message,state,{english=false}={}){
  const text=normalizePlayerAnnouncement(message);
+ const priority=chainPriorityReply(text,{english});
+ if(priority)return {text:priority};
  const request=text.match(/^(?:(?:(?:tu peux|peux tu|can you|could you) )?(?:(?:m'|me )?afficher|affiche|montre(?: moi)?|show(?: me)?)|je (?:ne )?vois pas|i (?:do not|can't) see)\s+(.+)$/);
  if(!request)return null;
  const query=request[1].replace(/^(?:la carte |the card |l'|le |la |the )/,"").trim();

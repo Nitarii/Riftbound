@@ -356,7 +356,9 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
     break;
    }
    enacted.push("joué "+card.name+" ("+payment.energy+" énergie, "+
-    payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s))"+
+    payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s)"+
+    (payment.goldUids.length?" / "+payment.goldUids.length+" Gold dépensé(s)":"")+
+    (payment.poolPower?" / "+payment.poolPower+" Power de la réserve":"")+")"+
     (discarded.length?", puis défaussé "+discarded.join(", ")+" pour son effet":""));
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();

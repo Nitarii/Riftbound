@@ -9,6 +9,7 @@ import {ADVANCED_LOCAL_MODEL} from "./local-ai-profiles.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 import {allowPhysicalLocalCommand} from "./local-action-gate.mjs";
 import {previewCombat} from "./combat-engine.mjs";
+import {chainPriorityReply} from "./rules-compendium.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
@@ -84,6 +85,7 @@ export function modelBoardState(state){
   revision:state.revision,turn:state.turn,phase:state.phase,active:state.active,
   firstPlayer:state.firstPlayer,turnActions:state.turnActions,pendingEffects:(state.pendingEffects||[]).slice(0,5),
   spellChain:state.spellChain||null,
+  energyPool:state.energyPool||{human:0,ai:0},powerPool:state.powerPool||{human:0,ai:0},
   delayedEnding:state.delayedEnding||[],
   confrontation:currentConfrontation(state),
   lastResolvedCombat:state.lastCombat||null,
@@ -534,9 +536,11 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }
  function onHumanMessage(text,{actionApplied=false}={}){
   if(!config?.enabled)return;
-  const exactCombatReply=actionApplied?"":combatTotalsReply(normalizePlayerAnnouncement(text),getState());
-  if(exactCombatReply){
-   sendMessage(exactCombatReply);
+  const normalized=normalizePlayerAnnouncement(text);
+  const exactReply=actionApplied?"":combatTotalsReply(normalized,getState())||
+   chainPriorityReply(normalized,{english:detectMessageLanguage(text)==="en"});
+  if(exactReply){
+   sendMessage(exactReply);
    advanceTurnIfAI();
    return;
   }

@@ -107,7 +107,9 @@ async function checkTableQuestions(){
  await ask("combat-resolu","Quels étaient les totaux d’attaque puis de défense au dernier combat ?",
   /\b9\b[^\n]*\b1\b/);
  await ask("priorite","Comment fonctionne la priorité quand un sort est sur la chaîne ?",
-  /(?=[\s\S]*priorit[ée])(?=[\s\S]*pass)(?=[\s\S]*(?:sommet|dernier|plus r[ée]cent))/i,"qwen");
+  /passes consécutives.*seul.*sommet.*reste un objet.*contrôleur reçoit la priorité/i);
+ await ask("ganking","Que permet Ganking pendant un déplacement standard ?",
+  /(?:champ|terrain).*(?:vers|[àa]) (?:un |l’|l')?(?:autre|(?:champ|terrain))/i,"qwen");
 }
 
 if(wavArg){

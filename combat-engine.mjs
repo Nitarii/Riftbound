@@ -92,7 +92,7 @@ export function assignDamage(total,targets,role,preferredOrder=[],state=null){
    (Math.max(1,(effectiveMight(a,role,state)??0)-number(a.damage))-
     Math.max(1,(effectiveMight(b,role,state)??0)-number(b.damage)))||
    String(a.uid).localeCompare(String(b.uid)));
- const assigned={};let left=total;
+ const assigned={};let left=total,excess=0;
  for(let i=0;i<sorted.length&&left>0;i++){
   const u=sorted[i];
   const might=effectiveMight(u,role,state);
@@ -102,9 +102,10 @@ export function assignDamage(total,targets,role,preferredOrder=[],state=null){
   // eligible targets have been assigned their required lethal.
   const amount=i===sorted.length-1?left:Math.min(left,lethal);
   assigned[u.uid]=amount;
+  excess+=Math.max(0,amount-lethal);
   left-=amount;
  }
- return {assigned,order:sorted.map(x=>x.uid),total,unassigned:left};
+ return {assigned,order:sorted.map(x=>x.uid),total,unassigned:left,excess};
 }
 export function battleParties(state,index,attacker){
  const units=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===index&&isUnit(c));
@@ -122,7 +123,7 @@ export function previewCombat(state,index,attacker,orders={}){
   return {ready:true,index,attacker,defender:OPPOSITE[attacker],
    attackingMight:0,defendingMight:0,
    attackers:attackers.map(c=>c.uid),defenders:defenders.map(c=>c.uid),
-   damageToAttackers:{},damageToDefenders:{},damage:[],dead:[],recalled:[],
+   damageToAttackers:{},damageToDefenders:{},damage:[],dead:[],recalled:[],excessDamage:{human:0,ai:0},
    winner:attackers.length?attacker:defenders.length?OPPOSITE[attacker]:"none",
    survivors:{attacker:attackers.length,defender:defenders.length}};
  }
@@ -150,6 +151,7 @@ export function previewCombat(state,index,attacker,orders={}){
  return {ready:true,index,attacker,defender:OPPOSITE[attacker],attackingMight,defendingMight,
   attackers:attackers.map(c=>c.uid),defenders:defenders.map(c=>c.uid),
   damageToAttackers:toAttackers.assigned,damageToDefenders:toDefenders.assigned,
+  excessDamage:{[attacker]:toDefenders.excess,[OPPOSITE[attacker]]:toAttackers.excess},
   damage:after,dead:after.filter(c=>c.dead).map(c=>c.uid),
   recalled:survivingDefenders.length?survivingAttackers.map(c=>c.uid):[],
   winner:survivingDefenders.length&&survivingAttackers.length?"none":

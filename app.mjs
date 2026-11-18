@@ -8,7 +8,7 @@ import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat} from "./combat-engine.mjs";
-import {shenLegend} from "./verified-cards.mjs";
+import {shenLegend,goldToken} from "./verified-cards.mjs";
 import {publicCardVisible,publicChainDetail} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
@@ -196,6 +196,11 @@ function renderCombatPanel(){
     info.textContent=item.cardName+" · "+item.runeUids.length+" rune(s) à redresser";
     return info;
    }
+   if(["create-gold","create-bird","create-units"].includes(item.ability)){
+    const name=item.tokenName||(item.ability==="create-gold"?"Gold":"Bird");
+    info.textContent=item.cardName+" · "+item.count+" "+name;
+    return info;
+   }
    info.textContent=item.ability==="pakaa-reveal"?item.cardName+" · révélation du dessus du deck":
     (spell?.name||item.cardName||"Sort")+(item.targetUid?" → "+(target?.name||"cible absente"):"")+
     (item.ability==="shen-tank"?" · Tank":item.damage?" · "+item.damage+" dégâts":"");
@@ -316,6 +321,17 @@ function renderPendingEffects(){
  $("next-turn").disabled=Boolean(pending)||Boolean(state.finished);
  const runeField=$("pending-effect-runes"),runeOptions=$("pending-effect-rune-options");
  const chooseRunes=pending?.trigger==="ending-ready-runes";
+ const chooseBird=pending?.trigger==="bird-placement",chooseCost=pending?.trigger==="token-cost";
+ $("pending-bird-choice").hidden=!chooseBird;
+ $("pending-effect-decline").hidden=!chooseCost;
+ if(chooseBird){
+  const list=$("pending-bird-field"),selected=list.dataset.effectId===pending.id?list.value:"base";
+  const options=[new Option("Base","base"),...state.battlefields.flatMap((b,i)=>
+   b.card&&battlefieldController(state,i)===pending.player?[new Option(b.card.name,String(i))]:[])];
+  list.replaceChildren(...options);
+  list.dataset.effectId=pending.id;
+  list.value=options.some(o=>o.value===selected)?selected:"base";
+ }
  runeField.hidden=!chooseRunes;
  if(chooseRunes){
   const previous=runeOptions.dataset.effectId===pending.id?
@@ -343,21 +359,28 @@ function renderPendingEffects(){
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
   (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
  $("pending-effect-description").textContent=pending.text;
- const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
- $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":announce?"Indiquer la carte":"Confirmer l’effet";
+ const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","burn":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
+ $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":chooseBird?"Jouer Bird":
+  chooseCost?(pending.energy?"Payer et activer":"Activer"):announce?"Indiquer la carte":"Confirmer l’effet";
  $("pending-effect-reason").textContent=pending.reason+(chooseRunes?" Tu peux n’en choisir aucune.":announce?
-  " · Annonce « "+announce+" » suivi du nom de la carte.":
+  " · Annonce « "+announce+" » suivi du nom de la carte.":chooseBird||chooseCost?"":
   " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
+ if(pending.trigger==="token-cost"||pending.trigger==="bird-placement"){
+  const field=$("pending-bird-field").value;
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,
+   ...(pending.trigger==="bird-placement"&&{battlefield:field==="base"?null:Number(field)})});
+  return;
+ }
  if(pending.trigger==="ending-ready-runes"){
   const uids=[...$("pending-effect-rune-options").querySelectorAll("input:checked")].map(input=>input.value);
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,uids});
   return;
  }
- const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
+ const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","burn":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
  if(announce){
   selectWorkspacePanel("chat");
   $("notes").value=announce+" ";
@@ -367,6 +390,10 @@ $("pending-effect-confirm").onclick=()=>{
  const confirmed=confirm("As-tu réellement résolu l'effet de "+pending.cardName+
   " ?\\n"+pending.text+"\\n\\nConfirmer ne simule aucun effet : le plateau attend ta résolution physique.");
  if(confirmed)dispatch({type:"effect-confirm",id:pending.id,confirm:true});
+};
+$("pending-effect-decline").onclick=()=>{
+ const pending=state.pendingEffects?.[0];
+ if(pending?.trigger==="token-cost")dispatch({type:"effect-confirm",id:pending.id,confirm:true,decline:true});
 };
 let previousCardLocations=new Map();
 function render(){
@@ -382,7 +409,9 @@ function render(){
   for(const p of ["human","ai"]){
     const player=state.players[p];
     $(p+"-score").textContent=player.score+" PV";
-    $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main");
+    const power=state.powerPool?.[p]||0;
+    $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main")+
+     (power?" · "+power+(uiLanguage==="en"?" Power in pool":" Power en réserve"):"");
     const piles=$(p+"-decks");
     if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" '+((p!==state.active||state.turnActions?.drawn||player.deckCount===0)?"disabled ":"")+'title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+
       '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" '+((p!==state.active||state.turnActions?.channeled||player.runeCount===0)?"disabled ":"")+'title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
@@ -523,6 +552,16 @@ function showInstance(c) {
   bar.innerHTML='<button data-action="exhaust">Épuiser</button><button data-action="ready">Redresser</button><button data-action="damage">+1 dégât</button><button data-action="heal">Soigner 1</button><button data-action="stun">Étourdir</button><button data-action="remove">Retirer</button>';
   const fight=state.pendingCombat;
   const hasFocus=fight?fight.focus==="human"&&!fight.passes.human:state.active==="human";
+  if(c.owner==="human"&&c.zone==="base"&&goldToken(c)&&!c.exhausted&&!state.finished&&!state.pendingEffects?.length&&
+     (state.spellChain?state.spellChain.priority==="human":state.phase==="Main"&&hasFocus)){
+   const spend=document.createElement("button");
+   spend.type="button";spend.className="primary";spend.textContent=uiLanguage==="en"?"Spend Gold":"Dépenser Gold";
+   spend.onclick=()=>{
+    $("card-dialog").close();
+    dispatch({type:"activate",player:"human",uid:c.uid});
+   };
+   bar.prepend(spend);
+  }
   if(c.owner==="human"&&c.zone==="legend"&&shenLegend(c)&&!c.exhausted&&state.phase==="Main"&&
      !state.finished&&!state.spellChain&&!state.pendingEffects?.length&&hasFocus){
    const allies=state.cards.filter(unit=>unit.owner==="human"&&["base","battlefield"].includes(unit.zone)&&

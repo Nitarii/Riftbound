@@ -1,6 +1,6 @@
 // Card-driven ability compiler with explicit handlers for verified exceptions.
 import {verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,
- shadowDisciple,zedChampion,zedLegend,thresholdOfGray,pakaaProtector,shenLegend,noxianEmissary,printedCode} from "./verified-cards.mjs";
+ shadowDisciple,zedChampion,zedLegend,thresholdOfGray,pakaaProtector,shenLegend,noxianEmissary,printedCode,goldToken} from "./verified-cards.mjs";
 // Unsupported instructions are reported, never treated as resolved.
 const normalize=x=>String(x||"").replace(/\r/g,"").replace(/[’‘]/g,"'").replace(/[–—]/g,"-").trim();
 const toCount=x=>({one:1,two:2,three:3,a:1,an:1,un:1,une:1,deux:2,trois:3})[String(x).toLowerCase()]??Number(x);
@@ -88,6 +88,18 @@ function parseInstructions(raw,spell=false){
   .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
   .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
+ const gold=expr.match(/^(?:pay \[(\d{1,2})\] to )?play (a|one|two|three|four|\d{1,2}) (ready )?gold gear tokens?( exhausted)?(?:\.\s*\((?:it has|they have) "[^"\n]+"\))?$/i);
+ if(gold&&!spell){
+  const count=gold[2].toLowerCase()==="four"?4:toCount(gold[2]);
+  const energy=Number(gold[1]||0);
+  if(count>=1&&count<=8&&!(gold[3]&&gold[4]))
+   return {steps:[{kind:"create-gold",count,energy,exhausted:Boolean(gold[4])}],reason:""};
+ }
+ if(!spell&&/^play a 1 \[S\] bird unit token with \[Deflect\]$/i.test(expr))
+  return {steps:[{kind:"create-bird",count:1}],reason:""};
+ const mill=expr.match(/^put the top (\d{1,2}) cards? of your main deck into your trash$/i);
+ if(!spell&&mill&&Number(mill[1])>=1&&Number(mill[1])<=12)
+  return {steps:[{kind:"mill-main",count:Number(mill[1])}],reason:""};
  const delayedRunes=new RegExp("^ready up to ("+AMOUNT+") runes? at the end of (?:this|the) turn$","i").exec(expr);
  if(delayedRunes){
   const count=toCount(delayedRunes[1]);
@@ -99,14 +111,14 @@ function parseInstructions(raw,spell=false){
  const steps=[];
  for(let item of parts){
   item=item.trim().replace(/[.,! ]+$/g,"").replace(/^(?:you may|may)\s+/i,"");
-  const token=/^play\s+(one|two|three|four|\d{1,2})\s+(\d{1,2})\s+\{might\}\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+(?:into|to)\s+your\s+base$|^play\s+(one|two|three|four|\d{1,2})\s+(\d{1,2})\s+\{might\}\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+here$/i.exec(item);
+  const token=/^play\s+(a|one|two|three|four|\d{1,2})\s+(\d{1,2})\s+(?:\{might\}|\[[SM]\])\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+((?:into|to)\s+your\s+base|here)$/i.exec(item);
   if(token){
-   const word=token[1]||token[4],n=word.toLowerCase()==="four"?4:toCount(word);
-   const might=Number(token[2]||token[5]),name=token[3]||token[6];
+   const word=token[1],n=word.toLowerCase()==="four"?4:toCount(word);
+   const might=Number(token[2]),name=token[3];
    if(!Number.isInteger(n)||n<1||n>8||might<1||might>20)
     return {steps:[],reason:"Création de jetons hors limites"};
    steps.push({kind:"create-units",count:n,tokenMight:might,tokenName:name.trim(),
-    destination:token[1]?"base":"here"});continue;
+    destination:token[4].toLowerCase()==="here"?"here":"base"});continue;
   }
   let parsed=false;
   for(const [kind,regex] of spell?[...patterns,...spellPatterns]:patterns){
@@ -180,7 +192,7 @@ export function compileCardAbilities(card){
   text:"Deathknell si Empowered : deux Recruits de 1 Might en base.",
   steps:[{kind:"create-units",count:2,tokenMight:1,tokenName:"Recruit",destination:"base"}]}],
   unsupported:[{trigger:"activation",text:"Empower de Noxian Emissary",reason:"Compétence activée non automatisée"}]};
- if([verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,shadowDisciple,thresholdOfGray,pakaaProtector,shenLegend]
+ if([verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,shadowDisciple,thresholdOfGray,pakaaProtector,shenLegend,goldToken]
     .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){
@@ -196,10 +208,13 @@ export function compileCardAbilities(card){
    keyword=prefix[1].toLowerCase().trim();
    const trailing=prefix[2].trim();
    if(keyword==="deathknell"){
-    const body=trailing.replace(/\s*\(when i die,?\s*get the effect\.?\)\.?$/i,"").trim();
+    let body=trailing.replace(/^\[>\]\s*/,"").replace(/\s*\(when i die,?\s*get the effect\.?\)\.?$/i,"").trim();
+    const company=/^if i didn't die alone,\s*/i.test(body);
+    if(company)body=body.replace(/^if i didn't die alone,\s*/i,"")
+     .replace(/\s*\(when i die,?\s*get the effect\. i wasn't alone if there were other friendly units here\.\)\.?$/i,"");
     const parsed=parseInstructions(body);
     const ability={trigger:"die",text:line,optional:false,
-     steps:parsed.steps,supported:!parsed.reason,keyword};
+     steps:parsed.steps,supported:!parsed.reason,keyword,...(company&&{condition:"did-not-die-alone"})};
     abilities.push(ability);
     if(parsed.reason)unsupported.push({trigger:"die",text:line,reason:parsed.reason});
     continue;
@@ -241,6 +256,8 @@ export function compileCardAbilities(card){
   const condition=trigger==="hold"&&/^if there is exactly one other unit you control here,\s*/i.test(body)?
    "one-other-unit":null;
   if(condition)body=body.replace(/^if there is exactly one other unit you control here,\s*/i,"");
+  const excess=trigger==="conquer"&&body.match(/^if you assigned (\d+) or more excess damage,\s*/i);
+  if(excess)body=body.slice(excess[0].length);
   const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
   const {steps,reason}=parseInstructions(body,type==="spell");
   // Match event card type rather than firing "play a unit" when a spell
@@ -252,6 +269,7 @@ export function compileCardAbilities(card){
    Number(/\b(?:twice|two times)\s+(?:each|this)\s+turn\b/i.test(line)?2:0);
   const ability={trigger,text:line,optional,steps,supported:!reason,
    ...(dependent||condition?{condition:dependent||condition}:{}),...(keyword?{keyword}:{}),
+   ...(excess&&{minimumExcess:Number(excess[1])}),
    ...(playedType?{playedType}:{}),...(limit?{perTurnLimit:limit}:{})};
   abilities.push(ability);
   if(reason)unsupported.push({trigger,text:line,reason});

@@ -123,9 +123,15 @@ try{
  assert.equal(turn.active,"ai");
  assert.equal(turn.revision,announcement.table.revision);
  assert.ok(!turn.decks);
- await command({type:"add",player:"ai",card:{...card("Remote Draw","Spell",0),
+ await command({type:"add",player:"ai",card:{...card("Gold","Gear",0),code:"TOKEN-GOLD"},zone:"base"});
+ await command({type:"add",player:"ai",card:{...card("Remote Draw","Spell",0),power:1,domains:["Order"],
   text:"[Reaction]\nDraw 1."},zone:"hand"});
- const readyForCast=(await agent("/api/state")).data.state;
+ const withGold=(await agent("/api/state")).data.state;
+ const gold=withGold.cards.find(c=>c.zone==="base"&&c.code==="TOKEN-GOLD"&&c.owner==="ai");
+ const spend=await agent("/api/command",{type:"activate",uid:gold.uid,ifRevision:withGold.revision});
+ assert.equal(spend.status,200,spend.data.error);
+ const readyForCast=spend.data.state;
+ assert.equal(readyForCast.powerPool.ai,1);
  const drawSpell=readyForCast.cards.find(c=>c.zone==="hand"&&c.name==="Remote Draw");
  const shortcut=await agent("/api/command",{type:"play-paid",uid:drawSpell.uid,ifRevision:readyForCast.revision});
  assert.equal(shortcut.status,400);
@@ -133,6 +139,8 @@ try{
  assert.equal(cast.status,200,cast.data.error);
  assert.equal(cast.data.state.cards.find(c=>c.uid===drawSpell.uid).zone,"chain");
  assert.equal(cast.data.state.players.ai.deckCount,readyForCast.players.ai.deckCount);
+ assert.equal(cast.data.state.players.ai.runeCount,readyForCast.players.ai.runeCount);
+ assert.equal(cast.data.state.powerPool.ai,0);
  const passChain=await agent("/api/command",{type:"chain-pass",ifRevision:cast.data.state.revision});
  assert.equal(passChain.status,200,passChain.data.error);
  const afterCast=await command({type:"chain-pass",player:"human"});

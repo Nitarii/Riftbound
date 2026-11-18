@@ -197,7 +197,7 @@ const guide={
  "play-paid":{type:"play-paid",uid:"AI hand or champion UID",battlefield:"optional controlled battlefield index"},
  cast:{type:"cast",player:"ai",uid:"AI spell UID",targetUid:"unit UID when the spell requires a target",flow:"true for a supported spell in your trash",
   hidden:"true for a supported spell in your hidden zone"},
- activate:{type:"activate",player:"ai",uid:"ready Shen legend UID",targetUid:"friendly unit UID"},
+ activate:{type:"activate",player:"ai",uid:"ready Shen legend or Gold token UID",targetUid:"friendly unit UID for Shen"},
  hide:{type:"hide",player:"ai",uid:"AI card with Hidden",battlefield:0,runeUid:"optional rune UID to recycle"},
  "play-hidden":{type:"play-hidden",player:"ai",uid:"ready hidden unit UID"},
  "chain-pass":{type:"chain-pass",player:"ai"},
@@ -347,7 +347,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
  }else{
   next=applyCommand(state,command);
-  if(next.active!==state.active||["start","next-turn","effect-confirm"].includes(command.type))next=advanceMandatoryTurn(next);
+  if(next.active!==state.active||["start","next-turn","effect-confirm","chain-pass"].includes(command.type))next=advanceMandatoryTurn(next);
   if(["start","setup-human","setup-ai"].includes(command.type))delete next.pendingFollowUp;
   receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
   if(input.type==="reset"){conversation.clear();pendingSpokenPlay=null;checkpoints.length=0;}
@@ -371,7 +371,7 @@ function applyAgentBatch(actions,revision,origin="ai",followUp=null){
  for(const cmd of actions){
   const active=next.active;
   next=applyCommand(next,cmd);
-  if(next.active!==active||["start","next-turn","effect-confirm"].includes(cmd.type))next=advanceMandatoryTurn(next);
+  if(next.active!==active||["start","next-turn","effect-confirm","chain-pass"].includes(cmd.type))next=advanceMandatoryTurn(next);
   opening=captureCombatOpening(next)||opening;
  }
  if(followUp){
