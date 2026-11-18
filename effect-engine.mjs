@@ -35,7 +35,7 @@ const TRIGGERS=[
  ["ending",/^(?:at the end of your turn|when your turn ends)\s*[,:\-]\s*(.*)$/i],
  ["hold",/^(?:when (?:i|this unit) hold|when you hold (?:here|this battlefield))\s*[,:\-]\s*(.*)$/i],
  ["conquer",/^(?:when (?:i|this unit) conquer|when you conquer (?:here|this battlefield))\s*[,:\-]\s*(.*)$/i],
- ["move",/^(?:when (?:i|this unit) move(?: to a battlefield)?)\s*[,:-]\s*(.*)$/i],
+ ["move",/^when (?:i|this unit) move(?<toBattlefield> to a battlefield)?\s*[,:-]\s*(.*)$/i],
  ["die",/^(?:when (?:i|this unit) die)\s*[,:\-]\s*(.*)$/i],
  ["attack",/^(?:when (?:i|this unit) attack)\s*[,:\-]\s*(.*)$/i],
  ["defend",/^(?:when (?:i|this unit) defend)\s*[,:\-]\s*(.*)$/i],
@@ -88,6 +88,16 @@ function parseInstructions(raw,spell=false){
   .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
   .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
+ const xp=!spell&&/^gain (\d{1,2}) XP$/i.exec(expr);
+ if(xp&&Number(xp[1])>0)return {steps:[{kind:"gain-xp",count:Number(xp[1])}],reason:""};
+ if(!spell&&/^\[Buff\] all units here(?:\.\s*\(Give each a \+1 \[[SM]\] buff if it doesn't have one\.\))?$/i.test(expr))
+  return {steps:[{kind:"buff-here"}],reason:""};
+ if(!spell&&/^you may ready a friendly gear\. If it(?:'s| is) an Equipment, you may detach it\.?$/i.test(normalize(raw)))
+  return {steps:[{kind:"ready-gear"}],reason:""};
+ if(!spell&&/^you may move a unit at a battlefield to its base\.?$/i.test(normalize(raw)))
+  return {steps:[{kind:"return-field-unit"}],reason:""};
+ if(!spell&&/^at the start of your next main phase, you may move an enemy unit to this battlefield$/i.test(expr))
+  return {steps:[{kind:"schedule-enemy-move"}],reason:""};
  const gold=expr.match(/^(?:pay \[(\d{1,2})\] to )?play (a|one|two|three|four|\d{1,2}) (ready )?gold gear tokens?( exhausted)?(?:\.\s*\((?:it has|they have) "[^"\n]+"\))?$/i);
  if(gold&&!spell){
   const count=gold[2].toLowerCase()==="four"?4:toCount(gold[2]);
@@ -212,9 +222,13 @@ export function compileCardAbilities(card){
     const company=/^if i didn't die alone,\s*/i.test(body);
     if(company)body=body.replace(/^if i didn't die alone,\s*/i,"")
      .replace(/\s*\(when i die,?\s*get the effect\. i wasn't alone if there were other friendly units here\.\)\.?$/i,"");
+    const mighty=/^if i was \[Mighty\],\s*/i.test(body);
+    if(mighty)body=body.replace(/^if i was \[Mighty\],\s*/i,"")
+     .replace(/\s*\(when i die,?\s*get the effect\. i'm Mighty while i have 5\+ \[[SM]\]\.\)\.?$/i,"");
     const parsed=parseInstructions(body);
     const ability={trigger:"die",text:line,optional:false,
-     steps:parsed.steps,supported:!parsed.reason,keyword,...(company&&{condition:"did-not-die-alone"})};
+     steps:parsed.steps,supported:!parsed.reason,keyword,
+     ...(company&&{condition:"did-not-die-alone"}),...(mighty&&{condition:"was-mighty"})};
     abilities.push(ability);
     if(parsed.reason)unsupported.push({trigger:"die",text:line,reason:parsed.reason});
     continue;
@@ -241,10 +255,10 @@ export function compileCardAbilities(card){
   }
   line=line.replace(/^\[(?:assault|shield|tank|backline|accelerate|ganking|reaction|action)\b[^\]]*\]\s*/i,"").trim();
   if(!line||/^\([^)]*\)$/.test(line))continue;
-  let trigger="",body=line;
+  let trigger="",body=line,toBattlefield=false;
   for(const [event,re] of TRIGGERS){
    const match=re.exec(line);
-   if(match){trigger=event;body=match[1];break;}
+   if(match){trigger=event;body=match.at(-1);toBattlefield=Boolean(match.groups?.toBattlefield);break;}
   }
   if(!trigger){
    if(type==="spell"&&!/^(?:action|reaction)\b/i.test(line))trigger="play";
@@ -268,6 +282,7 @@ export function compileCardAbilities(card){
   const limit=/\b(?:once|first time)(?:\s+each|\s+this|\s+a)?\s+turn\b/i.test(line)?1:
    Number(/\b(?:twice|two times)\s+(?:each|this)\s+turn\b/i.test(line)?2:0);
   const ability={trigger,text:line,optional,steps,supported:!reason,
+   ...(toBattlefield&&{toBattlefield}),
    ...(dependent||condition?{condition:dependent||condition}:{}),...(keyword?{keyword}:{}),
    ...(excess&&{minimumExcess:Number(excess[1])}),
    ...(playedType?{playedType}:{}),...(limit?{perTurnLimit:limit}:{})};

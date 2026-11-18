@@ -26,7 +26,7 @@ function shuffle(a,state) {
   for(let i=a.length-1;i>0;i--){const j=Math.floor(nextRandom(state)*(i+1));[a[i],a[j]]=[a[j],a[i]];}
   return a;
 }
-const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
+const player = () => ({legend:null,champion:null,score:0,xp:0,handCount:4,deckCount:35,runeCount:12,notes:""});
 const newTurnActions = () => ({channeled:0,channelRunes:[],drawn:0,holdDraws:[],played:{human:0,ai:0}});
 export function createState({seed=Math.floor(Math.random()*4294967296)}={}) {
   return {version:VERSION,rng:seed>>>0,cardSerial:0,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:newTurnActions(),pendingCombat:null,spellChain:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
@@ -78,6 +78,8 @@ export function applyCommand(old, command) {
   s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
+  if(type==="phase"&&s.pendingEffects.some(effect=>effect.trigger==="ability-target"))
+   throw Error("Choisis la cible ou décline la capacité avant de changer de phase.");
   if(type==="phase"&&s.pendingEffects.some(effect=>effect.trigger==="ending-ready-runes"))
    throw Error("Choisis les runes à redresser avant de quitter la phase de fin.");
   const p=c.player||"ai";
@@ -186,6 +188,16 @@ export function applyCommand(old, command) {
     }
     return true;
   }
+  function deflectPower(target,owner){
+    if(!target||target.owner===owner)return 0;
+    let power=0;
+    for(const keyword of String(target.text||"").matchAll(/\[Deflect(?: (\d+))?\]/gi)){
+      if(keyword.index!==0&&target.text[keyword.index-1]!=="\n")
+        throw Error("Le coût Deflect conditionnel doit encore être vérifié.");
+      power+=Number(keyword[1]||1);
+    }
+    return power;
+  }
   function defeatBySpell(target,logs){
     const lastKnown=unitBeforeDeath(s,target);
     target.zone="trash";
@@ -231,12 +243,70 @@ export function applyCommand(old, command) {
     s.spellChain.priority=item.owner;
     s.spellChain.lastPass=null;
   }
+  const gearTarget=(card,owner)=>onBoard(card)&&!card.faceDown&&/^gear$/i.test(card.type)&&card.owner===owner;
+  const fieldUnitTarget=(card,owner)=>checkSpellTarget({target:"unit",atBattlefield:true},card,owner);
+  const movementRestricted=field=>/vilemaw.s lair|antre de vilemaw/i.test(s.battlefields[field]?.card?.name||"");
+  const targetRule={"ready-gear":gearTarget,"return-field-unit":fieldUnitTarget,
+   "move-enemy-here":(card,owner)=>checkSpellTarget({target:"unit",side:"enemy"},card,owner)};
+  function triggeredTargetCost(item,card){
+    if(!targetRule[item.ability]?.(card,item.owner))return null;
+    try{return {name:item.cardName,energy:0,extraPower:deflectPower(card,item.owner)};}
+    catch{return null;}
+  }
+  function stageWithTarget(item,target){
+    const cost=triggeredTargetCost(item,target);
+    if(!cost)throw Error("La cible n’est plus valide pour cette capacité.");
+    const payment=cost.extraPower?payLabel(pay(item.owner,cost)):"";
+    stagedAbilities.push({...item,targetUid:target.uid});
+    return item.cardName+" cible "+target.name+" sur la chaîne"+payment;
+  }
+  function chooseTriggerTarget(item,targets){
+    if(item.ability==="ready-gear")return targets.filter(card=>card.exhausted)
+      .sort((a,b)=>Number(goldToken(b))-Number(goldToken(a)))[0];
+    if(item.ability==="move-enemy-here"){
+      if(fieldController(item.field)!==item.owner)return;
+      return targets.filter(card=>card.zone!=="battlefield"||card.battlefield!==item.field)
+       .sort((a,b)=>(effectiveMight(b,"none",s)??0)-(effectiveMight(a,"none",s)??0))
+       .find(card=>{
+        const projected={...s,cards:s.cards.map(unit=>unit.uid===card.uid||unit.attachedTo===card.uid?
+         {...unit,zone:"battlefield",battlefield:item.field}:unit)};
+        return previewCombat(projected,item.field,card.owner).winner===item.owner;
+       });
+    }
+    return targets.filter(card=>card.owner!==item.owner&&!movementRestricted(card.battlefield))
+     .sort((a,b)=>{
+      const controls=card=>fieldController(card.battlefield)===card.owner&&
+       participants(card.battlefield).filter(unit=>unit.owner===card.owner).length===1;
+      return Number(controls(b))-Number(controls(a))||
+       (effectiveMight(b,"none",s)??0)-(effectiveMight(a,"none",s)??0);
+     })[0];
+  }
+  function offerTriggeredTarget(item){
+    const owner=item.owner;
+    const candidates=s.cards.filter(card=>{
+      const cost=triggeredTargetCost(item,card);
+      return cost&&(!cost.extraPower||!planRunePayment(s,owner,cost).error);
+    });
+    if(!candidates.length)return "";
+    if(owner==="ai"){
+      const target=chooseTriggerTarget(item,candidates);
+      return target?stageWithTarget(item,target):"";
+    }
+    s.pendingEffects.push({id:item.uid,trigger:"ability-target",player:owner,optional:true,item,
+     targetUids:candidates.map(card=>card.uid),cardName:item.cardName,
+     text:item.ability==="ready-gear"?"Quel équipement veux-tu redresser ?":item.ability==="move-enemy-here"?
+      "Quelle unité ennemie veux-tu déplacer vers "+s.battlefields[item.field].card.name+" ?":
+      "Quelle unité veux-tu déplacer en base ?",
+     reason:"Choisis une cible ou décline la capacité."});
+    return item.cardName+" attend ton choix";
+  }
   function stageCardAbility(source,ability,step,event){
     const owner=event.actor;
     const item={uid:"token-"+(s.revision+1)+"-"+(++stagedAbilitySerial),
      ability:step.kind,owner,sourceUid:source.uid,cardName:source.name,
      count:step.count,exhausted:Boolean(step.exhausted),field:event.field??null,
      ...(step.kind==="create-units"&&{tokenName:step.tokenName,tokenMight:step.tokenMight})};
+    if(Object.hasOwn(targetRule,step.kind))return offerTriggeredTarget(item);
     if(step.energy&&planRunePayment(s,owner,{name:source.name,energy:step.energy}).error)
       return source.name+" · énergie insuffisante pour la capacité facultative";
     if((ability.optional||step.energy)&&owner==="human"){
@@ -316,7 +386,7 @@ export function applyCommand(old, command) {
     }
     return item.cardName+" · "+logs.join(" · ");
   }
-  function spellResolution(item,physicalCard,birdField){
+  function spellResolution(item,physicalCard,birdField,detach){
     if(["create-gold","create-bird","create-units"].includes(item.ability))return resolveTokens(item,birdField);
     if(item.ability==="mill-main")
       return item.cardName+" · "+burnMainCards(s,item.owner,item.count,
@@ -325,6 +395,49 @@ export function applyCommand(old, command) {
       const result=drawMainCards(s,item.owner,item.count,runtime);
       return item.cardName+" · pioche "+result.actual+" carte(s)"+
        (result.burnOuts?" · Burn Out ×"+result.burnOuts:"");
+    }
+    if(item.ability==="gain-xp"){
+      const player=s.players[item.owner];
+      player.xp=(player.xp??0)+item.count;
+      return item.cardName+" · gagne "+item.count+" XP (total "+player.xp+")";
+    }
+    if(item.ability==="buff-here"){
+      const source=s.cards.find(card=>card.uid===item.sourceUid);
+      const units=onBoard(source)?s.cards.filter(card=>card.zone===source.zone&&card.battlefield===source.battlefield&&
+       (source.zone!=="base"||card.owner===source.owner)&&!card.faceDown&&/^unit$/i.test(card.type)&&!card.counters.buff):[];
+      units.forEach(unit=>{unit.counters.buff=1;});
+      return item.cardName+(units.length?" · Buff sur "+units.map(unit=>unit.name).join(", "):" · aucun Buff ajouté");
+    }
+    if(item.ability==="ready-gear"){
+      const gear=s.cards.find(card=>card.uid===item.targetUid);
+      if(!gearTarget(gear,item.owner))return item.cardName+" · cible devenue invalide";
+      gear.exhausted=false;
+      if(gear.attachedTo&&detach){
+        gear.attachedTo=null;
+        if(!/^\[Deploy\]/im.test(gear.text||"")){gear.zone="base";gear.battlefield=null;}
+        return item.cardName+" · "+gear.name+" préparé et détaché";
+      }
+      return item.cardName+" · "+gear.name+" préparé";
+    }
+    if(item.ability==="return-field-unit"){
+      const target=s.cards.find(card=>card.uid===item.targetUid);
+      if(!fieldUnitTarget(target,item.owner))return item.cardName+" · cible devenue invalide";
+      return [item.cardName,...returnUnitToBase(target)].join(" · ");
+    }
+    if(item.ability==="schedule-enemy-move"){
+      (s.delayedMain??=[]).push({...item,ability:"move-enemy-here"});
+      return item.cardName+" · déplacement proposé au début de ta prochaine phase principale";
+    }
+    if(item.ability==="move-enemy-here"){
+      const target=s.cards.find(card=>card.uid===item.targetUid);
+      if(!targetRule[item.ability](target,item.owner))return item.cardName+" · cible devenue invalide";
+      const field=item.field,previousController=fieldController(field);
+      const location=s.battlefields[field].card.name;
+      if(target.zone==="battlefield"&&target.battlefield===field)return item.cardName+" · cible déjà à "+location;
+      target.zone="battlefield";target.battlefield=field;
+      if(previousController!==target.owner&&!(s.queuedContests||[]).some(contest=>contest.field===field))
+        (s.queuedContests??=[]).push({field,attacker:target.owner,previousController});
+      return [item.cardName,target.name+" rejoint "+location,...moveTriggers(target)].join(" · ");
     }
     if(item.ability==="ready-runes-ending"){
       const runes=s.cards.filter(rune=>item.runeUids.includes(rune.uid)&&
@@ -361,14 +474,7 @@ export function applyCommand(old, command) {
         logs.push(...moveTriggers(target));
       }
       if(rule.returnToBase){
-        const field=s.battlefields[target.battlefield]?.card;
-        if(/vilemaw.s lair|antre de vilemaw/i.test(field?.name||"")){
-          logs.push("déplacement interdit à "+field.name);
-        }else{
-          target.zone="base";target.battlefield=null;
-          logs.push(target.name+" retourne en base");
-          logs.push(...moveTriggers(target));
-        }
+        logs.push(...returnUnitToBase(target));
       }
       if(rule.might)target.counters.tempMight=(target.counters.tempMight||0)+rule.might;
       if(rule.prevention)target.counters.preventDamage=(target.counters.preventDamage||0)+rule.prevention;
@@ -412,9 +518,9 @@ export function applyCommand(old, command) {
     if(item.flow)logs.push(source.name+" banni après son lancement par Flux");
     return source.name+" résolu"+(logs.length?" · "+logs.join(" · "):"");
   }
-  function resolveChainTop(physicalCard,birdField){
+  function resolveChainTop(physicalCard,birdField,detach){
     const chain=s.spellChain,item=chain.items.at(-1);
-    const resolved=spellResolution(item,physicalCard,birdField);
+    const resolved=spellResolution(item,physicalCard,birdField,detach);
     chain.items.pop();
     for(const trigger of movementTriggers.splice(0))appendChainItem(trigger,{triggered:true});
     if(chain.items.length){
@@ -437,6 +543,12 @@ export function applyCommand(old, command) {
     }
     return processCardEvent(s,{trigger:"move",actor:v.owner,source:v},runtime);
   }
+  function returnUnitToBase(target){
+    if(movementRestricted(target.battlefield))
+      return ["déplacement interdit à "+s.battlefields[target.battlefield].card.name];
+    target.zone="base";target.battlefield=null;
+    return [target.name+" retourne en base",...moveTriggers(target)];
+  }
   function moveEffects(v,burnPlayer){
     const logs=moveTriggers(v);
     if(shadowDisciple(v)){
@@ -457,13 +569,13 @@ export function applyCommand(old, command) {
     logs.push(burnMainCards(s,choice,1,v,runtime));
     return logs;
   }
-  function beginCombat(field,attacker,arriving=[]){
+  function beginCombat(field,attacker,arriving=[],previousControl){
     if(s.pendingCombat)return;
     const opponents=participants(field).filter(u=>u.owner===OPPOSITE[attacker]);
     const prev=old.cards.filter(v=>v.zone==="battlefield"&&v.battlefield===field&&
       /^unit$/i.test(v.type||""));
     const prevOwners=[...new Set(prev.map(v=>v.owner))];
-    const previousController=prevOwners.length===1?prevOwners[0]:null;
+    const previousController=previousControl===undefined?(prevOwners.length===1?prevOwners[0]:null):previousControl;
     if(!opponents.length&&previousController===attacker)return;
     s.pendingCombat={kind:opponents.length?"combat":"conquest",battlefield:field,attacker,defender:OPPOSITE[attacker],
       previousController,focus:attacker,passes:{human:false,ai:false},orders:{human:[],ai:[]},
@@ -666,6 +778,8 @@ export function applyCommand(old, command) {
   } else if(type==="start") {
     delete s.combatRewindId;
     delete s.delayedEnding;
+    delete s.delayedMain;
+    delete s.queuedContests;
     delete s.finishAfterDelayedEnding;
     delete s.pendingConquest;
     s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};
@@ -678,7 +792,15 @@ export function applyCommand(old, command) {
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
     const entering=phase!==s.phase;
     s.phase=phase;summary="Phase "+phase;
-    if(entering&&phase==="Main"){s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};}
+    if(entering&&phase==="Main"){
+      s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};
+      const due=(s.delayedMain||[]).filter(item=>item.owner===s.active);
+      if(due.length){
+        s.delayedMain=s.delayedMain.filter(item=>item.owner!==s.active);
+        const logs=due.map(offerTriggeredTarget).filter(Boolean);
+        if(logs.length)summary+=" · "+logs.join(" · ");
+      }
+    }
     if(entering&&phase==="Ending"){
      summary=enterEnding();
      if(s.pendingEffects.length)summary+=" · "+s.pendingEffects.length+" effet(s) en attente";
@@ -827,14 +949,7 @@ export function applyCommand(old, command) {
     if(restrictedToHiddenField&&target.battlefield!==hidden.field)
       throw Error("Choisis une unité sur le champ où le sort était caché.");
     if(!checkSpellTarget(rule,target,p,c.battlefield))throw Error("La cible ou le champ n'est pas légal pour ce sort.");
-    let extraPower=0;
-    if(target&&target.owner!==p){
-      for(const keyword of String(target.text||"").matchAll(/\[Deflect(?: (\d+))?\]/gi)){
-        if(keyword.index!==0&&target.text[keyword.index-1]!=="\n")
-          throw Error("Le coût Deflect conditionnel doit encore être vérifié.");
-        extraPower+=Number(keyword[1]||1);
-      }
-    }
+    const extraPower=deflectPower(target,p);
     let discard=null;
     if(c.discardUid){
       discard=getCard(s,string(c.discardUid,80));
@@ -888,6 +1003,7 @@ export function applyCommand(old, command) {
       const item=chain.items.at(-1);
       const source=item.ability?null:getCard(s,item.uid);
       const rule=source?.owner==="human"?spellRule(source):null;
+      const gear=item.ability==="ready-gear"&&s.cards.find(card=>card.uid===item.targetUid);
       if(item.ability==="pakaa-reveal"&&item.owner==="human"&&s.players.human.deckCount>0){
         s.pendingEffects.push({id:"reveal-"+item.uid,player:"human",sourceUid:item.sourceUid,chainUid:item.uid,
          cardName:item.cardName,trigger:"pakaa-reveal",text:"Révèle la première carte de ton deck principal.",
@@ -898,6 +1014,10 @@ export function applyCommand(old, command) {
         s.pendingEffects.push({id:"place-"+item.uid,trigger:"bird-placement",player:"human",chainUid:item.uid,
          cardName:item.cardName,text:"Où joues-tu le jeton Bird ?",reason:"Choisis la base ou un champ que tu contrôles."});
         summary=item.cardName+" attend la destination du jeton Bird.";
+      }else if(item.owner==="human"&&gearTarget(gear,item.owner)&&gear.attachedTo){
+        s.pendingEffects.push({id:"detach-"+item.uid,trigger:"gear-detach",player:"human",chainUid:item.uid,
+         cardName:item.cardName,text:"Veux-tu détacher "+gear.name+" ?",reason:"L’équipement sera redressé dans les deux cas."});
+        summary=item.cardName+" attend le choix de détacher ou non "+gear.name+".";
       }else if(source?.owner==="human"&&s.players.human.handCount>0&&
        (rule?.damageFromDiscard||rule?.discardThenDraw)){
         s.pendingEffects.push({id:"discard-"+source.uid,player:"human",sourceUid:source.uid,
@@ -968,14 +1088,20 @@ export function applyCommand(old, command) {
     if(!pending)throw Error("Aucun effet de carte en attente.");
     if(!c.confirm||c.id!==pending.id)
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
-    const chainChoice=["spell-discard","pakaa-reveal","bird-placement"].includes(pending.trigger);
+    const chainChoice=["spell-discard","pakaa-reveal","bird-placement","gear-detach"].includes(pending.trigger);
     if(chainChoice){
       if(s.spellChain?.items.at(-1)?.uid!==(pending.chainUid??pending.sourceUid))
         throw Error("L’effet en attente sur la chaîne a changé.");
       if(pending.trigger==="bird-placement"&&c.battlefield!==null&&!Number.isInteger(c.battlefield))
         throw Error("Précise la base ou un champ pour le jeton Bird.");
       s.pendingEffects.shift();
-      summary=resolveChainTop(c.card,c.battlefield);
+      summary=resolveChainTop(c.card,c.battlefield,pending.trigger==="gear-detach"&&!c.decline);
+    }else if(pending.trigger==="ability-target"){
+      if(c.decline)summary=pending.cardName+" · capacité déclinée";
+      else{
+        if(!pending.targetUids.includes(c.targetUid))throw Error("Choisis l’une des cibles proposées.");
+        summary=stageWithTarget(pending.item,getCard(s,c.targetUid));
+      }
     }else if(pending.trigger==="token-cost"){
       if(c.decline)summary=pending.cardName+" · capacité déclinée";
       else{
@@ -1258,6 +1384,14 @@ export function applyCommand(old, command) {
       gear.attachedTo=null;gear.zone="base";gear.battlefield=null;
     }else{gear.zone=host.zone;gear.battlefield=host.battlefield;}
   }
+  while(s.queuedContests?.length&&!s.pendingCombat&&!s.spellChain&&!s.pendingEffects.length){
+    const {field,attacker,previousController}=s.queuedContests.shift();
+    const units=participants(field).filter(card=>card.owner===attacker);
+    if(!units.length)continue;
+    beginCombat(field,attacker,units.map(card=>card.uid),previousController);
+    flushStagedAbilities();
+    if(s.pendingCombat)summary+=" · confrontation à "+s.battlefields[field].card.name;
+  }
   // A unit creates automatic Conquer only when it establishes uncontested
   // control and this field has not scored for that player this turn.
   if(s.started&&!s.pendingCombat&&["add","move","remove","play-paid","combat-attack"].includes(type)){
@@ -1278,6 +1412,7 @@ export function applyCommand(old, command) {
   const holds=finishBeginningScoring();
   if(holds.length)summary+=" · "+holds.join(" · ");
   flushStagedAbilities();
+  for(const card of s.cards)if(card.counters?.buff&&!onBoard(card))delete card.counters.buff;
   // Tokens exist only on the board, never in trash or a recycled Main Deck.
   s.cards=s.cards.filter(card=>
    !(card.tags||[]).some(tag=>String(tag).toLowerCase()==="token")&&

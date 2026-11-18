@@ -91,6 +91,13 @@ export function chainPriorityReply(normalized,{english=false}={}){
   "The player with priority can play a legal Reaction or pass. After both players pass consecutively without adding anything, only the top item resolves. If an item remains, its controller gets priority before that item can resolve. See rules 337–340.":
   "Le joueur qui a la priorité peut jouer une Réaction légale ou passer. Après deux passes consécutives sans ajout, seul l’objet au sommet se résout. S’il reste un objet, son contrôleur reçoit la priorité avant la résolution suivante. Voir les règles 337 à 340.";
 }
+export function gankRuleReply(normalized,{english=false}={}){
+ if(!/\b(?:gank|ganking)\b/.test(normalized)||
+    !/^(?:gank(?:ing)?$|que permet|comment (?:fonctionne|marche)|qu'est ce que|c'est quoi|est ce que|what (?:is|does)|how does|(?:can|does) (?:i|gank|a unit))\b/.test(normalized))return "";
+ return english?
+  "Ganking lets a ready unit exhaust to move straight from one battlefield to another as a standard move in your open Main Phase. Entering an enemy-occupied battlefield can start combat. See rules 144 and 810.":
+  "Avec Ganking, une unité prête peut s’épuiser pendant ta phase principale ouverte pour se déplacer directement d’un champ de bataille à un autre. Si elle arrive sur un champ occupé par l’adversaire, elle peut déclencher un combat. Voir les règles 144 et 810.";
+}
 const norm=x=>String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 export function selectCoreRules(query="",{state,limit=7}={}){
  const message=norm(query),parts=new Set((message.match(/[\p{L}\p{N}]+/gu)||[]).filter(x=>x.length>2));

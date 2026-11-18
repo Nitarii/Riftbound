@@ -371,6 +371,20 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  }
  const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
+ if(waiting?.player==="human"&&["ability-target","gear-detach"].includes(waiting.trigger)){
+  const detach=waiting.trigger==="gear-detach";
+  const decline=/^(?:je decline|je refuse|i decline|non|no|je (?:le )?garde attache|keep it attached)$/.test(text);
+  const accept=detach&&/^(?:je (?:le )?detache|detach(?: it)?|oui|yes)$/.test(text);
+  const selection=!detach&&text.match(/^(?:je (?:cible|choisis|redresse|prepare|deplace|renvoie)|i (?:target|choose|ready|move|return)) (.+?)(?: (?:en|a sa) base| to (?:its |the )?base)?$/);
+  if(decline||accept||selection){
+   const target=selection&&spokenPublicTarget(state.cards.filter(card=>waiting.targetUids.includes(card.uid)),selection[1]);
+   if(selection&&!target)return fail("Précise une des cibles proposées, ou dis « Je décline ».",
+    "Specify one of the available targets, or say “I decline”.");
+   const command={type:"effect-confirm",id:waiting.id,confirm:true,decline,...(target&&{targetUid:target.uid})};
+   try{return {commands:[command],recognized:true,summary:applyCommand(state,command).message};}
+   catch(error){return fail(error.message,error.message);}
+  }
+ }
  if(waiting?.player==="human"&&waiting.trigger==="token-cost"){
   const accept=/^(?:je paie|je paye|j'accepte|i pay|i accept|oui|yes)$/.test(text);
   const decline=/^(?:je decline|je refuse|je ne paie pas|i decline|non|no)$/.test(text);

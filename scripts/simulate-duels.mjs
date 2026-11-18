@@ -47,15 +47,21 @@ function game(seed,mode,metrics){
   const active=s.active;
   const reveal=s.pendingEffects[0]?.trigger==="pakaa-reveal"&&cmd.type==="effect-confirm";
   const chainBefore=s.spellChain?.items.filter(item=>!item.ability).map(item=>item.uid)||[];
-  s=applyCommand(s,cmd);
-  metrics.spellResolutions+=chainBefore.filter(uid=>!s.spellChain?.items.some(item=>item.uid===uid)).length;
-  if(s.active!==active||["start","next-turn","effect-confirm","chain-pass"].includes(cmd.type))s=advanceMandatoryTurn(s);
+  try{
+   s=applyCommand(s,cmd);
+   metrics.spellResolutions+=chainBefore.filter(uid=>!s.spellChain?.items.some(item=>item.uid===uid)).length;
+   if(s.active!==active||["start","next-turn","effect-confirm","chain-pass"].includes(cmd.type))s=advanceMandatoryTurn(s);
+  }catch(error){
+   const top=s.spellChain?.items.at(-1)?.cardName;
+   throw Error([cmd.type,s.phase,top||s.message,error.message].join(" · "),{cause:error});
+  }
   if(reveal&&!unit(cmd.card))cursor++;
   else if(!cmd.cards)for(let i=0;i<before-s.players.human.deckCount&&cursor<follow.length;i++)hand.push(follow[cursor++]);
   check(s);
  };
  const can=cmd=>{try{return applyCommand(s,cmd);}catch{return null;}};
  function physicalTurn(){
+  if(s.phase==="Ending"){apply({type:"next-turn"});return;}
   const unknown=s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.code==="PHYSICAL-RUNE");
   for(const run of unknown)apply({type:"rune-identify",uid:run.uid,domain:human.runes[runeCursor++%human.runes.length].domains[0]});
   if(mode!=="passif"){
@@ -82,7 +88,7 @@ function game(seed,mode,metrics){
    }
   }
   apply({type:"phase",phase:"Ending"});
-  if(!s.pendingEffects.length)apply({type:"next-turn"});
+  if(!s.pendingEffects.length&&!s.spellChain)apply({type:"next-turn"});
  }
  apply({type:"start",player:seed%2?"human":"ai"});
  for(let step=0;step<220;step++){
@@ -93,6 +99,14 @@ function game(seed,mode,metrics){
    apply({type:"effect-confirm",confirm:true,id:effect.id,battlefield:location>=0?location:null});continue;
   }
   if(effect?.trigger==="token-cost"){
+   apply({type:"effect-confirm",confirm:true,id:effect.id,decline:true});continue;
+  }
+  if(effect?.trigger==="ability-target"){
+   const targets=s.cards.filter(card=>effect.targetUids.includes(card.uid));
+   const target=targets.find(card=>effect.item.ability==="ready-gear"?card.exhausted:card.owner==="ai");
+   apply({type:"effect-confirm",confirm:true,id:effect.id,decline:!target,targetUid:target?.uid});continue;
+  }
+  if(effect?.trigger==="gear-detach"){
    apply({type:"effect-confirm",confirm:true,id:effect.id,decline:true});continue;
   }
   if(effect?.trigger==="pakaa-reveal"&&cursor<follow.length){

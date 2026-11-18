@@ -322,8 +322,23 @@ function renderPendingEffects(){
  const runeField=$("pending-effect-runes"),runeOptions=$("pending-effect-rune-options");
  const chooseRunes=pending?.trigger==="ending-ready-runes";
  const chooseBird=pending?.trigger==="bird-placement",chooseCost=pending?.trigger==="token-cost";
+ const chooseTarget=pending?.trigger==="ability-target",chooseDetach=pending?.trigger==="gear-detach";
  $("pending-bird-choice").hidden=!chooseBird;
- $("pending-effect-decline").hidden=!chooseCost;
+ $("pending-target-choice").hidden=!chooseTarget;
+ $("pending-effect-decline").hidden=!(chooseCost||chooseTarget||chooseDetach);
+ $("pending-effect-decline").textContent=chooseDetach?"Garder attaché":"Décliner";
+ if(chooseTarget){
+  const list=$("pending-target"),selected=list.dataset.effectId===pending.id?list.value:"";
+  const options=pending.targetUids.flatMap(uid=>{
+   const card=state.cards.find(card=>card.uid===uid&&!card.faceDown&&["base","battlefield"].includes(card.zone));
+   if(!card)return [];
+   const location=card.zone==="base"?"Base":state.battlefields[card.battlefield]?.card?.name;
+   return [new Option(card.name+" · "+location+" · "+(card.owner==="human"?"Joueur":"IA"),uid)];
+  });
+  list.replaceChildren(...options);
+  list.dataset.effectId=pending.id;
+  if(options.some(option=>option.value===selected))list.value=selected;
+ }
  if(chooseBird){
   const list=$("pending-bird-field"),selected=list.dataset.effectId===pending.id?list.value:"base";
   const options=[new Option("Base","base"),...state.battlefields.flatMap((b,i)=>
@@ -361,14 +376,20 @@ function renderPendingEffects(){
  $("pending-effect-description").textContent=pending.text;
  const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","burn":"Je révèle","spell-discard":"Je défausse"}[pending.trigger];
  $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":chooseBird?"Jouer Bird":
+  chooseTarget?"Valider la cible":chooseDetach?"Détacher":
   chooseCost?(pending.energy?"Payer et activer":"Activer"):announce?"Indiquer la carte":"Confirmer l’effet";
  $("pending-effect-reason").textContent=pending.reason+(chooseRunes?" Tu peux n’en choisir aucune.":announce?
-  " · Annonce « "+announce+" » suivi du nom de la carte.":chooseBird||chooseCost?"":
+  " · Annonce « "+announce+" » suivi du nom de la carte.":chooseBird||chooseCost||chooseTarget||chooseDetach?"":
   " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
+ if(["ability-target","gear-detach"].includes(pending.trigger)){
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,
+   ...(pending.trigger==="ability-target"&&{targetUid:$("pending-target").value})});
+  return;
+ }
  if(pending.trigger==="token-cost"||pending.trigger==="bird-placement"){
   const field=$("pending-bird-field").value;
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,
@@ -393,7 +414,8 @@ $("pending-effect-confirm").onclick=()=>{
 };
 $("pending-effect-decline").onclick=()=>{
  const pending=state.pendingEffects?.[0];
- if(pending?.trigger==="token-cost")dispatch({type:"effect-confirm",id:pending.id,confirm:true,decline:true});
+ if(["token-cost","ability-target","gear-detach"].includes(pending?.trigger))
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,decline:true});
 };
 let previousCardLocations=new Map();
 function render(){
@@ -411,6 +433,7 @@ function render(){
     $(p+"-score").textContent=player.score+" PV";
     const power=state.powerPool?.[p]||0;
     $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main")+
+     (player.xp?" · "+player.xp+" XP":"")+
      (power?" · "+power+(uiLanguage==="en"?" Power in pool":" Power en réserve"):"");
     const piles=$(p+"-decks");
     if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" '+((p!==state.active||state.turnActions?.drawn||player.deckCount===0)?"disabled ":"")+'title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+

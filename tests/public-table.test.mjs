@@ -59,3 +59,22 @@ test("a direct priority question explains the next priority window without chang
  const reply=publicTableReply("Comment fonctionne la priorité quand un sort est sur la chaîne ?",{});
  assert.match(reply.text,/passes consécutives.*seul.*sommet.*reste un objet.*contrôleur reçoit la priorité/i);
 });
+
+test("an XP question reads both public totals, including zero from an older save",()=>{
+ const state=createState();
+ state.started=true;
+ delete state.players.human.xp;
+ state.players.ai.xp=4;
+ assert.equal(publicTableReply("J’ai combien d’XP ?",state).text,"Joueur · 0 XP. IA · 4 XP.");
+ assert.equal(publicTableReply("How much XP do you have?",state,{english:true}).text,"Player · 0 XP. AI · 4 XP.");
+ assert.equal(publicTableReply("Combien d’XP faut-il pour atteindre le niveau 4 ?",state),null);
+ assert.equal(publicTableReply("Je gagne 2 XP",state),null);
+});
+
+test("Ganking explains the readiness cost and the possibility of combat",()=>{
+ assert.match(publicTableReply("Que permet Ganking pendant un déplacement standard ?",{}).text,
+  /unité prête.*s’épuiser.*d’un champ de bataille à un autre.*déclencher un combat/);
+ assert.match(publicTableReply("What does Ganking do?",{},{english:true}).text,
+  /ready unit exhaust to move.*can start combat/);
+ assert.equal(publicTableReply("Je déplace mon unité avec Ganking",createState()),null);
+});

@@ -109,7 +109,7 @@ async function checkTableQuestions(){
  await ask("priorite","Comment fonctionne la priorité quand un sort est sur la chaîne ?",
   /passes consécutives.*seul.*sommet.*reste un objet.*contrôleur reçoit la priorité/i);
  await ask("ganking","Que permet Ganking pendant un déplacement standard ?",
-  /(?:champ|terrain).*(?:vers|[àa]) (?:un |l’|l')?(?:autre|(?:champ|terrain))/i,"qwen");
+  /unité prête.*s’épuiser.*d’un champ de bataille à un autre.*déclencher un combat/i);
 }
 
 if(wavArg){

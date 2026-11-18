@@ -9,7 +9,7 @@ import {ADVANCED_LOCAL_MODEL} from "./local-ai-profiles.mjs";
 import {detectMessageLanguage,normalizePlayerAnnouncement} from "./player-actions.mjs";
 import {allowPhysicalLocalCommand} from "./local-action-gate.mjs";
 import {previewCombat} from "./combat-engine.mjs";
-import {chainPriorityReply} from "./rules-compendium.mjs";
+import {chainPriorityReply,gankRuleReply} from "./rules-compendium.mjs";
 
 const PROVIDERS={openai:"https://api.openai.com/v1",ollama:"http://127.0.0.1:11434/v1",
  lmstudio:"http://127.0.0.1:1234/v1",free:"http://127.0.0.1:11435/v1"};
@@ -87,14 +87,15 @@ export function modelBoardState(state){
   spellChain:state.spellChain||null,
   energyPool:state.energyPool||{human:0,ai:0},powerPool:state.powerPool||{human:0,ai:0},
   delayedEnding:state.delayedEnding||[],
+  delayedMain:state.delayedMain||[],
   confrontation:currentConfrontation(state),
   lastResolvedCombat:state.lastCombat||null,
   started:state.started,battlefields:state.battlefields.map(b=>({owner:b.owner,card:shortCard(b.card)})),
   players:{
    human:{legend:shortCard(state.players.human.legend),champion:shortCard(state.players.human.champion),
-    score:state.players.human.score,handCount:state.players.human.handCount},
+    score:state.players.human.score,xp:state.players.human.xp??0,handCount:state.players.human.handCount},
    ai:{legend:shortCard(state.players.ai.legend),champion:shortCard(state.players.ai.champion),
-    score:state.players.ai.score,handCount:state.players.ai.handCount,
+    score:state.players.ai.score,xp:state.players.ai.xp??0,handCount:state.players.ai.handCount,
     deckCount:state.players.ai.deckCount,runeCount:state.players.ai.runeCount}
   },
   cards:state.cards.filter(c=>c.zone!=="deck"&&c.zone!=="rune-deck"&&
@@ -537,8 +538,9 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  function onHumanMessage(text,{actionApplied=false}={}){
   if(!config?.enabled)return;
   const normalized=normalizePlayerAnnouncement(text);
+  const english=detectMessageLanguage(text)==="en";
   const exactReply=actionApplied?"":combatTotalsReply(normalized,getState())||
-   chainPriorityReply(normalized,{english:detectMessageLanguage(text)==="en"});
+   chainPriorityReply(normalized,{english})||gankRuleReply(normalized,{english});
   if(exactReply){
    sendMessage(exactReply);
    advanceTurnIfAI();

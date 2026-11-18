@@ -10,7 +10,11 @@ const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
 const ownerName=p=>p==="ai"?"IA":"Joueur";
 export function unitBeforeDeath(state,card){
- return {...card,withAlly:state.cards.some(other=>other.uid!==card.uid&&unit(other)&&!other.faceDown&&
+ const combat=state.pendingCombat;
+ const role=combat?.kind==="combat"&&card.zone==="battlefield"&&combat.battlefield===card.battlefield?
+  (combat.attacker===card.owner?"attack":"defend"):"none";
+ return {...card,wasMighty:effectiveMight(card,role,state)>=5,
+  withAlly:state.cards.some(other=>other.uid!==card.uid&&unit(other)&&!other.faceDown&&
   other.owner===card.owner&&activeZone(card.zone)&&other.zone===card.zone&&other.battlefield===card.battlefield)};
 }
 // Most triggered abilities happen every time their condition occurs. Only
@@ -311,8 +315,10 @@ export function processCardEvent(state,event,runtime={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.toBattlefield&&source.zone!=="battlefield")continue;
    if(ability.minimumExcess!=null&&(event.excessDamage??0)<ability.minimumExcess)continue;
    if(ability.condition==="did-not-die-alone"&&!source.withAlly)continue;
+   if(ability.condition==="was-mighty"&&!source.wasMighty)continue;
    if(ability.condition==="empowered"&&!source.counters?.empowered)continue;
    if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
       c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
@@ -336,8 +342,9 @@ export function processCardEvent(state,event,runtime={}){
     continue;
    }
    const token=ability.steps.length===1&&ability.steps[0];
-   if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main"].includes(token.kind)||
-      token.kind==="draw"&&ability.condition==="did-not-die-alone"||
+   if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main","gain-xp","buff-here","ready-gear",
+      "return-field-unit","schedule-enemy-move"].includes(token.kind)||
+      token.kind==="draw"&&["did-not-die-alone","was-mighty"].includes(ability.condition)||
       token.kind==="create-units"&&token.destination==="base")){
     const notice=stageCardAbility(source,ability,token,event);
     if(notice)summaries.push(notice);

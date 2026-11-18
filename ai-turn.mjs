@@ -272,6 +272,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    if(interrupted())return partial();
   }
   if(view.phase!=="Main")apply({type:"phase",phase:"Main"});
+  if(interrupted())return partial();
   // Ready units already in base are useful now. They should not wait forever
   // while the AI continues playing new units into base.
   let moved=0;
@@ -381,7 +382,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
   if(contested&&own(view,"base").some(c=>isUnit(c)&&!c.exhausted)){
    refused.push("Les champs sont défendus : un combat avec réactions doit être résolu avant de compter une conquête.");
   }
-  if(!view.pendingCombat&&!view.pendingEffects?.length){
+  if(!interrupted()){
    const refill=drawSpell(view);
    if(refill){
     apply(refill.command);

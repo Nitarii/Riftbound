@@ -178,15 +178,36 @@ try{
  assert.equal(resumed.revision,rewound.table.revision);
  assert.equal(resumed.combatRewindId,undefined);
  assert.deepEqual(resumed.pendingCombat,opening.data.state.pendingCombat);
- const resolved=await command({type:"combat-pass",player:"human"});
- const turnEnd=await agent("/api/command",{type:"next-turn",ifRevision:resolved.revision,
+ await command({type:"combat-pass",player:"human"});
+ const rootReady=await command({type:"add",player:"ai",zone:"base",card:{...card("Mister Root"),
+  text:"When I move to a battlefield, gain 2 XP."}});
+ const rootUnit=rootReady.cards.find(c=>c.name==="Mister Root");
+ const moving=await agent("/api/command",{type:"move",uid:rootUnit.uid,zone:"battlefield",battlefield:1,
+  ifRevision:rootReady.revision,commandId:crypto.randomUUID()});
+ assert.equal(moving.status,200,moving.data.error);
+ assert.equal(moving.data.state.players.ai.xp,0);
+ assert.equal(moving.data.state.spellChain.items.at(-1).ability,"gain-xp");
+ const passXP=await agent("/api/command",{type:"chain-pass",ifRevision:moving.data.state.revision});
+ assert.equal(passXP.status,200,passXP.data.error);
+ const afterXP=await command({type:"chain-pass",player:"human"});
+ assert.equal(afterXP.players.ai.xp,2);
+ const askXP=await local("/api/messages",{text:"J’ai combien d’XP ?"});
+ const agentXP=await poll(async()=>{
+  const {data}=await agent("/api/messages?after="+askXP.data.message.id);
+  return data.messages?.find(m=>m.text.includes("IA · 2 XP"));
+ },"L’agent ne reçoit pas le total d’XP lu sur le plateau.");
+ assert.match(agentXP.text,/Joueur · 0 XP/);
+ const contestPass=await agent("/api/command",{type:"combat-pass",ifRevision:afterXP.revision});
+ assert.equal(contestPass.status,200,contestPass.data.error);
+ const afterContest=await command({type:"combat-pass",player:"human"});
+ const turnEnd=await agent("/api/command",{type:"next-turn",ifRevision:afterContest.revision,
   commandId:crypto.randomUUID()});
  assert.equal(turnEnd.status,200,turnEnd.data.error);
  assert.equal(turnEnd.data.state.active,"human");
  const stop=await local("/api/remote/stop",{});
  assert.equal(stop.data.active,false);
  assert.equal((await local("/api/remote/status")).data.active,false);
- console.log("PASS: accès HTTPS, prise de relais, annonces du joueur, retour à l’attaque, contrôle du plateau, réponse et fermeture.");
+ console.log("PASS: accès HTTPS, prise de relais, annonces du joueur, retour à l’attaque, XP après réactions, réponse et fermeture.");
 }finally{
  try{await local("/api/remote/stop",{},2000);}catch{}
  try{await local("/api/manager/stop",{confirm:"STOP_RIFTBOUND"},2000);}catch{}
