@@ -36,7 +36,7 @@ export function whisperPrompt(cards=[],max=220){
 export function whisperServerArguments({model,port,threads=4,requestPath=""}){
  if(!Number.isInteger(port)||port<1024||port>65535)throw Error("Port local Whisper invalide.");
  return ["--model",model,"--host","127.0.0.1","--port",String(port),"--no-gpu",
-  "--threads",String(Math.min(8,Math.max(1,threads))),"--no-context",
+  "--threads",String(Math.min(8,Math.max(1,threads))),
   ...(requestPath?["--request-path",requestPath]:[])];
 }
 export function whisperArguments({model,wav,out,language="auto",prompt=""}){
@@ -106,6 +106,10 @@ export function createLocalWhisper({
   fs.writeFileSync(preferences,JSON.stringify({selected,enabled}),{mode:0o600});
  }
  let info={phase:"idle",progress:0,error:"",message:"Transcription locale non installée."};
+ function report(n,total){
+  info.transferred=n;info.total=total;
+  info.progress=total?Math.min(99,Math.round(n/total*100)):0;
+ }
  const modelPath=id=>path.join(models,WHISPER_OPTIONS[id].file);
  const installed=id=>Boolean(findWhisper(engineDir)&&fs.existsSync(stamp)&&fs.existsSync(modelPath(id)));
  function status(){
@@ -129,7 +133,7 @@ export function createLocalWhisper({
  }
  function extendServerIdle(){
   if(idleTimer)clearTimeout(idleTimer);
-  idleTimer=setTimeout(()=>{if(!transcribing)stopServer();},5*60*1000);
+  idleTimer=setTimeout(()=>{if(!transcribing)stopServer();},45000);
   idleTimer.unref?.();
  }
  async function startWhisperServer(){
@@ -159,7 +163,7 @@ export function createLocalWhisper({
    for(let attempt=0;attempt<125;attempt++){
     if(stopping||serverProc!==proc)return 0;
     try{
-     const response=await fetch("http://127.0.0.1:"+port+serverPrefix+"/",{
+     const response=await fetch("http://127.0.0.1:"+port+serverPrefix+"/health",{
       signal:AbortSignal.timeout(700),cache:"no-store"
      });
      if(response.ok){serverPort=port;extendServerIdle();return port;}
@@ -194,9 +198,10 @@ export function createLocalWhisper({
   return {text:String(result.text||"").replace(/\[[^\]]{1,50}\]/g," ")
    .replace(/\s+/g," ").trim().slice(0,1200),language,model:selected};
  }
- async function prepare(id){
+ async function prepare(id,{repair}){
   if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
   if(platform!=="win32")throw Error("Whisper intégré est destiné au Windows x64.");
+  if(repair)fs.rmSync(engineDir,{recursive:true,force:true});
   const dirs=[root,downloads,models,temp,engineDir];
   dirs.forEach(dir=>fs.mkdirSync(dir,{recursive:true}));
   const config=WHISPER_OPTIONS[id];
@@ -205,7 +210,7 @@ export function createLocalWhisper({
    info={phase:"engine",progress:0,error:"",message:"Téléchargement du moteur vocal officiel…"};
    const zip=path.join(downloads,WHISPER_ARCHIVE);
    await download(WHISPER_ENGINE_URL,zip,WHISPER_ENGINE_SHA,
-    (n,total)=>{info.progress=total?Math.round(n/total*100):0;},fetchImpl,
+    report,fetchImpl,
     {signal:downloadAbort?.signal});
    ensureRunning();
    info={...info,phase:"extracting",message:"Extraction du moteur vocal…"};
@@ -217,7 +222,7 @@ export function createLocalWhisper({
   }
   info={phase:"model",progress:0,error:"",message:"Téléchargement de "+config.label+"…"};
   await download(config.url,modelPath(id),config.sha256,
-   (n,total)=>{info.progress=total?Math.round(n/total*100):Math.round(n/config.bytes*100);},fetchImpl,
+   (n,total)=>report(n,total||config.bytes),fetchImpl,
    {signal:downloadAbort?.signal});
   ensureRunning();
   enabled=true;
@@ -226,12 +231,13 @@ export function createLocalWhisper({
   try{fs.rmSync(path.join(models,"ggml-base.bin"),{force:true});}catch{}
   info={phase:"ready",progress:100,error:"",message:"Whisper Small prêt, 100 % local."};
  }
- function begin(id=WHISPER_MODEL){
+ function begin(id=WHISPER_MODEL,{repair=false}={}){
   if(job)return status();
   if(id!==WHISPER_MODEL)throw Error("Un seul modèle vocal est disponible : Whisper Small.");
+  if(repair)stop();
   stopping=false;
   downloadAbort=new AbortController();
-  const promise=prepare(id).catch(e=>{if(stopping)return;info={phase:"error",error:String(e.message||e).slice(0,250),
+  const promise=prepare(id,{repair}).catch(e=>{if(stopping)return;info={phase:"error",error:String(e.message||e).slice(0,250),
    message:"Installation vocale interrompue.",progress:0};}).finally(()=>{if(job===promise)job=null;downloadAbort=null;});
   job=promise;return status();
  }
@@ -253,6 +259,13 @@ export function createLocalWhisper({
   enabled=true;stopping=false;savePreferences();
   info={...info,phase:"ready",error:"",message:"Whisper activé : aucun processus tant qu'une transcription n'est pas demandée."};
   return status();
+ }
+ async function remove(){
+  const previous=job;
+  stop({disable:true});
+  await previous;
+  for(const dir of [engineDir,downloads,models,temp])fs.rmSync(dir,{recursive:true,force:true});
+  info={phase:"idle",progress:0,error:"",message:"Transcription locale non installée."};
  }
  async function transcribe(buffer,{language="auto",cards=[]}={}){
   if(!enabled)throw Error("Whisper désactivé dans le gestionnaire : réactive-le pour utiliser le micro local.");
@@ -296,5 +309,5 @@ export function createLocalWhisper({
    for(const name of [wav,out+".txt",out+".json"])try{fs.rmSync(name,{force:true});}catch{}
   }
  }
- return {status,begin,stop,enable,warm,transcribe,root};
+ return {status,begin,stop,enable,warm,transcribe,remove,root};
 }

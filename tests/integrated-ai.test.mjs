@@ -31,6 +31,48 @@ function startState(){
  return state;
 }
 
+test("online takeover can suspend the local player without replacing its persisted model settings",()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-takeover-"));
+ try{
+  const create=()=>createIntegratedAI({userData:folder});
+  const local=create();
+  local.configure({provider:"free",model:"qwen3.5:9b-q4km",enabled:true});
+  assert.equal(local.disable({persist:false}).enabled,false);
+  assert.equal(create().status().enabled,true);
+  assert.equal(create().status().model,"qwen3.5:9b-q4km");
+  local.enable();
+  assert.equal(local.status().enabled,true);
+ }finally{fs.rmSync(folder,{recursive:true,force:true});}
+});
+
+test("returning to local play retries an interrupted turn at the same revision",{timeout:2000},async()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-resume-local-"));
+ let state=applyCommand(startState(),{type:"next-turn"});
+ let tries=0,firstStarted,retryStarted,interrupt;
+ const started=new Promise(resolve=>{firstStarted=resolve;});
+ const retried=new Promise(resolve=>{retryStarted=resolve;});
+ const inFlight=new Promise((_,reject)=>{interrupt=reject;});
+ try{
+  const local=createIntegratedAI({userData:folder,getState:()=>state,getMessages:()=>({session:"same-table"}),
+   sendMessage:()=>{},applyBatch:async(commands,revision)=>{
+    assert.equal(revision,state.revision);
+    if(++tries===1){firstStarted();return inFlight;}
+    state=commands.reduce(applyCommand,state);
+    retryStarted();
+   }});
+  local.configure({provider:"free",rulesOnly:true,enabled:true});
+  const revision=state.revision;
+  local.advanceTurnIfAI();
+  await started;
+  local.disable({persist:false});
+  local.enable();
+  local.advanceTurnIfAI();
+  interrupt(Error("Turn interrupted by takeover"));
+  await retried;
+  assert.ok(state.revision>revision);
+ }finally{fs.rmSync(folder,{recursive:true,force:true});}
+});
+
 test("language model cannot invent AI points or play cards without paying",()=>{
  const state=startState();
  const uid=state.cards.find(c=>c.owner==="ai"&&c.zone==="hand").uid;

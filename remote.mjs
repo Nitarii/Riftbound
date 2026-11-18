@@ -47,6 +47,8 @@ async function readInput(req){
 }
 export function createRemoteAccess({
  userData,
+ executableDir=userData,
+ version=CURRENT_VERSION,
  getState,
  performCommand,
  getCatalog,
@@ -105,7 +107,7 @@ export function createRemoteAccess({
    if(req.method==="GET"&&name==="/openapi.json"){
     send(res,200,{
      openapi:"3.0.3",
-     info:{title:"Riftbound Physical Game Agent API",version:CURRENT_VERSION,
+     info:{title:"Riftbound Physical Game Agent API",version,
       description:"Play a physical duel using a temporary bearer token and validated game commands."},
      security:[{sessionToken:[]}],
      components:{securitySchemes:{sessionToken:{type:"http",scheme:"bearer"}}},
@@ -188,7 +190,7 @@ export function createRemoteAccess({
    throw Error("Ce module est incomplet : le tunnel distant n'a pas été inclus lors de la compilation.");
   }
   const bundleHash=crypto.createHash("sha256").update(compressed).digest("hex").slice(0,16);
-  const output=path.join(userData,"cloudflared-"+bundleHash+".exe");
+  const output=path.join(executableDir,"cloudflared-"+bundleHash+".exe");
   const verify=data=>crypto.createHash("sha256").update(data).digest("hex")===CLOUDFLARED_HASH;
   try{
    const installed=fs.readFileSync(output);
@@ -199,6 +201,7 @@ export function createRemoteAccess({
   // Write atomically. Never execute an existing unverified userData file.
   const temp=output+"-"+crypto.randomBytes(5).toString("hex")+".tmp";
   try{
+   fs.mkdirSync(executableDir,{recursive:true});
    fs.writeFileSync(temp,raw,{flag:"wx",mode:0o700});
    fs.renameSync(temp,output);
   }finally{

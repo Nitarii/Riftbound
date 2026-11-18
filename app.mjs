@@ -13,6 +13,9 @@ import {publicCardVisible,publicChainDetail} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
+const desktop=globalThis.riftboundDesktop;
+const nativeMessage=message=>window.chrome.webview.postMessage(message);
+if(desktop)document.body.classList.add("desktop-app");
 const i18n={
  "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
  "Gestionnaire":"Manager","Ouvrir le gestionnaire":"Open manager",
@@ -42,10 +45,21 @@ const i18n={
  "Instructions pour n'importe quel agent":"Instructions for any agent",
  "Activer le plein écran":"Enter fullscreen","Désactiver":"Disable",
  "Envoyer mon message":"Send my message","Passer mon tour":"End turn",
- "Configurer":"Configure","Réduire le panneau historique":"Collapse history"
+ "Configurer":"Configure","Réduire le panneau historique":"Collapse history",
+ "⚙ Gestionnaire":"⚙ Manager","Ton deck physique":"Your physical deck",
+ "1 · Ta légende":"Legend","2 · Ton champion choisi":"Chosen champion","3 · Ton champ de bataille":"Battlefield",
+ "Adversaire IA":"AI opponent","Deck de l'IA":"Opponent deck","Qui commence ?":"First player",
+ "Moi":"Me","L'IA":"AI","▶ Commencer la partie":"▶ Start game","▶ Reprendre la partie":"▶ Resume game",
+ "Choisis une légende…":"Choose a legend…","Choisis d'abord ta légende…":"Choose a legend first…",
+ "Choisis un terrain…":"Choose a battlefield…","Plateau":"Board","Discussion IA":"AI chat",
+ "RUNES ACTIVES":"ACTIVE RUNES","MAIN IA":"AI HAND","DEFAUSSE":"DISCARD","Tour suivant →":"End turn →",
+ "Plus":"More","↶ Annuler":"↶ Undo","Outils avancés":"Advanced tools","Mode vocal éteint.":"Voice off",
+ "Connecter un agent externe":"Connect an online agent",
+ "Micro":"Mic","Ex. : Je joue Disciple of Shen.":"E.g. I play Disciple of Shen."
 };
 let uiLanguage="fr";
 try{uiLanguage=localStorage.getItem("riftbound-language")==="en"?"en":"fr";}catch{}
+if(desktop)uiLanguage=desktop.language;
 const originalText=new WeakMap(),originalAttributes=new WeakMap();
 function applyUILanguage(){
  document.documentElement.lang=uiLanguage;
@@ -92,6 +106,7 @@ let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 let companionGate=null,companionGateBusy=false;
 const isLoopbackRelay=url=>/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(url||"");
 function openCompanionManager(){
+ if(desktop){nativeMessage({type:"manager"});return true;}
  if(relay?.token&&isLoopbackRelay(relay.url)){
   // A real user gesture opens the authenticated loopback manager.
   // Fragment credentials never reach the web server or external websites.
@@ -119,6 +134,7 @@ const save=()=>{if(!state.decks)return;try{localStorage.setItem(storage,JSON.str
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Thumbnail requests reduce bandwidth; full-resolution art remains available in the detail view.
 function imageForDisplay(url,large=false){
+ if(desktop)return "";
  if(!url||typeof url!=="string")return "";
  try{
   const u=new URL(url);
@@ -141,8 +157,8 @@ function cardHTML(c,show=true,large=false){
  if(!c)return '<div class="empty-card">—</div>';
  const faceDown=Boolean(c.faceDown),turned=Boolean(c.exhausted);
  const title=faceDown?(uiLanguage==="en"?"Hidden card":"Carte cachée"):esc(c.name);
- const art=!faceDown&&c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
-   '<div class="empty-card">'+title+'</div>';
+ const art=!faceDown&&c.image&&!desktop?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
+   '<div class="empty-card">'+title+(desktop&&!faceDown&&Number.isFinite(c.might)?'<small>'+c.might+'</small>':"")+'</div>';
  const label=show&&!faceDown?'<div class="card-label">'+title+'</div>':'';
  const status=faceDown?' data-card-state="hidden" aria-label="'+title+'"':
   turned?' data-card-state="exhausted" aria-label="'+title+' — exhausted"':
@@ -157,6 +173,7 @@ function cardHTML(c,show=true,large=false){
  return tile;
 }
 function adjustRuneCards(){
+ if(desktop)return;
  for(const p of ["human","ai"]){
   const holder=$(p+"-runes"),panel=holder?.closest(".panel");
   if(!panel)continue;
@@ -175,6 +192,7 @@ function renderCombatPanel(){
  const panel=$("combat-panel"),battle=state.pendingCombat,attackBtn=$("combat-attack-button");
  if(!panel)return;
  const chain=state.spellChain;
+ panel.dataset.state=chain||battle?"resolving":"available";
  if(chain){
   panel.hidden=false;attackBtn.hidden=true;
   $("combat-choices").hidden=true;
@@ -226,6 +244,7 @@ function renderCombatPanel(){
   $("combat-details").textContent=uiLanguage==="en"?
    "Select ready units to launch a simultaneous attack.":"Déclare un assaut avec plusieurs unités prêtes en une seule action.";
   $("combat-preview").textContent="";
+  attackBtn.textContent=uiLanguage==="en"?"⚔ Attack":"⚔ Attaquer";
   return;
  }
  $("combat-choices").hidden=true;
@@ -430,7 +449,7 @@ function render(){
   $("phases").innerHTML=PHASES.map(p=>'<button class="phase '+(state.phase===p?"current":"")+'" data-phase="'+p+'">'+p+'</button>').join("");
   for(const p of ["human","ai"]){
     const player=state.players[p];
-    $(p+"-score").textContent=player.score+" PV";
+    $(p+"-score").textContent=player.score+(uiLanguage==="en"?" VP":" PV");
     const power=state.powerPool?.[p]||0;
     $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main")+
      (player.xp?" · "+player.xp+" XP":"")+
@@ -504,7 +523,7 @@ async function dispatch(command){
       const reply=await res.json();if(!res.ok)throw Error(reply.error||"Erreur du relais");
       if(reply.state.revision>=state.revision){state=reply.state;lastSync=state.revision;render();}
     }else{undo.push(structuredClone(state));undo=undo.slice(-50);state=applyCommand(state,command);render();}
-    if(command.type==="reset"||command.type==="start")resetChatView();
+    if(["reset","start","new-duel"].includes(command.type))resetChatView();
     notify(state.message);
     return true;
   }catch(e){notify(e.message,true);return false;}
@@ -961,7 +980,8 @@ function displayHeard(text,complete=false){
 function voiceUI(info){
  const active=Boolean(info.enabled);
  voiceButton.setAttribute("aria-pressed",String(active));
- voiceButton.textContent=active?"■ Couper le micro":"🎙 Mode vocal";
+ voiceButton.textContent=desktop?(active?(uiLanguage==="en"?"■ Stop mic":"■ Couper le micro"):
+  (uiLanguage==="en"?"Mic":"Micro")):active?"■ Couper le micro":"🎙 Mode vocal";
  voiceButton.title=active?"Désactiver la conversation mains libres":"Activer l'écoute continue et l'envoi automatique";
  voiceIndicator.dataset.voiceState=info.phase;
  voiceStatus.textContent=info.detail||(active?"Microphone actif. Parle naturellement.":"Mode vocal éteint.");
@@ -1099,9 +1119,11 @@ setInterval(async()=>{
 $("language-select").value=uiLanguage;
 $("language-select").addEventListener("change",event=>{
  uiLanguage=event.target.value==="en"?"en":"fr";
+ if(desktop)nativeMessage({type:"language",language:uiLanguage});
  try{localStorage.setItem("riftbound-language",uiLanguage);}catch{}
  voiceController.setLanguage(uiLanguage);
  render();renderChat();
+ if(desktop){renderDeckChoices();renderWelcome();applyUILanguage();}
 });
 
 document.addEventListener("visibilitychange",()=>voiceController.setHidden(document.hidden));
@@ -1335,7 +1357,11 @@ async function checkRemoteSession(){
   const wasActive=Boolean(remoteSession?.url);
   remoteSession=data.active?data:null;
   updateRemoteUI();
-  if(wasActive&&!data.active)notify("L'accès distant IA est terminé.");
+  if(wasActive&&!data.active){
+   clearManualPrompt();
+   aiQuery();
+   notify("L'accès distant IA est terminé.");
+  }
  }catch{/* Local module offline; reconnect normally. */}
 }
 function clearManualPrompt(){
@@ -1460,6 +1486,7 @@ $("home-start-remote").onclick=async()=>{
   if(!session?.url||!session?.agentToken)throw Error("L'accès distant n'est pas prêt.");
   remoteSession=session;remoteStarting=false;
   updateRemoteUI();
+  aiQuery();
   await copyAgentPrompt(true,clipboard);
  }catch(e){
   if(clipboard)clipboard.resolve(new Blob(["L'accès distant n'a pas pu être activé. Aucun jeton n'a été créé."],{type:"text/plain"}));
@@ -1475,6 +1502,7 @@ $("home-stop-remote").onclick=async()=>{
   remoteSession=null;onboarding.prompt=false;saveOnboarding();
   clearManualPrompt();
   updateRemoteUI();renderWelcome();
+  aiQuery();
   notify("✓ Accès à l'IA coupé immédiatement.");
  }catch(e){notify(e.message,true);}
 };
@@ -1582,7 +1610,7 @@ document.addEventListener("error",e=>{
  img.alt=img.alt+" (image indisponible)";
 },true);
 $("card-search").oninput=renderCatalog;$("card-type").onchange=renderCatalog;
-$("refresh-cards").onclick=async()=>{try{catalog=await loadCatalog(true);renderCatalog();notify("Catalogue actualisé")}catch(e){notify(e.message,true)}};
+$("refresh-cards").onclick=async()=>{try{catalog=await loadAppCatalog(true);renderCatalog();notify("Catalogue actualisé")}catch(e){notify(e.message,true)}};
 $("import-cards").onchange=async e=>{try{catalog=importCatalog(JSON.parse(await e.target.files[0].text()));renderCatalog();notify(catalog.length+" cartes chargées.");}catch(err){notify(err.message,true)}e.target.value="";};
 const signalStatus=t=>{$("connection").textContent=t;};
 let sseRetry=null;
@@ -1706,14 +1734,18 @@ async function connectRelay(){
   const res=await fetch(url+"/api/state",{...localFetchOptions(url),headers:{Authorization:"Bearer "+token}});
   if(!res.ok)throw Error("Accès refusé au relais");
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
-  if(local)await refreshCompanionGate(relay);
+  if(local&&!desktop)await refreshCompanionGate(relay);
   resetChatView();syncChat();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify(companionGate?
    "Mise à jour ou vérification nécessaire. Utilise le gestionnaire.":"Relais synchronisé. Ne publie jamais ton jeton.",
    Boolean(companionGate));renderWelcome();
-  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();refreshSpeech();refreshKnowledgeStatus();});
+  queueMicrotask(()=>{
+   checkRemoteSession();
+   if(!desktop){pollFreeAI();refreshKnowledgeStatus();}
+   aiQuery();refreshSpeech();
+  });
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
@@ -1744,6 +1776,14 @@ function setWizardStep(index){
 }
 function renderWelcome(){
  if(!$("welcome-progress"))return;
+ if(desktop){
+  for(const section of document.querySelectorAll(".welcome-step"))section.hidden=section.dataset.wizardStep!=="3";
+  $("home-resume").hidden=!state.started;
+  $("home-resume").textContent="▶ Reprendre la partie";
+  $("home-create-game").disabled=!relay||!catalog.length;
+  applyUILanguage();
+  return;
+ }
  const gate=$("companion-version-gate");
  gate.hidden=!companionGate;
  if(companionGate){
@@ -1990,7 +2030,7 @@ function renderDeckChoices(){
  }
  for(const id of ids){
   const el=$(id),previous=el.value;
-  el.innerHTML='<option value="random">🎲 Aléatoire parmi les '+PRECONS.length+' decks</option>';
+  el.innerHTML='<option value="random">'+(uiLanguage==="en"?"Random opponent":"Deck aléatoire")+'</option>';
   for(const [group,decks] of groups){
    const optgroup=document.createElement("optgroup");optgroup.label=group;
    for(const deck of decks){const option=document.createElement("option");option.value=deck.id;option.textContent=deck.label.split(" · ")[0]+" · "+deck.label.match(/\(([^)]+)\)/)?.[1];optgroup.append(option);}
@@ -2054,6 +2094,14 @@ $("home-create-game").onclick=async()=>{
   const legend=homeCard("home-human-legend","legend");
   const champion=homeCard("home-human-champion","champion");
   const battlefield=homeCard("home-human-battlefield","battlefield");
+  if(desktop){
+   const replace=uiLanguage==="en"?"Replace the saved game?":"Remplacer la partie en cours ?";
+   if(state.started&&!confirm(replace))return;
+   button.disabled=true;
+   if(await dispatch({type:"new-duel",legend:legend.code,champion:champion.code,
+    battlefield:battlefield.code,deck:$("home-ai-deck").value,player:$("home-first-player").value}))showGame();
+   return;
+  }
   const deck=resolvePrecon(catalog,$("home-ai-deck").value);
   if(state.started&&!confirm("Remplacer la partie en cours par une nouvelle partie ?"))return;
   button.disabled=true;button.textContent="Création en cours…";
@@ -2071,7 +2119,7 @@ $("home-create-game").onclick=async()=>{
    notify("Partie prête : "+deck.label+".");
    showGame();
  }catch(e){notify(e.message,true);}
-  finally{button.disabled=false;button.textContent="▶ Commencer la partie";}
+  finally{button.disabled=false;button.textContent="▶ Commencer la partie";applyUILanguage();}
 };
 // The Windows single-file app opens this page with a one-time login token
 // in the URL fragment (never sent to the server), which is consumed immediately.
@@ -2079,7 +2127,8 @@ async function autoBootstrapCompanion(){
  if(!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(location.origin))return;
  const key="riftbound-local-connection-v1";
  let localToken="";
- if(location.hash.startsWith("#companion=")){
+ if(desktop)localToken=desktop.token;
+ else if(location.hash.startsWith("#companion=")){
    try{localToken=decodeURIComponent(location.hash.slice("#companion=".length));}catch{}
    history.replaceState(null,"",location.pathname+location.search);
    if(localToken)try{sessionStorage.setItem(key,localToken);}catch{}
@@ -2098,7 +2147,7 @@ async function autoBootstrapCompanion(){
    onboarding.preview=false;
    wizardStep=companionGate?1:3;onboarding.wizardStep=wizardStep;
    saveOnboarding();renderWelcome();
-   if(!companionGate)notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
+   if(!companionGate&&!desktop)notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
  }else{
    try{sessionStorage.removeItem(key);}catch{}
    notify("Connexion automatique impossible. Relance le compagnon Windows.",true);
@@ -2234,16 +2283,38 @@ async function watchForLocalCompanion(){
  },2400);
 }
 
+if(desktop){
+ $("welcome-heading").textContent="Riftbound Companion";
+ const remoteOptions=document.querySelector(".remote-access-alternative");
+ remoteOptions.querySelector("summary").textContent="Connecter un agent externe";
+ document.querySelector('[data-wizard-step="3"] .welcome-step-body').append(remoteOptions);
+ $("home-feedback").textContent="";
+ $("manager-open").title="Ouvrir le gestionnaire";
+ $("voice-note").textContent="Micro";
+ $("notes").placeholder="Ex. : Je joue Disciple of Shen.";
+ for(const side of ["human","ai"]){
+  const score=$(side+"-score");
+  score.before($(side+"-meta"));
+ }
+}
 render();
 renderChat();
 renderWelcome();
 renderDeckChoices();
 updateRemoteUI();
 setInterval(()=>{if(relay?.token&&remoteSession)checkRemoteSession();},15000);
-setInterval(()=>{if(relay&&isLoopbackRelay(relay.url))refreshCompanionGate(relay);},6500);
+const loadAppCatalog=async(force=false)=>{
+ if(!desktop)return loadCatalog(force);
+ const result=await fetch("/api/catalog?limit=25000",{headers:{Authorization:"Bearer "+desktop.token}});
+ if(!result.ok)throw Error("Catalogue local indisponible.");
+ return (await result.json()).cards;
+};
+if(!desktop){
+ setInterval(()=>{if(relay&&isLoopbackRelay(relay.url))refreshCompanionGate(relay);},6500);
+ watchForLocalCompanion();
+}
 autoBootstrapCompanion();
-watchForLocalCompanion();
-loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
+loadAppCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();renderWelcome();}).catch(e=>{
  $("catalog-status").textContent=e.message;
  $("home-catalog-count").textContent="Impossible de charger les cartes : "+e.message;
 });

@@ -13,6 +13,7 @@ import {createState,applyCommand,COMMANDS} from "./core.mjs";
 import {inspectCards,migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
+import {isBattlefield,isChosenChampion,isLegend} from "./picker.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
@@ -32,7 +33,15 @@ import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 import {runUpdateHelper} from "./update-helper.mjs";
 import {runUninstallHelper} from "./uninstall-helper.mjs";
 import {publicTableReply} from "./public-table.mjs";
-if(process.argv.includes("--riftbound-update-helper")){
+if(process.argv.includes("--verify-bundle")){
+ try{
+  const result=verifyEmbeddedTunnel();
+  console.log("Embedded cloudflared verified:",result.sha256,result.bytes,"bytes");
+ }catch(e){
+  console.error("Embedded cloudflared verification failed:",e.message);
+  process.exitCode=1;
+ }
+}else if(process.argv.includes("--riftbound-update-helper")){
  // Run the downloaded EXE as a dedicated updater WITHOUT opening the board,
  // creating a second HTTP server, or prompting for another installation path.
  runUpdateHelper().then(result=>{process.exitCode=result.ok?0:1;},
@@ -45,9 +54,18 @@ if(process.argv.includes("--riftbound-update-helper")){
 }else{
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
-const installation=initializePortableInstall({packaged,exePath:process.execPath,sourceRoot:root});
+const desktop=process.argv.includes("--desktop");
+const appVersion=desktop&&typeof RIFTBOUND_DESKTOP_VERSION!=="undefined"?RIFTBOUND_DESKTOP_VERSION:CURRENT_VERSION;
+if(typeof RIFTBOUND_DESKTOP_BUNDLE!=="undefined"&&RIFTBOUND_DESKTOP_BUNDLE&&!desktop)
+ throw Error("Launch Riftbound Companion from its Windows shortcut.");
+if(desktop&&(!process.env.RIFTBOUND_DATA_DIR||!process.env.RIFTBOUND_TOKEN||
+ !process.env.RIFTBOUND_DESKTOP_READY))throw Error("Launch Riftbound Companion from its Windows shortcut.");
+const installation=desktop
+ ?{root:path.resolve(process.env.RIFTBOUND_DATA_DIR),launched:false,portable:false}
+ :initializePortableInstall({packaged,exePath:process.execPath,sourceRoot:root});
 if(installation.launched)process.exit(0);
 const userData=installation.root;
+if(desktop)Object.assign(process.env,portableEnvironment(userData));
 const portable=Boolean(installation.portable&&!installation.verify);
 if(portable){
  Object.assign(process.env,portableEnvironment(userData));
@@ -73,11 +91,15 @@ const isAllowedLocalOrigin=origin=>/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
 
 const catalogFile=path.join(userData,".riftbound-catalog-cache.json");
 let catalogCache=null,catalogTime=0,catalogPending=null;
+const desktopCatalog=desktop?decodeCards(JSON.parse(fs.readFileSync(
+ process.env.RIFTBOUND_DESKTOP_CATALOG||path.join(root,"cards.json"),"utf8"))):null;
+if(desktopCatalog&&desktopCatalog.length<500)throw Error("The installed card catalog is incomplete.");
 try{
  const saved=JSON.parse(fs.readFileSync(catalogFile,"utf8"));
  if(Array.isArray(saved?.cards)&&saved.cards.length>500){catalogCache=saved.cards;catalogTime=saved.updatedAt||0;}
 }catch{}
 async function loadServerCatalog(force=false) {
+  if(desktop)return desktopCatalog;
   if(!force&&catalogCache&&Date.now()-catalogTime<24*3600*1000)return catalogCache;
   if(catalogPending)return catalogPending;
   catalogPending=(async()=>{
@@ -128,7 +150,7 @@ function json(res,status,obj,req){
 }
 function headers(res,req){
   const origin=req.headers.origin;
-  if(origin&&(isTrustedSiteOrigin(origin)||isAllowedLocalOrigin(origin))){
+  if(!desktop&&origin&&(isTrustedSiteOrigin(origin)||isAllowedLocalOrigin(origin))){
     res.setHeader("Access-Control-Allow-Origin",origin);
     res.setHeader("Vary","Origin");
     res.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type,X-Riftbound-Pair");
@@ -170,7 +192,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:CURRENT_VERSION,
+ name:"Riftbound Table Companion",version:appVersion,
  officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
@@ -339,6 +361,22 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   delete restored.pendingFollowUp;
   receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
   checkpoints.pop();
+ }else if(command.type==="new-duel"){
+  if(!desktop||origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Configuration réservée à l’application Windows.");
+  const card=code=>desktopCatalog.find(candidate=>candidate.code===code);
+  const legend=card(input.legend),champion=card(input.champion),battlefield=card(input.battlefield);
+  if(!isLegend(legend)||!isChosenChampion(champion,legend)||!isBattlefield(battlefield)||
+     !["human","ai"].includes(input.player))throw Error("Légende, champion, champ ou premier joueur invalide.");
+  const deck=resolvePrecon(desktopCatalog,input.deck||"random");
+  const commands=[{type:"reset"},
+   {type:"setup-human",legend,champion,battlefield},
+   {type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
+    battlefields:deck.battlefields,main:deck.main,runes:deck.runes,mainIncludesChampion:true,
+    format:"preconstructed",deckName:deck.label},
+   {type:"start",player:input.player}];
+  next=advanceMandatoryTurn(commands.reduce((game,action)=>applyCommand(game,action),state));
+  receipt=commitGame(next,{commands,id:requestId||undefined,origin,remember:false});
+  conversation.clear();pendingSpokenPlay=null;checkpoints.length=0;
  }else if(command.type==="cancel-follow-up"){
   if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
   if(!state.pendingFollowUp)throw Error("Aucune attaque annoncée en attente.");
@@ -387,7 +425,8 @@ function applyAgentBatch(actions,revision,origin="ai",followUp=null){
 }
 const integratedAI=createIntegratedAI({
  userData,getState:()=>state,applyBatch:applyAgentBatch,
- sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:async()=>catalogCache||[]
+ sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:async()=>desktopCatalog||catalogCache||[],
+ ...(desktop?{prepareModel:model=>localFreeAI.ensureModel(model),isTacticalModelReady:()=>localFreeAI.status().ready}:{})
 });
 // This release defaults to a strictly free local opponent. Old paid-provider
 // profiles are left on disk for migration but never auto-start after upgrade.
@@ -458,7 +497,7 @@ const receiveHumanMessage=(text,requestId)=>{
   }
   // Public champion data is already on the table and works offline.
   let plan=planNamedChampionAnnouncement(announcement,state);
-  let catalog=catalogCache||[];
+  let catalog=desktopCatalog||catalogCache||[];
   const titleExpected=announcement!==entry.text||pending?.kind==="card"||state.pendingEffects?.[0]?.trigger==="pakaa-reveal";
   if(!plan&&!catalog.length&&(titleExpected||
      /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike|bonus de field musicians)\b/i.test(normalized))){
@@ -559,7 +598,14 @@ const receiveHumanMessage=(text,requestId)=>{
 };
 const localFreeAI=createFreeLocalAI({
  userData,
+ preferRecommended:desktop,
+ onInstalled:async model=>{
+  if(!desktop||remoteOpponentSelected())return;
+  integratedAI.configure({provider:"free",model,enabled:true});
+  integratedAI.advanceTurnIfAI();
+ },
  onReady:async model=>{
+  if(desktop)return;
   if(remoteOpponentSelected())throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
   integratedAI.configure({provider:"free",model,enabled:true});
   integratedAI.advanceTurnIfAI();
@@ -588,7 +634,7 @@ function shutdownAll(){
 const manager=createPortableManager({
  root:userData,exePath:process.execPath,portable,sessionToken:token,port,
  skipStartupCheck:process.env.RIFTBOUND_PORTABLE_TEST==="1"||
-  process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
+  desktop||process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
  onOutdated:()=>{
   try{localFreeAI.stop();}catch{}
   try{remoteAccess.stop();}catch{}
@@ -598,6 +644,8 @@ const manager=createPortableManager({
 });
 const remoteAccess=createRemoteAccess({
  userData,
+ ...(desktop&&{executableDir:path.join(userData,"temp")}),
+ version:appVersion,
  getState:()=>sharedState(state,{agent:true}),
  performCommand:async input=>{
   const result=await executeGameCommand(input,{origin:"remote",withReceipt:true});
@@ -608,9 +656,17 @@ const remoteAccess=createRemoteAccess({
  getGuide:()=>guide,
  getMessages:after=>conversation.list(after,{agent:true}),
  sendMessage:receiveAgentMessage,
- markAgentPoll:()=>conversation.markAgentPoll()
+ markAgentPoll:()=>conversation.markAgentPoll(),
+ onStatus:({active})=>{
+  if(desktop&&!active&&resumeAfterRemote&&!remoteStart&&!serverClosing){
+   resumeAfterRemote=false;
+   integratedAI.enable();
+   resumeLocalOpponent();
+  }
+ }
 });
 let remoteStart=null;
+let resumeAfterRemote=false;
 function remoteOpponentSelected(){
  return Boolean(remoteStart||remoteAccess.status().active);
 }
@@ -618,8 +674,9 @@ function startRemoteOpponent(){
  if(remoteStart)return remoteStart;
  if(remoteAccess.status().active)return Promise.resolve(remoteAccess.status(true));
  const wasLocal=integratedAI.status().enabled;
- if(wasLocal)integratedAI.disable();
+ if(wasLocal)integratedAI.disable({persist:!desktop});
  remoteStart=remoteAccess.start().then(session=>{
+  resumeAfterRemote=wasLocal;
   localFreeAI.stop();
   return session;
  },error=>{
@@ -643,6 +700,9 @@ function serveFile(req,res,url){
   msg(res,404,"Not found",req);return;
  }
  const name=requested.slice(1);
+ if(desktop&&name==="manager.html"){
+  msg(res,404,"Not found",req);return;
+ }
  if(!WEB_ASSETS.has(name)){msg(res,404,"Not found",req);return;}
  const ext=path.extname(name);
  const mime=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":ext===".svg"?"image/svg+xml":"text/plain";
@@ -659,6 +719,11 @@ function serveFile(req,res,url){
 }
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://127.0.0.1");
+  if(desktop&&(url.pathname==="/api/pair"||
+    url.pathname.startsWith("/api/manager/update/")||url.pathname==="/api/manager/uninstall"||
+    url.pathname==="/api/ai/config"||url.pathname==="/api/ai/free/install")){
+   msg(res,404,"Not found",req);return;
+  }
   if(req.method==="OPTIONS"){headers(res,req);res.writeHead(204);res.end();return;}
   if(!url.pathname.startsWith("/api/")){if(req.method!=="GET"){msg(res,405,"Method not allowed",req);return;}serveFile(req,res,url);return;}
   if(url.pathname==="/api/events"){
@@ -673,7 +738,7 @@ const server=http.createServer(async(req,res)=>{
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:CURRENT_VERSION,packaged,portable},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:appVersion,packaged,portable},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -736,6 +801,40 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==="GET"&&url.pathname==="/api/ai/free/status"){
     json(res,200,{...localFreeAI.status(),rulesOnly:integratedAI.status().rulesOnly},req);return;
+  }
+  if(desktop&&req.method==="POST"&&url.pathname==="/api/ai/free/desktop-install"){
+   if(remoteOpponentSelected()){msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;}
+   try{
+    const input=await body(req);
+    json(res,202,localFreeAI.install(input.model,{backend:input.backend,repair:input.repair===true}),req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
+  }
+  if(desktop&&req.method==="POST"&&url.pathname==="/api/ai/free/desktop-enable"){
+   if(remoteOpponentSelected()){msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;}
+   try{
+    const input=await body(req);
+    const id=localFreeAI.selectInstalled(input.model,input.backend);
+    const active=integratedAI.configure({provider:"free",model:id,enabled:true,rulesOnly:false});
+    integratedAI.advanceTurnIfAI();
+    json(res,200,active,req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
+  }
+  if(desktop&&req.method==="POST"&&url.pathname==="/api/manager/modules/remove"){
+   try{
+    const input=await body(req);
+    if(input.target==="whisper")await speech.remove();
+    else if(input.target==="qwen"){
+     const active=integratedAI.status();
+     if(active.model===input.model&&active.enabled&&!active.rulesOnly){
+      integratedAI.configure({provider:"free",enabled:true,rulesOnly:true});
+     }
+     await localFreeAI.remove(input.model);
+    }else throw Error("Module inconnu.");
+    json(res,200,{ok:true},req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/rules/activate"){
    if(!manager.status().canLaunch||remoteOpponentSelected()){
@@ -829,7 +928,7 @@ const server=http.createServer(async(req,res)=>{
     try{
      const input=await body(req);
      if(input?.confirmFolder!==userData)throw Error("Confirme le dossier choisi avant l'installation de Whisper.");
-     json(res,202,speech.begin(WHISPER_MODEL),req);
+     json(res,202,speech.begin(WHISPER_MODEL,{repair:desktop&&input.repair===true}),req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/warm"){
@@ -865,9 +964,11 @@ const server=http.createServer(async(req,res)=>{
      // Speech must never wait on a remote card-catalog refresh. Use the
      // current table and the already cached catalogue, entirely offline.
      const visible=state.cards.filter(c=>!c.faceDown&&!["hand","deck","rune-deck"].includes(c.zone));
-     const known=Array.isArray(catalogCache)?catalogCache:[];
+     const known=desktopCatalog||catalogCache||[];
+     const champion=state.players.human.legend?.championName;
+     const themed=champion?known.filter(card=>card.tags?.includes(champion)||card.championName===champion):[];
      const seen=new Set(),cards=[];
-     for(const card of [...visible,...known]){
+     for(const card of [...visible,...themed,...known]){
       const key=String(card.name||"").trim().toLowerCase();
       if(!key||seen.has(key))continue;
       seen.add(key);cards.push(card);
@@ -910,7 +1011,7 @@ const server=http.createServer(async(req,res)=>{
     try{
       const cards=await loadServerCatalog(url.searchParams.get("refresh")==="1");
       const q=url.searchParams.get("q")||"",type=url.searchParams.get("type")||"";
-      const limit=Math.min(2000,Math.max(1,Number(url.searchParams.get("limit")||100)||100));
+      const limit=Math.min(desktop?25000:2000,Math.max(1,Number(url.searchParams.get("limit")||100)||100));
       const result=searchCards(cards,q,type,limit);
       json(res,200,{count:cards.length,returned:result.length,cards:result,source:CARD_SOURCE},req);
     }catch(e){msg(res,503,e.message,req);}return;
@@ -929,15 +1030,6 @@ const server=http.createServer(async(req,res)=>{
   }
   msg(res,404,"Endpoint inconnu",req);
 });
-if(process.argv.includes("--verify-bundle")){
- try{
-  const result=verifyEmbeddedTunnel();
-  console.log("Embedded cloudflared verified:",result.sha256,result.bytes,"bytes");
- }catch(e){
-  console.error("Embedded cloudflared verification failed:",e.message);
-  process.exitCode=1;
- }
-}else{
 server.on("error",err=>{
  console.error("Démarrage impossible :",err.code==="EADDRINUSE"?"Le port "+port+" est déjà utilisé. Ferme l'autre instance du module.":err.message);
  process.exitCode=1;
@@ -947,10 +1039,18 @@ function resumeLocalOpponent(){
     integratedAI.status().enabled){
   // Reuse installed weights; a confirmed outdated build must not run the model.
   integratedAI.advanceTurnIfAI();
-  if(!integratedAI.status().rulesOnly)localFreeAI.resume(integratedAI.status().model);
+  if(!desktop&&!integratedAI.status().rulesOnly)localFreeAI.resume(integratedAI.status().model);
  }
 }
 server.listen(port,host,()=>{
+  if(desktop){
+   manager.startupCheck().then(()=>{
+    if(!integratedAI.status().enabled)integratedAI.configure({provider:"free",enabled:true,rulesOnly:true});
+    resumeLocalOpponent();
+    saveAtomic(process.env.RIFTBOUND_DESKTOP_READY,{port:server.address().port});
+   }).catch(error=>{console.error(error.message);shutdownAll();});
+   return;
+  }
   // Background network verification only. The manager shows a startup screen
   // until verification is complete and does not launch the game early.
   manager.startupCheck().then(result=>{
@@ -983,7 +1083,5 @@ server.listen(port,host,()=>{
     }
   }
 });
-
-}
 
 }

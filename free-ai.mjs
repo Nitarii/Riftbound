@@ -143,8 +143,9 @@ function failure(error){
  return String(error?.message||error||"Erreur inconnue").slice(0,350);
 }
 export function createFreeLocalAI({
- userData,onReady=async()=>{},fetchImpl=fetch,spawnImpl=spawn,extract=null,
- platform=process.platform,detectGPU=()=>hasDiscreteWindowsGPU({platform})
+ userData,onReady=async()=>{},onInstalled=async()=>{},fetchImpl=fetch,spawnImpl=spawn,extract=null,
+ platform=process.platform,detectGPU=()=>hasDiscreteWindowsGPU({platform}),
+ preferRecommended=false,detectProfile=()=>detectRecommendedLocalProfile({platform})
 }){
  const root=path.join(userData,"free-opponent");
  const downloads=path.join(root,"downloads"),modelsDir=path.join(root,"models");
@@ -155,16 +156,18 @@ export function createFreeLocalAI({
  const engineMarker=kind=>path.join(engineFolder(kind),".verified.json");
  const modelPath=id=>path.join(modelsDir,LOCAL_MODELS[id].file);
  let preferredModel=MODEL_NAME,preferredBackend="auto",actualBackend="none";
+ let savedModel=false,savedBackend=false;
  let active=null,activeModel="",job=null,extractProcess=null,stopping=false,downloadAbort=null;
  let discreteGPU=null,notice="",hardware=null;
  const hardwareStatus=()=>{
-  if(hardware===null)hardware=detectRecommendedLocalProfile({platform});
+  if(hardware===null)hardware={...detectProfile(),
+   cpuName:os.cpus()[0]?.model||"",cpuThreads:os.availableParallelism()};
   return hardware;
  };
  try{
   const saved=JSON.parse(fs.readFileSync(settingsPath,"utf8"));
-  if(Object.hasOwn(LOCAL_MODELS,saved.model))preferredModel=saved.model;
-  if(["auto","vulkan","cpu"].includes(saved.backend))preferredBackend=saved.backend;
+  if(Object.hasOwn(LOCAL_MODELS,saved.model)){preferredModel=saved.model;savedModel=true;}
+  if(["auto","vulkan","cpu"].includes(saved.backend)){preferredBackend=saved.backend;savedBackend=true;}
  }catch{}
  const ensureRunning=()=>{if(stopping)throw Error("Installation IA interrompue : fermeture du compagnon.");};
  function persistPreferences(){
@@ -172,6 +175,7 @@ export function createFreeLocalAI({
   const temp=settingsPath+".tmp";
   fs.writeFileSync(temp,JSON.stringify({model:preferredModel,backend:preferredBackend}),{mode:0o600});
   fs.renameSync(temp,settingsPath);
+  savedModel=savedBackend=true;
  }
  async function unpack(archive,directory){
   if(extract){await extract(archive,directory);return;}
@@ -200,6 +204,10 @@ export function createFreeLocalAI({
  }
  function status(){
   const recommendation=hardwareStatus();
+  if(preferRecommended){
+   if(!savedModel)preferredModel=recommendation.model;
+   if(!savedBackend)preferredBackend=recommendation.backend;
+  }
   if(discreteGPU===null)discreteGPU=recommendation.gpuAvailable;
   const processActive=Boolean(active&&active.exitCode==null&&active.signalCode==null&&!active.killed);
   return {...info,model:preferredModel,selectedModel:preferredModel,
@@ -340,13 +348,35 @@ export function createFreeLocalAI({
   set({phase:"ready",ready:true,installed:true,progress:100,transferred:0,total:0,
    message:"✓ "+LOCAL_MODELS[preferredModel].label+" prêt sur "+actualBackend.toUpperCase()+" · gratuit et local."});
  }
- function begin(download,id=preferredModel,choice=preferredBackend){
+ async function installFiles({repair}){
+  if(repair){
+   await stopPrevious();
+   for(const kind of ["cpu","vulkan"])fs.rmSync(engineMarker(kind),{force:true});
+  }
+  await installEngine("cpu");
+  await downloadModel(preferredModel);
+  if(backendCandidates(preferredBackend,{gpuAvailable:hardwareStatus().gpuAvailable})[0]==="vulkan"){
+   try{await installEngine("vulkan");}
+   catch(error){ensureRunning();notice="Vulkan : "+failure(error);}
+  }
+  ensureRunning();
+  if(!repair){
+   if(active&&activeModel!==preferredModel)await stopPrevious();
+   ensureRunning();
+   await onInstalled(preferredModel);
+  }
+  ensureRunning();
+  set({phase:"installed",ready:false,progress:100,transferred:0,total:0,
+   message:LOCAL_MODELS[preferredModel].label+" installé."});
+ }
+ function begin(download,id=preferredModel,choice=preferredBackend,{filesOnly=false,repair=false}={}){
   checkLocalModel(id);checkBackend(choice);
   if(job)return status();
   preferredModel=id;preferredBackend=choice;
   persistPreferences();
   stopping=false;notice="";downloadAbort=new AbortController();
-  const promise=prepare({download}).catch(async error=>{
+  const operation=filesOnly?installFiles({repair}):prepare({download});
+  const promise=operation.catch(async error=>{
    // If the optional 9B download failed, keep the previously running 4B
    // opponent alive. Only stop processes from a failed launch attempt.
    const existing=activeModel&&activeModel!==preferredModel&&active&&await probe(800);
@@ -372,7 +402,44 @@ export function createFreeLocalAI({
   return job?status():engineInstalled("cpu")&&modelPresent(model)?
    begin(false,model,preferredBackend):status();
  }
+ function install(model,{backend,repair=false}={}){
+  const selected=status();
+  return begin(true,freeModelID(model??selected.selectedModel),backend??selected.preferredBackend,
+   {filesOnly:true,repair});
+ }
+ function selectInstalled(model,backend=preferredBackend){
+  const id=checkLocalModel(model);checkBackend(backend);
+  if(job)throw Error("Une opération IA est en cours.");
+  if(!engineInstalled("cpu")||!modelPresent(id))throw Error("Installe d’abord ce modèle.");
+  if(active&&(activeModel!==id||preferredBackend!==backend))stop();
+  preferredModel=id;preferredBackend=backend;
+  persistPreferences();
+  return id;
+ }
+ let idle=null;
+ async function ensureModel(model){
+  const id=checkLocalModel(model);
+  if(!active||activeModel!==id||!info.ready){
+   if(!job)resume(id);
+   await job;
+  }
+  if(!active||activeModel!==id||!info.ready)throw Error(info.error||"Qwen indisponible.");
+  clearTimeout(idle);
+  idle=setTimeout(stop,120000).unref();
+ }
+ async function remove(model){
+  const id=checkLocalModel(model);
+  if(job||activeModel===id){const previous=job;stop();await previous;}
+  const file=modelPath(id);
+  fs.rmSync(file,{force:true});
+  fs.rmSync(file+".part",{force:true});
+  if(!Object.keys(LOCAL_MODELS).some(modelPresent)){
+   for(const kind of ["cpu","vulkan"])fs.rmSync(engineFolder(kind),{recursive:true,force:true});
+   fs.rmSync(downloads,{recursive:true,force:true});
+  }
+ }
  function stop(){
+  clearTimeout(idle);
   stopping=true;
   downloadAbort?.abort();
   if(extractProcess){stopOwnedProcess(extractProcess);extractProcess=null;}
@@ -382,5 +449,5 @@ export function createFreeLocalAI({
  }
  set({installed:engineInstalled("cpu")&&modelPresent(preferredModel),
   message:engineInstalled("cpu")?"IA locale installée. Active le modèle depuis le gestionnaire.":"IA gratuite locale non installée."});
- return {start,resume,status,stop};
+ return {start,resume,status,stop,install,selectInstalled,ensureModel,remove};
 }

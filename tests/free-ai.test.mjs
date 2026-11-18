@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import {Readable} from "node:stream";
 import {createFreeLocalAI,freeModelID,FREE_MODELS,FREE_ENGINE_DOWNLOAD,
  FREE_MODEL_DOWNLOAD,downloadVerified,verifiedDownloadHash} from "../free-ai.mjs";
+import {ADVANCED_LOCAL_MODEL,DEFAULT_LOCAL_MODEL,recommendLocalProfile} from "../local-ai-profiles.mjs";
 
 test("local 4B and 9B models have pinned downloads and safe selectors",()=>{
  assert.deepEqual(FREE_MODELS.map(x=>x.id),["qwen3:4b-instruct-2507","qwen3.5:9b-q4km"]);
@@ -57,6 +58,23 @@ test("free local agent reports not installed and never downloads before a click"
   assert.match(free.status().error,/Windows/);
   assert.equal(requests,0);
   free.stop();
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+test("the desktop selects the recommended 9B on capable hardware and retains manual choices",()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-desktop-profile-"));
+ const detectProfile=()=>recommendLocalProfile({ramGB:32,gpus:[{name:"AMD Radeon RX 7900 XT",vramGB:20}]});
+ const settingsDir=path.join(dir,"free-opponent");
+ try{
+  const options={userData:dir,preferRecommended:true,detectProfile};
+  const fresh=createFreeLocalAI(options).status();
+  assert.equal(fresh.selectedModel,ADVANCED_LOCAL_MODEL);
+  assert.equal(fresh.preferredBackend,"auto");
+  assert.equal(fresh.processActive,false);
+  fs.mkdirSync(settingsDir);
+  fs.writeFileSync(path.join(settingsDir,".profile.json"),JSON.stringify({model:DEFAULT_LOCAL_MODEL,backend:"cpu"}));
+  const existing=createFreeLocalAI(options).status();
+  assert.equal(existing.selectedModel,DEFAULT_LOCAL_MODEL);
+  assert.equal(existing.preferredBackend,"cpu");
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 test("simple free UI has one button and avoids API keys or paid model choices",()=>{

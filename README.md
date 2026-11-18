@@ -1,5 +1,13 @@
 # Riftbound Table Companion
 
+## Aperçu Windows 0.44
+
+Le plateau s’ouvre dans une fenêtre WebView2. Le gestionnaire Windows permet d’installer séparément Whisper Small pour le micro et Qwen pour la conversation. Qwen3.5 9B est le profil principal sur un PC compatible. Qwen3 4B couvre les configurations plus modestes. L’adversaire de jeu peut fonctionner avec le moteur de règles seul. Le catalogue de l’aperçu est inclus pour les parties hors ligne.
+
+Depuis l’accueil, ouvre **Connecter un agent externe** pour jouer avec une IA en ligne au moyen d’un lien HTTPS temporaire. Le joueur peut reprendre la même partie avec l’adversaire local en coupant cet accès.
+
+[Compilation, tests et limites de l’aperçu 0.44](docs/windows-desktop-044.md).
+
 Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à un adversaire IA local. Le logiciel affiche le plateau, suit les points, annonce les actions et reconnaît les commandes écrites ou vocales. Il s'agit d'un projet de fans non officiel, sans affiliation à Riot Games.
 
 **Site :** https://nitarii.github.io/Riftbound/  

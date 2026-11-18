@@ -88,7 +88,7 @@ export function matchSpokenCard(catalog,phrase){
 
 export function correctSpokenCardPhrase(catalog,text,{expectCardName=false}={}){
  const raw=String(text||"").trim();
- const match=raw.match(/\b(?:je\s+(?:joue|pose|place|mets)|j'\s*(?:joue|pose)|i\s+(?:play|place)|play)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+)?(.+?)(?=\s+(?:pour|for|avec|with|contre|cout|payer|pay)\s+\d+\s+runes?\b|[.!?]*$)/i);
+ const match=raw.match(/\b(?:je\s+(?:joue|pose|place|mets)|j'\s*(?:joue|pose)|i\s+(?:play|place)|play)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+)?(.+?)(?=\s+(?:pour|for|avec|with|contre|cout|payer|pay)\s+(?:\d+|[a-z]+)\s+runes?\b|[.!?]*$)/i);
  const title=match?.[1]?.replace(/[.!?]+$/g,"").trim()||
   (expectCardName?raw.replace(/[.!?]+$/g,"").trim():"");
  if(!title)return {text:raw,corrected:false};

@@ -2009,3 +2009,273 @@ body:not(.home-visible) #game-app{position:relative}
  }
  #game-app #pending-effect-panel button{width:100%}
 }
+.desktop-app {
+  --desktop-field: #151e2a;
+  --desktop-edge: #2c3a4c;
+  --desktop-accent: #c9ad6e;
+  font-family: "Segoe UI", sans-serif;
+  background: #0e1319;
+}
+.desktop-app > header {
+  background: #111923;
+  border-bottom: 1px solid var(--desktop-edge);
+}
+.desktop-app .wizard-intro-copy > :is(.welcome-eyebrow,p),
+.desktop-app :is(.wizard-progress,.wizard-navigation,.welcome-step-index,.welcome-state,
+  #home-advanced-setup,#home-catalog-count,#connection,#manager-open-play,
+  .picker-instructions,.welcome-hint,.source-line,#refresh-cards,
+  .file-button:has(#import-cards),[data-tab="agent"],#tab-agent) {
+  display: none !important;
+}
+.desktop-app #welcome-screen {
+  max-width: 1060px;
+  padding: clamp(14px, 4vw, 44px);
+  margin-inline: auto;
+}
+.desktop-app #welcome-screen .wizard-intro {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 0 12px;
+}
+.desktop-app #welcome-screen .wizard-intro h1 {
+  font: 650 clamp(25px, 4vw, 43px)/1.12 "Segoe UI", sans-serif;
+  letter-spacing: -.045em;
+}
+.desktop-app #welcome-screen .welcome-step {
+  border: 1px solid var(--desktop-edge);
+  background: var(--desktop-field);
+  border-radius: 12px;
+}
+.desktop-app #welcome-screen .welcome-step-header {
+  background: transparent;
+}
+.desktop-app #welcome-screen .welcome-setup-grid fieldset {
+  background: #101821;
+  border-color: var(--desktop-edge);
+}
+.desktop-app:not(.home-visible) {
+  --game-header-height: 42px;
+  --game-gap: 7px;
+}
+.desktop-app:not(.home-visible) #game-app {
+  grid-template-columns: minmax(0, 1fr) clamp(205px, 25vw, 310px);
+  grid-template-rows: 40px minmax(180px, 2fr) minmax(110px, 1fr);
+  grid-template-areas: "toolbar toolbar" "table chat" "table history";
+}
+.desktop-app #game-app {
+  --game-card-width: clamp(27px, calc((100dvh - 306px) / 5.9), 54px);
+  --game-field-width: clamp(48px, 6vw, 76px);
+  --zone-row-height: calc(var(--playmat-card-height) + 15px);
+  --side-min-height: calc(2 * var(--zone-row-height) + 34px);
+  color-scheme: dark;
+}
+.desktop-app #game-app .board,
+.desktop-app #game-app[data-workspace-view="board"] .board {
+  grid-area: table;
+  display: grid;
+  grid-template-rows: minmax(var(--side-min-height), 1fr) minmax(76px, .63fr) minmax(var(--side-min-height), 1fr);
+  overflow: auto;
+}
+.desktop-app #game-app .bottom > .drawer,
+.desktop-app #game-app[data-workspace-view="history"] .bottom > .drawer {
+  grid-area: history;
+  display: flex;
+}
+.desktop-app #game-app .bottom > .chat-panel,
+.desktop-app #game-app[data-workspace-view="chat"] .bottom > .chat-panel {
+  grid-area: chat;
+  display: flex;
+}
+.desktop-app #game-app .workspace-mobile,
+.desktop-app #game-app #drawer-collapse,
+.desktop-app #game-app :is(.chat-heading p, .voice-provider-choice, .chat-help, #chat-pass-turn,
+  .chat-label, .voice-live[data-voice-state="off"], #notes + .chat-actions + p) {
+  display: none;
+}
+.desktop-app #game-app .chat-heading h2 { font-size: 15px; }
+.desktop-app #game-app .bottom > .chat-panel { gap: 5px; padding: 7px; }
+.desktop-app #game-app .chat-panel #notes { height: 37px; min-height: 37px; padding: 5px; }
+.desktop-app #game-app .chat-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.desktop-app #game-app .chat-actions button { min-height: 26px; padding: 3px; }
+.desktop-app #game-app .voice-response-option {
+  flex-direction: row;
+  justify-content: flex-start;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+}
+.desktop-app #game-app .topbar {
+  height: 40px;
+}
+.desktop-app #game-app .turn-label {
+  font: 650 14px "Segoe UI", sans-serif;
+  letter-spacing: 0;
+}
+.desktop-app #game-app .phases {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.desktop-app #game-app .board > .side {
+  background: var(--desktop-field);
+  border: 1px solid var(--desktop-edge);
+  border-inline-start: 2px solid #8c877e;
+  border-radius: 9px;
+}
+.desktop-app #game-app .board > .side.player {
+  border-inline-start-color: var(--desktop-accent);
+}
+.desktop-app #game-app .board > .side .identity {
+  font: 650 12px "Segoe UI", sans-serif;
+  letter-spacing: .055em;
+}
+.desktop-app #game-app .board > .side .meta {
+  margin-inline: auto 8px;
+  font: 400 9px/1.1 "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  color: #b4c1d0;
+}
+.desktop-app #game-app .board > .side .playmat {
+  grid-template-columns: repeat(2, minmax(calc(var(--game-card-width) + 9px), .8fr))
+    minmax(68px, 4fr) minmax(66px, 1.3fr) minmax(70px, 1.18fr);
+  grid-template-rows: repeat(2, minmax(var(--zone-row-height), 1fr));
+  gap: 3px;
+  grid-template-areas: "legend champion base base piles" "runes runes runes hand trash";
+  overflow: auto;
+}
+.desktop-app #game-app .board > .side.opponent .playmat {
+  grid-template-areas: "runes runes runes hand trash" "legend champion base base piles";
+}
+.desktop-app #game-app .playmat .panel {
+  padding: 2px 3px;
+  border-color: #304356;
+  border-radius: 5px;
+  background: #101a25;
+}
+.desktop-app #game-app .playmat .panel h3 {
+  color: #afc0cc;
+  font: 600 8px/11px "Segoe UI", sans-serif;
+  letter-spacing: .045em;
+  min-height: 11px;
+  margin: 0;
+}
+.desktop-app #game-app .playmat .panel.champion h3 {
+  font-size: 7px;
+  letter-spacing: 0;
+}
+.desktop-app #game-app .playmat .cards,
+.desktop-app #game-app .playmat .cardholder {
+  padding: 0 1px;
+  gap: 3px;
+}
+.desktop-app #game-app .playmat .pile {
+  padding: 2px 3px;
+  background: #1b2a39;
+  gap: 4px;
+}
+.desktop-app #game-app .playmat .pile-back {
+  flex-basis: 16px;
+  min-height: 17px;
+  font-size: 10px;
+}
+.desktop-app #game-app .playmat .pile-label {
+  font-size: 8px;
+  word-break: normal;
+}
+.desktop-app #game-app .battlefield {
+  background: #14272b;
+  border-color: #435b51;
+  border-radius: 9px;
+}
+.desktop-app #game-app .battlefield-title { gap: 5px; }
+.desktop-app #game-app .battlefield-title > span:first-child { display: none; }
+.desktop-app #game-app .battlefield-inspect { max-width: unset; }
+.desktop-app #game-app .combat-panel[data-state="available"]:has(#combat-choices[hidden]) {
+  inset: auto 4px 3px auto;
+  width: max-content;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.desktop-app #game-app .combat-panel[data-state="available"]:has(#combat-choices[hidden])
+  :is(.combat-head,#combat-details) {
+  display: none;
+}
+.desktop-app #game-app .field-content {
+  overflow: auto;
+}
+.desktop-app #game-app .field-card .card-tile .card-art {
+  width: var(--game-field-width);
+  height: calc(var(--game-field-width) * .716);
+}
+.desktop-app #game-app .field-card .card-tile .card-art > .empty-card {
+  font-size: 9px;
+}
+.desktop-app #game-app .board .card-tile:not(.face-down) .card-art > .empty-card {
+  background: linear-gradient(145deg, #26394b, #141d2a 65%);
+  color: #f9ead2;
+  font-size: clamp(7px, .92vw, 10px);
+  line-height: 1.1;
+  overflow-wrap: break-word;
+  word-break: normal;
+  padding: 2px;
+}
+.desktop-app #game-app .board .card-tile .card-art > .empty-card small {
+  display: block;
+  color: var(--desktop-accent);
+  font-weight: 700;
+}
+.desktop-app #game-app .board .card-tile.exhausted,
+.desktop-app #game-app .board .card-tile.exhausted .card-art {
+  transform: none;
+}
+.desktop-app #game-app .board .card-tile.exhausted {
+  width: var(--game-card-width);
+  min-width: var(--game-card-width);
+  flex: 0 0 var(--game-card-width);
+  height: var(--playmat-card-height);
+}
+.desktop-app #game-app .board .card-tile.exhausted .card-art {
+  position: relative;
+  inset: auto;
+  opacity: .72;
+  border: 1px dashed var(--desktop-accent);
+}
+.desktop-app #game-app .board .card-label {
+  display: none;
+}
+.desktop-app #game-app .board .card-tile.exhausted::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  inset: 3px 3px auto auto;
+  border-radius: 50%;
+  background: var(--desktop-accent);
+}
+@media (max-width: 720px) {
+  .desktop-app:not(.home-visible) #game-app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 38px 30px minmax(0, 1fr);
+    grid-template-areas: "toolbar" "switch" "content";
+  }
+  .desktop-app #game-app .workspace-mobile {
+    display: grid;
+  }
+  .desktop-app #game-app :is(.board,.bottom > .drawer,.bottom > .chat-panel) {
+    display: none;
+    grid-area: content;
+  }
+  .desktop-app #game-app[data-workspace-view="board"] .board,
+  .desktop-app #game-app[data-workspace-view="history"] .bottom > .drawer,
+  .desktop-app #game-app[data-workspace-view="chat"] .bottom > .chat-panel {
+    grid-area: content;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @starting-style {
+    .desktop-app .board .card-tile { opacity: .55; }
+  }
+  .desktop-app .board .card-tile { transition: opacity 140ms ease, filter 140ms ease; }
+}

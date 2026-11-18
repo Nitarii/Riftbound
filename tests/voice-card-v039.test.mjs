@@ -55,6 +55,14 @@ test("ambiguous names are suggested rather than auto-played",()=>{
  assert.equal(result.card,null);
  assert.ok(result.candidates.length>0);
 });
+test("mixed-language Whisper punctuation and a spoken rune cost preserve the card name",()=>{
+ const raw="Je joue Discipleau, Shen pour De Rune.";
+ const corrected=correctSpokenCardPhrase(cards,raw);
+ assert.equal(corrected.rawText,raw);
+ assert.equal(corrected.text,"Je joue Disciple of Shen pour De Rune.");
+ const plan=planHumanAnnouncement(corrected.text,prepare(),cards);
+ assert.ok(plan.commands.some(command=>command.type==="play-physical"&&command.card.name==="Disciple of Shen"));
+});
 test("local Qwen responses with explanatory wrappers still parse the actual JSON only",()=>{
  assert.deepEqual(extractJSON('<think>Let me reason</think>\n{"reply":"Bien reçu","commands":[]}'),
   {reply:"Bien reçu",commands:[]});

@@ -254,7 +254,8 @@ export function modelHTTPError(status,provider){
  return "HTTP "+status+" du fournisseur. Vérifie sa configuration et sa disponibilité.";
 }
 export function createIntegratedAI({userData,getState,applyBatch,sendMessage,getMessages,getCatalog,
- fetchImpl=fetch,timeoutMs=45000,tacticalBudgetMs=Number(process.env.RIFTBOUND_TACTICAL_MS??3000)}){
+ fetchImpl=fetch,prepareModel=async()=>{},isTacticalModelReady=()=>true,
+ timeoutMs=45000,tacticalBudgetMs=Number(process.env.RIFTBOUND_TACTICAL_MS??3000)}){
  const file=path.join(userData,".riftbound-ai-settings.json");
  let config=null,processing=false,lastError="",queue=Promise.resolve(),lastEffectPrompt="";
  // Game turns are deterministic and MUST NOT be queued behind a slow model.
@@ -272,10 +273,13 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    if(process.platform!=="win32")fs.chmodSync(file,0o600);
   }finally{try{fs.unlinkSync(temp);}catch{}}
   liveChatAbort?.abort();
-  config=next;lastError="";return status();
+  config=next;lastError="";lastAutonomousRevision="";return status();
  }
- function disable(){
-  if(config)configure({...config,enabled:false});
+ function disable({persist=true}={}){
+  if(config){
+   if(persist)configure({...config,enabled:false});
+   else{liveChatAbort?.abort();config={...config,enabled:false};lastError="";lastAutonomousRevision="";}
+  }
   return status();
  }
  function enable(){
@@ -284,7 +288,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
  }
  async function chooseAssault(game,own){
   const budget=Number.isFinite(tacticalBudgetMs)?Math.max(0,Math.min(4000,tacticalBudgetMs)):0;
-  if(!budget||own.rulesOnly||own.provider!=="free"||own.model!==ADVANCED_LOCAL_MODEL)return null;
+  if(!budget||own.rulesOnly||own.provider!=="free"||own.model!==ADVANCED_LOCAL_MODEL||!isTacticalModelReady())return null;
   const ranked=enumerateAIAssaults(game,{limit:4});
   if(ranked.length<2||ranked[0].projectedWin)return null;
   // Qwen can choose among close, already simulated alternatives; it cannot
@@ -362,8 +366,10 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    autonomousRunning=false;
    // applyBatch can schedule its notification while this runner is still
    // awaiting its promise, so that notification gets coalesced and lost.
-   // Recheck after releasing the lock when a legal partial turn was committed.
-   if(config===own&&(committed||getState().revision!==game.revision))queueMicrotask(()=>advanceTurnIfAI());
+   // Recheck after releasing the lock when a partial turn advanced or the
+   // local opponent was re-enabled while an old decision was still running.
+   if(config?.enabled&&(config!==own||committed||getState().revision!==game.revision))
+    queueMicrotask(()=>advanceTurnIfAI());
   }
  }
  function advanceTurnIfAI(){
@@ -418,10 +424,10 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    try{catalog=await getCatalog();}catch{/* Chat still works with previously known cards */}
    const free=own.provider==="free";
    const template=free&&own.model===ADVANCED_LOCAL_MODEL?{chat_template_kwargs:{enable_thinking:false}}:{};
-   const transcript=getMessages(0).messages.slice(-8)
-    .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?450:1200)}));
+   const transcript=getMessages(0).messages.slice(free?-4:-8)
+    .map(m=>({role:m.role,text:String(m.text||"").slice(0,free?200:1200)}));
    const payload={
-    model:own.model,temperature:free?0.2:0.3,max_tokens:free?380:1100,
+    model:own.model,temperature:free?0.2:0.3,max_tokens:free?180:1100,
     ...(own.provider==="free"?{response_format:{type:"json_object"}}:{}),
     ...template,
     messages:[
@@ -433,8 +439,8 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
       conversation:transcript,
       board:modelBoardState(game),
       gameReference:buildGameKnowledge(game,message,catalog,{
-       maxCards:free?12:18,maxText:free?500:700,
-       ruleCount:free?5:5
+       maxCards:free?6:18,maxText:free?280:700,
+       ruleCount:free?3:5
       }),
       // Retained for API compatibility with previously supported model prompts.
       knownCards:(free?[]:relevantCards(catalog,message))
@@ -447,9 +453,11 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    if(own.apiKey)headers.Authorization="Bearer "+own.apiKey;
    const controller=new AbortController();
    liveChatAbort=controller;
+   if(free)await prepareModel(own.model);
+   if(controller.signal.aborted||!stillCurrent())return;
    const sendRequest=async body=>fetchImpl(own.endpoint+"/chat/completions",{
     method:"POST",headers,body:JSON.stringify(body),
-    signal:AbortSignal.any([AbortSignal.timeout(free?20000:timeoutMs),
+    signal:AbortSignal.any([AbortSignal.timeout(free?Math.min(timeoutMs,40000):timeoutMs),
      controller.signal])
    });
    let response=await sendRequest(payload);
@@ -465,7 +473,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
      })
     };
     response=await sendRequest({
-     model:own.model,temperature:0.2,max_tokens:240,...template,
+     model:own.model,temperature:0.2,max_tokens:120,...template,
      messages:[{role:"system",content:FREE_SYSTEM_PROMPT},
       {role:"user",content:JSON.stringify(smallContext)}]
     });
