@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
 import {compileCardAbilities} from "../effect-engine.mjs";
 import {planHumanAnnouncement} from "../player-actions.mjs";
-import {planAutonomousAITurn} from "../ai-turn.mjs";
+import {planAutonomousAITurn,planAIChainAction} from "../ai-turn.mjs";
+import {effectiveMight} from "../combat-engine.mjs";
 const c=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:2,...extra});
 function setup(){
  let s=createState();
@@ -227,4 +228,113 @@ test("Iascylla remembers the Hold field, then the moved enemy receives combat fo
  assert.equal(s.pendingCombat.focus,"ai");
  assert.equal(s.active,"human");
  assert.equal(s.delayedMain.length,0);
+});
+
+test("Hunt awards XP after Conquer and Hold reactions, adding multiple printed Hunt values",()=>{
+ let s=setup();
+ s=add(s,c("Hunter","Unit",{text:"[Hunt] (When I conquer or hold, gain 1 XP.)\n[Hunt 2] (When I conquer or hold, gain 2 XP.)"}),"ai","base");
+ const uid=byName(s,"Hunter").uid;
+ s=passFocus(applyCommand(s,{type:"move",uid,zone:"battlefield",battlefield:0}));
+ assert.equal(s.players.ai.xp,0);
+ assert.equal(s.spellChain.items.length,1);
+ assert.equal(s.spellChain.items[0].count,3);
+ s=passChain(s);
+ assert.equal(s.players.ai.xp,3);
+ s=applyCommand(s,{type:"next-turn"});
+ s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.players.ai.xp,3);
+ assert.equal(passChain(s).players.ai.xp,6);
+});
+
+test("Wuju Apprentice draws at Level 6 only when that level was active when played",()=>{
+ const apprentice=c("Wuju Apprentice","Unit",{text:"[Hunt] (When I conquer or hold, gain 1 XP.)\n[Level 6][>] When you play me, draw 1. (While you have 6+ XP, get the effect.)"});
+ for(const xp of [0,5,6]){
+  let s=setup();s.players.ai.xp=xp;
+  s=add(s,apprentice);
+  const before=s.players.ai.handCount;
+  s=play(s,"Wuju Apprentice");
+  assert.equal(s.pendingEffects.length,0);
+  assert.equal(s.players.ai.handCount,before-1);
+  if(xp<6)assert.equal(s.spellChain,null);
+  else{
+   assert.equal(s.spellChain.items.at(-1).ability,"draw");
+   // The triggered ability has its own existence after triggering.
+   s.players.ai.xp=5;
+   s=passChain(JSON.parse(JSON.stringify(s)));
+   assert.equal(s.players.ai.handCount,before);
+  }
+ }
+});
+
+test("Level-dependent discard is paid only above the XP threshold",()=>{
+ for(const xp of [0,6]){
+  let s=setup();s.players.ai.xp=xp;
+  s=add(s,c("Reserve"));
+  s=add(s,c("Learning Unit","Unit",{text:"[Level 6][>] When you play me, discard 1. (While you have 6+ XP, get the effect.)"}));
+  const reserve=byName(s,"Reserve").uid;
+  const command={type:"play-paid",uid:byName(s,"Learning Unit").uid,zone:"base"};
+  if(xp===6)command.discardUids=[reserve];
+  s=applyCommand(s,command);
+  assert.equal(byName(s,"Reserve").zone,xp===6?"trash":"hand");
+ }
+});
+
+test("Level-dependent Deathknell stays inactive below the threshold and unhandled passives remain flagged",()=>{
+ for(const xp of [5,6]){
+  let s=setup();s.players.ai.xp=xp;
+  s=add(s,c("Learning Recruit","Unit",{might:1,
+   text:"[Level 6][>] [Deathknell] Gain 2 XP. (When I die, get the effect.)"}),"ai","base");
+  s=applyCommand(s,{type:"damage",uid:byName(s,"Learning Recruit").uid,value:1});
+  if(xp<6)assert.equal(s.spellChain,null);
+  else assert.equal(passChain(s).players.ai.xp,8);
+ }
+ const passive=compileCardAbilities(c("Level Defender","Unit",{text:"[Level 3][>] I have +1 [S] and [Deflect]."}));
+ assert.equal(passive.unsupported.length,1);
+});
+
+const experience=c("Combat Experience","Spell",{energy:1,might:null,
+ text:"[Reaction] (Play any time, even before spells and abilities resolve.)\nGive a unit +1 [S] this turn.\n[Level 6][>] Give it +3 [S] this turn instead. (While you have 6+ XP, get the effect.)"});
+
+test("Combat Experience checks XP at resolution and replaces the lower bonus",()=>{
+ for(const xp of [5,6]){
+  let s=setup();s.players.ai.xp=xp;
+  s=add(s,c("Beneficiary"),"ai","base");
+  s=add(s,experience);
+  const uid=byName(s,"Beneficiary").uid;
+  s=applyCommand(s,{type:"cast",player:"ai",uid:byName(s,"Combat Experience").uid,targetUid:uid});
+  assert.equal(byName(s,"Beneficiary").counters.tempMight,undefined);
+  s=passChain(s);
+  assert.equal(byName(s,"Beneficiary").counters.tempMight,xp===6?3:1);
+  s=applyCommand(s,{type:"next-turn"});
+  assert.equal(byName(s,"Beneficiary").counters.tempMight,undefined);
+ }
+});
+
+test("XP gained by a Deathknell above Combat Experience activates its Level replacement",()=>{
+ let s=setup();s.players.ai.xp=4;
+ s=add(s,c("Beneficiary"),"ai","base");
+ s=add(s,c("Experience Donor","Unit",{might:1,text:"[Deathknell][>] Gain 2 XP. (When I die, get the effect.)"}),"ai","base");
+ s=add(s,experience);
+ s=applyCommand(s,{type:"cast",player:"ai",uid:byName(s,"Combat Experience").uid,targetUid:byName(s,"Beneficiary").uid});
+ s=applyCommand(s,{type:"chain-pass",player:"ai"});
+ s=applyCommand(s,{type:"cast",player:"human",card:c("Reaction Hit","Spell",{text:"[Reaction]\nDeal 1 to a unit."}),targetUid:byName(s,"Experience Donor").uid});
+ s=passChain(s);
+ assert.equal(s.spellChain.items.at(-1).ability,"gain-xp");
+ s=passChain(s);
+ assert.equal(s.players.ai.xp,6);
+ s=passChain(s);
+ assert.equal(byName(s,"Beneficiary").counters.tempMight,3);
+});
+
+test("AI evaluates the Level 6 bonus when selecting a combat reaction",()=>{
+ let s=setup();s.players.ai.xp=6;
+ s=add(s,c("Attacker","Unit",{might:3}),"ai","base");
+ s=add(s,c("Defender","Unit",{might:5}),"human","battlefield",0);
+ s=add(s,experience);
+ s=applyCommand(s,{type:"combat-attack",player:"ai",uids:[byName(s,"Attacker").uid],battlefield:0});
+ const command=planAIChainAction(s);
+ assert.equal(command.type,"cast");
+ assert.equal(command.uid,byName(s,"Combat Experience").uid);
+ s=passChain(applyCommand(s,command));
+ assert.equal(effectiveMight(byName(s,"Attacker"),"attack",s),6);
 });

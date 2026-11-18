@@ -316,6 +316,7 @@ export function processCardEvent(state,event,runtime={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.minimumXP!=null&&(state.players[actor].xp??0)<ability.minimumXP)continue;
    if(ability.toBattlefield&&source.zone!=="battlefield")continue;
    if(ability.minimumExcess!=null&&(event.excessDamage??0)<ability.minimumExcess)continue;
    if(ability.condition==="did-not-die-alone"&&!source.withAlly)continue;
@@ -345,7 +346,7 @@ export function processCardEvent(state,event,runtime={}){
    const token=ability.steps.length===1&&ability.steps[0];
    if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main","gain-xp","buff-here","ready-gear",
       "return-field-unit","schedule-enemy-move","expire-temporary","stun-played-unit"].includes(token.kind)||
-      token.kind==="draw"&&["did-not-die-alone","was-mighty"].includes(ability.condition)||
+      token.kind==="draw"&&(["did-not-die-alone","was-mighty"].includes(ability.condition)||ability.minimumXP!=null)||
       token.kind==="create-units"&&(token.destination==="base"||token.temporary))){
     const notice=stageCardAbility(source,ability,token,event);
     if(notice)summaries.push(notice);

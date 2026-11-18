@@ -28,7 +28,11 @@ Le workflow Windows produit un installateur et son SHA-256. Une balise `desktop-
 
 ## Couverture
 
-L’audit sur 1 407 entrées signale 1 222 entrées avec du texte nécessitant un examen. Les 146 entrées avec du texte sans alerte du parseur ne représentent pas une certification des interactions. Les effets inconnus peuvent encore demander un arbitrage et l’adversaire peut écarter une carte dont l’effet ne peut pas être résolu. Les textes du moteur et certaines annonces restent en français.
+Chasse ajoute l’XP après les réactions de conquête ou de maintien. Les valeurs de plusieurs occurrences s’additionnent. Wuju Apprentice déclenche sa pioche à partir de 6 XP au moment où il est joué. Combat Experience vérifie l’XP à sa résolution et donne alors +1 ou +3 Might pour le tour. Le planificateur utilise le même bonus lorsqu’il évalue une réaction de combat. [Règles Unleashed, Chasse et Niveau](https://playriftbound.com/en-us/news/rules-and-releases/riftbound-core-rules-unleashed-patch-notes/)
+
+Les 331 tests automatisés réussissent. Les 1 200 duels simulés se terminent sans blocage ni commande invalide, dont 300 avec Vex. Sur les mêmes graines sous pression, Vex remporte désormais 39 duels sur 100, contre 18 avant la prise en charge de Chasse et du niveau 6. Ces séries utilisent les trois politiques reproductibles du simulateur.
+
+L’audit sur 1 407 entrées signale 1 218 entrées avec du texte nécessitant un examen. Les 150 entrées avec du texte sans alerte du parseur demandent encore une vérification de leurs interactions en jeu. Le moteur dispose de 31 règles de lancement de sorts, dont 21 dérivées du texte et 10 explicites. Les effets inconnus peuvent demander un arbitrage et l’adversaire peut écarter une carte dont l’effet ne peut pas être résolu. Les textes du moteur et certaines annonces restent en français.
 
 Le corpus permet de reproduire 120 duels Shen–Zed avec trois politiques adverses. Le test Windows utilise une capture WAV synthétique et un seul PC. Le micro physique, les configurations modestes et la mise à jour en ligne entre deux versions natives publiées restent à vérifier.
 

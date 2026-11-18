@@ -7,7 +7,7 @@ import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight,hasKeyword,clearTurnUnitState} from "./combat-engine.mjs";
 import {hiddenDisciple,shenLegend} from "./verified-cards.mjs";
-import {spellRule} from "./effect-engine.mjs";
+import {spellRule,resolvedSpellMight} from "./effect-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const isPlayable=c=>/^(unit|gear)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
@@ -119,10 +119,11 @@ function combatSpell(state){
  let best=value(before),chosen=null;
  for(const {card,rule} of availableSpells(state)){
   if(rule.timing==="main"||!(rule.might||rule.assault||rule.stun))continue;
-  const beneficial=rule.might>0||rule.assault;
+  const might=resolvedSpellMight(rule,state,"ai");
+  const beneficial=might>0||rule.assault;
   for(const target of participants.filter(c=>(c.owner==="ai")===Boolean(beneficial))){
    const counters={...target.counters,
-    tempMight:(target.counters?.tempMight||0)+(rule.might||0),
+    tempMight:(target.counters?.tempMight||0)+might,
     tempAssault:(target.counters?.tempAssault||0)+(rule.assault||0)};
    const projected={...target,counters,stunned:target.stunned||rule.stun};
    const after=previewCombat({...state,cards:state.cards.map(c=>c===target?projected:c)},
@@ -357,7 +358,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
      }):null;
      const accelerate=Boolean(extra&&!extra.error);
      return {card:c,accelerate,payment:accelerate?extra:normal,
-       effect:mandatoryPlayEffects(c,{playedBefore:view.turnActions?.played?.ai||0})};
+       effect:mandatoryPlayEffects(c,{playedBefore:view.turnActions?.played?.ai||0,xp:view.players.ai.xp??0})};
     })
     .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
     .filter(x=>!x.payment.error&&x.discardUids!==null)

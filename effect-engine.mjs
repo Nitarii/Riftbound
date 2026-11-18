@@ -167,6 +167,10 @@ export function spellRule(card){
  if(known)return known;
  if(!/^spell$/i.test(card?.type||"")||multiDamageErrata(card))return null;
  const text=normalize(card.text);
+ const levelBuff=/^\[Reaction\](?:\s*\(Play any time, even before spells and abilities resolve\.?\))?\s*\nGive a unit \+(\d{1,2}) \[[SM]\] this turn\.\s*\n\[Level (\d{1,2})\](?:\[>\])?\s*Give it \+(\d{1,2}) \[[SM]\] this turn instead\.\s*\(While you have \2\+ XP, get the effect\.\)$/i.exec(text);
+ if(levelBuff&&Number(levelBuff[2])>0&&Number(levelBuff[1])>0&&Number(levelBuff[3])>0)
+  return {energy:card.energy,power:card.power,domains:card.domains,timing:"reaction",compiled:true,
+   target:"unit",might:Number(levelBuff[1]),levelMight:{minimumXP:Number(levelBuff[2]),might:Number(levelBuff[3])}};
  const timing=text.match(/^\[(Action|Reaction)\](?:\s*\([^)\n]*\))?\s*$/im)?.[1]?.toLowerCase()||"main";
  const hidden=/^\[Hidden\](?:\s*\([^)\n]*\))?\s*$/im.test(text);
  const flowText=text.match(/^\[Flow\]\s*(?:\[(\d{1,2})\])?((?:\[[CA]\]){0,5})(?:[ \t]*\([^)\n]*\))?[ \t]*$/im);
@@ -189,9 +193,14 @@ export function spellRule(card){
  return {...rule,target:"unit",side,atBattlefield:Boolean(step.atBattlefield),...spellSteps[step.kind](step.count),
   ...(second&&{draw:second.count})};
 }
+export function resolvedSpellMight(rule,state,owner){
+ const level=rule?.levelMight;
+ return level&&(state.players[owner].xp??0)>=level.minimumXP?level.might:rule?.might??0;
+}
 export function compileCardAbilities(card){
  const type=String(card?.type||"").toLowerCase();
  const abilities=[],unsupported=[],continuous=[];
+ if(type==="spell"&&spellRule(card)?.levelMight)return {abilities,unsupported,continuous,verified:true};
  if(type==="spell"&&multiDamageErrata(card))
   return {abilities,continuous,unsupported:[{trigger:"play",text:card.text,
    reason:"Cibles multiples selon l’errata Spiritforged"}]};
@@ -211,6 +220,20 @@ export function compileCardAbilities(card){
     .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){
+  const hunt=type==="unit"&&/^\[Hunt(?: (\d{1,2}))?\](?:\s*\(When I conquer or hold, gain \d{1,2} XP\.\))?\s*$/i.exec(line);
+  if(hunt&&Number(hunt[1]??1)>0){
+   for(const trigger of ["conquer","hold"]){
+    const previous=abilities.find(ability=>ability.keyword==="hunt"&&ability.trigger===trigger);
+    if(previous)previous.steps[0].count+=Number(hunt[1]??1);
+    else abilities.push({trigger,text:line,optional:false,supported:true,keyword:"hunt",
+     steps:[{kind:"gain-xp",count:Number(hunt[1]??1)}]});
+   }
+   continue;
+  }
+  const level=type==="unit"&&/^\[Level (\d{1,2})\](?:\[>\])?\s*(.+)$/i.exec(line);
+  const minimumXP=level?Number(level[1]):null;
+  if(level&&minimumXP>0&&/^(?:When |At |\[(?:Deathknell|Vision|Temporary|Legion)\])/i.test(level[2]))line=level[2].replace(new RegExp(
+   "\\s*\\(While you have "+minimumXP+"\\+ XP, get the effect\\.\\)\\.?$","i"),"");
   const passiveShield=conditionalShieldRule(line);
   if(passiveShield){continuous.push(passiveShield);continue;}
   if(reminder.test(line))continue;
@@ -233,6 +256,7 @@ export function compileCardAbilities(card){
     const parsed=parseInstructions(body);
     const ability={trigger:"die",text:line,optional:false,
      steps:parsed.steps,supported:!parsed.reason,keyword,
+     ...(minimumXP>0&&{minimumXP}),
      ...(company&&{condition:"did-not-die-alone"}),...(mighty&&{condition:"was-mighty"})};
     abilities.push(ability);
     if(parsed.reason)unsupported.push({trigger:"die",text:line,reason:parsed.reason});
@@ -245,10 +269,11 @@ export function compileCardAbilities(card){
     // Vision = Predict on play. The controller looks at their next card
     // and may recycle it; the AI uses only its own deck to decide.
     const ability={trigger:"play",text:line,optional:false,steps:[{kind:"predict"}],
-     supported:true,keyword};
+     supported:true,keyword,...(minimumXP>0&&{minimumXP})};
     abilities.push(ability);continue;
    }else if(keyword==="temporary"){
-    abilities.push({trigger:"beginning",text:line,optional:false,steps:[{kind:"expire-temporary"}],supported:true,keyword});
+    abilities.push({trigger:"beginning",text:line,optional:false,steps:[{kind:"expire-temporary"}],
+     supported:true,keyword,...(minimumXP>0&&{minimumXP})});
     continue;
    }else if(["assault","shield","tank","backline","ganking","accelerate",
        "action","reaction","unique","hidden"].includes(keyword)){
@@ -287,6 +312,7 @@ export function compileCardAbilities(card){
   const limit=/\b(?:once|first time)(?:\s+each|\s+this|\s+a)?\s+turn\b/i.test(line)?1:
    Number(/\b(?:twice|two times)\s+(?:each|this)\s+turn\b/i.test(line)?2:0);
   const ability={trigger,text:line,optional,steps,supported:!reason,
+   ...(minimumXP>0&&{minimumXP}),
    ...(toBattlefield&&{toBattlefield}),
    ...(dependent||condition?{condition:dependent||condition}:{}),...(keyword?{keyword}:{}),
    ...(excess&&{minimumExcess:Number(excess[1])}),
@@ -296,10 +322,10 @@ export function compileCardAbilities(card){
  }
  return {abilities,unsupported,continuous};
 }
-export function onPlayInstructions(card,{playedBefore=0}={}){
+export function onPlayInstructions(card,{playedBefore=0,xp=0}={}){
  const all=compileCardAbilities(card);
  return {steps:all.abilities.filter(a=>a.trigger==="play"&&a.supported&&
-   (a.condition!=="legion"||playedBefore>0)).flatMap(a=>a.steps),
+   (a.condition!=="legion"||playedBefore>0)&&(a.minimumXP==null||xp>=a.minimumXP)).flatMap(a=>a.steps),
   unsupported:all.unsupported.filter(a=>a.trigger==="play"),all};
 }
 export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","discard","ally-play","opponent-play"];

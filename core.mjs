@@ -4,7 +4,7 @@ import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
 import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent,unitBeforeDeath} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
-import {migrateLegacyPassivePendingEffects,spellRule} from "./effect-engine.mjs";
+import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
@@ -497,6 +497,7 @@ export function applyCommand(old, command) {
       return source.name+" · +3 Might à "+target.name+" ce tour";
     }
     if(!rule)throw Error("Effet de sort non pris en charge.");
+    const might=resolvedSpellMight(rule,s,source.owner);
     const logs=[],deaths=[];
     const mustDiscard=rule.damageFromDiscard||rule.discardThenDraw;
     const discarded=mustDiscard?discardForSpell(source.owner,source.uid,physicalCard):null;
@@ -513,7 +514,7 @@ export function applyCommand(old, command) {
       if(rule.returnToBase){
         logs.push(...returnUnitToBase(target,source.owner));
       }
-      if(rule.might)target.counters.tempMight=(target.counters.tempMight||0)+rule.might;
+      if(might)target.counters.tempMight=(target.counters.tempMight||0)+might;
       if(rule.prevention)target.counters.preventDamage=(target.counters.preventDamage||0)+rule.prevention;
       if(rule.shroud)target.counters.tempShroud=true;
       if(rule.ready)target.exhausted=false;
@@ -537,7 +538,7 @@ export function applyCommand(old, command) {
         if(effectiveMight(target,combatRole(target),s)===null)throw Error("Force de la cible inconnue.");
       }
       if(rule.kill)deaths.push(defeatBySpell(target,logs));
-      if(rule.compiled&&rule.might)logs.push(target.name+" reçoit "+(rule.might>0?"+":"")+rule.might+" Might ce tour");
+      if(rule.compiled&&might)logs.push(target.name+" reçoit "+(might>0?"+":"")+might+" Might ce tour");
       if(rule.compiled&&rule.assault)logs.push(target.name+" reçoit Assaut "+rule.assault+" ce tour");
     }else if(rule.target)logs.push("cible devenue invalide");
     if(rule.draw){
@@ -547,7 +548,7 @@ export function applyCommand(old, command) {
     source.zone=item.flow?"banished":"trash";
     // Marked damage is cleaned up after all printed instructions, so a
     // subsequent draw cannot recycle the resolving spell or a lethal unit.
-    if((rule.damage||rule.damageFromDiscard||rule.might<0)&&onBoard(target)&&target.damage>0&&
+    if((rule.damage||rule.damageFromDiscard||might<0)&&onBoard(target)&&target.damage>0&&
        target.damage>=(effectiveMight(target,combatRole(target),s)??Infinity))
       deaths.push(defeatBySpell(target,logs));
     for(const unit of deaths)
@@ -1062,7 +1063,7 @@ export function applyCommand(old, command) {
     const restrictedText=String(v.text||"").replace(/^\[Accelerate\][^\n]*$/gim,"");
     if(/\b(?:play only|can't play|cannot play|you may only play|as an additional cost|must pay)\b/i.test(restrictedText))
      throw Error(v.name+" : condition ou coût supplémentaire non vérifiable. La carte reste en main.");
-    const onPlay=mandatoryPlayEffects(v,{playedBefore:s.turnActions.played.ai});
+    const onPlay=mandatoryPlayEffects(v,{playedBefore:s.turnActions.played.ai,xp:s.players.ai.xp??0});
     const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
     // Preflight card text before paying the runes. For unfamiliar abilities
     // the card is playable, but its trigger becomes an unresolved chain item.
