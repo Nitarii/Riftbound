@@ -43,6 +43,7 @@ const TRIGGERS=[
  ["showdown",/^(?:when (?:a|the) showdown begins)\s*[,:\-]\s*(.*)$/i],
  ["draw",/^(?:when you draw (?:a|one|1) card)\s*[,:\-]\s*(.*)$/i],
  ["discard",/^(?:when you discard me|when i(?:'m| am) discarded)\s*[,:\-]\s*(.*)$/i],
+ ["opponent-play",/^when an opponent plays a unit while i(?:'m| am) at a battlefield,\s*(.*)$/i],
  ["ally-play",/^(?:when you play (?:a|another) (?:unit|spell|card|gear))\s*[,:\-]\s*(.*)$/i]
 ];
 function splitClauses(raw){
@@ -98,6 +99,10 @@ function parseInstructions(raw,spell=false){
   return {steps:[{kind:"return-field-unit"}],reason:""};
  if(!spell&&/^at the start of your next main phase, you may move an enemy unit to this battlefield$/i.test(expr))
   return {steps:[{kind:"schedule-enemy-move"}],reason:""};
+ if(!spell&&/^play a ready 3 \[[SM]\] sprite unit token with \[Temporary\] here(?:\.\s*\(Kill it at the start of its controller's next Beginning Phase, before scoring\.\))?$/i.test(expr))
+  return {steps:[{kind:"create-units",count:1,tokenName:"Sprite",tokenMight:3,destination:"here",ready:true,temporary:true}],reason:""};
+ if(!spell&&/^\[Stun\] it\. They can't move it this turn(?:\.\s*\(It doesn't deal combat damage this turn\.\))?$/i.test(expr))
+  return {steps:[{kind:"stun-played-unit"}],reason:""};
  const gold=expr.match(/^(?:pay \[(\d{1,2})\] to )?play (a|one|two|three|four|\d{1,2}) (ready )?gold gear tokens?( exhausted)?(?:\.\s*\((?:it has|they have) "[^"\n]+"\))?$/i);
  if(gold&&!spell){
   const count=gold[2].toLowerCase()==="four"?4:toCount(gold[2]);
@@ -243,7 +248,7 @@ export function compileCardAbilities(card){
      supported:true,keyword};
     abilities.push(ability);continue;
    }else if(keyword==="temporary"){
-    // Temporary's required kill happens before Hold scoring in next-turn.
+    abilities.push({trigger:"beginning",text:line,optional:false,steps:[{kind:"expire-temporary"}],supported:true,keyword});
     continue;
    }else if(["assault","shield","tank","backline","ganking","accelerate",
        "action","reaction","unique","hidden"].includes(keyword)){
@@ -297,7 +302,7 @@ export function onPlayInstructions(card,{playedBefore=0}={}){
    (a.condition!=="legion"||playedBefore>0)).flatMap(a=>a.steps),
   unsupported:all.unsupported.filter(a=>a.trigger==="play"),all};
 }
-export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","discard","ally-play"];
+export const supportedEvents=()=>["play","beginning","ending","hold","conquer","move","die","attack","defend","showdown","draw","discard","ally-play","opponent-play"];
 export function inspectCards(cards){
  const result={cards:0,withText:0,fullySupported:0,partial:0,unhandled:0,byTrigger:{},examples:[]};
  for(const card of cards||[]){

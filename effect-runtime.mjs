@@ -4,7 +4,7 @@
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
-import {effectiveMight} from "./combat-engine.mjs";
+import {effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
@@ -24,6 +24,7 @@ function eligibleSources(state,event){
  const {trigger,actor,source,field}=event;
  if(["play","move","die","attack","defend","discard"].includes(trigger))return source?[source]:[];
  let cards=state.cards.filter(c=>c.owner===actor&&activeZone(c.zone));
+ if(trigger==="opponent-play")cards=cards.filter(c=>c.zone==="battlefield"&&!c.faceDown);
  if(["hold","conquer"].includes(trigger))
   cards=cards.filter(c=>c.zone==="battlefield"&&c.battlefield===field);
  if(["ally-play","draw"].includes(trigger)&&source)
@@ -343,9 +344,9 @@ export function processCardEvent(state,event,runtime={}){
    }
    const token=ability.steps.length===1&&ability.steps[0];
    if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main","gain-xp","buff-here","ready-gear",
-      "return-field-unit","schedule-enemy-move"].includes(token.kind)||
+      "return-field-unit","schedule-enemy-move","expire-temporary","stun-played-unit"].includes(token.kind)||
       token.kind==="draw"&&["did-not-die-alone","was-mighty"].includes(ability.condition)||
-      token.kind==="create-units"&&token.destination==="base")){
+      token.kind==="create-units"&&(token.destination==="base"||token.temporary))){
     const notice=stageCardAbility(source,ability,token,event);
     if(notice)summaries.push(notice);
     continue;
@@ -360,5 +361,7 @@ export function processCardEvent(state,event,runtime={}){
    if(logs.length)summaries.push(ownerName(actor)+" · "+source.name+" : "+logs.join(", "));
   }
  }
+ if(trigger==="play"&&event.source&&unit(event.source))
+  summaries.push(...processCardEvent(state,{trigger:"opponent-play",actor:OPPOSITE[actor],source:event.source},runtime));
  return summaries;
 }

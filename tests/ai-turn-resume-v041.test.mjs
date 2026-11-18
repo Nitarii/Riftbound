@@ -29,6 +29,25 @@ function setup(){
  return s;
 }
 const flush=()=>new Promise(resolve=>setTimeout(resolve,25));
+test("AI reinforces a threatened battlefield against troops visible in base",()=>{
+ let s=setup();
+ for(const unit of s.cards.filter(c=>c.owner==="ai"&&c.zone==="base")){
+  s=applyCommand(s,{type:"remove",uid:unit.uid});
+ }
+ s=applyCommand(s,{type:"add",player:"ai",zone:"battlefield",battlefield:0,card:card("Holder")});
+ s=applyCommand(s,{type:"add",player:"ai",zone:"hand",card:card("Reinforcement",{might:4})});
+ const uid=s.cards.find(c=>c.name==="Reinforcement").uid;
+ const heavy=card("Enemy",{might:5});
+ const publicThreat=applyCommand(s,{type:"add",player:"human",zone:"base",card:heavy});
+ const privateThreat=applyCommand(s,{type:"add",player:"human",zone:"hand",card:heavy});
+ function plannedPlay(state){
+  const plan=planAutonomousAITurn(state);
+  assert.equal(plan.error,undefined);
+  return plan.commands.find(c=>c.type==="play-paid"&&c.uid===uid);
+ }
+ assert.equal(plannedPlay(publicThreat).battlefield,0);
+ assert.equal(plannedPlay(privateThreat).zone,"base");
+});
 test("AI commits first legal move, then pauses before moving more units or ending turn",()=>{
  const s=setup(),plan=planAutonomousAITurn(s);
  assert.ok(!plan.error,plan.error);

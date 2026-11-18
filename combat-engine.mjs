@@ -6,6 +6,11 @@ export const COMBAT_RULES_DATE="2026-10-09";
 export const OPPOSITE={ai:"human",human:"ai"};
 const number=v=>Number.isFinite(Number(v))?Number(v):0;
 const isUnit=c=>/^unit$/i.test(c?.type||"");
+export function clearTurnUnitState(unit){
+ unit.damage=0;unit.stunned=false;
+ for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud","tempTank","tempNoMoveBy"])
+  if(unit.counters)delete unit.counters[key];
+}
 const words=c=>String(c?.text||"")
  .replace(/\[([^\]]*)\]/g,(_,value)=>
   /^(?:assault|assaut|shield|bouclier|tank|backline|deathknell)\b/i.test(value.trim())?

@@ -5,13 +5,14 @@ import {applyCommand} from "./core.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
-import {previewCombat,effectiveMight,hasKeyword} from "./combat-engine.mjs";
+import {previewCombat,effectiveMight,hasKeyword,clearTurnUnitState} from "./combat-engine.mjs";
 import {hiddenDisciple,shenLegend} from "./verified-cards.mjs";
 import {spellRule} from "./effect-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const isPlayable=c=>/^(unit|gear)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
 const own=(view,zone)=>view.cards.filter(c=>c.owner==="ai"&&c.zone===zone);
+const readyToMove=card=>isUnit(card)&&!card.exhausted&&card.counters?.tempNoMoveBy!=="ai";
 const availableSpells=state=>[...own(state,"hand"),...own(state,"trash")].flatMap(card=>{
  const rule=spellRule(card);
  return rule&&(card.zone==="hand"||rule.flow)?[{card,rule}]:[];
@@ -36,6 +37,36 @@ function targetForReinforcement(view){
  return emptyBattlefieldTargets(view)
   .filter(x=>x.enemy===0&&x.friendly>0)
   .sort((a,b)=>a.friendly-b.friendly||a.i-b.i)[0]?.i??null;
+}
+function threatenedFields(view){
+ const board=view.cards.filter(card=>["base","battlefield"].includes(card.zone)&&!card.faceDown);
+ const troops=board.filter(card=>card.owner==="human"&&card.zone==="base"&&isUnit(card));
+ if(!troops.length)return [];
+ const attackers=new Set(troops.map(card=>card.uid));
+ return emptyBattlefieldTargets(view).filter(field=>field.friendly>0&&!field.enemy).flatMap(({i})=>{
+  const cards=board.map(card=>{
+   if(!isUnit(card))return card;
+   const unit={...card,counters:{...card.counters}};
+   clearTurnUnitState(unit);
+   if(attackers.has(unit.uid)){unit.zone="battlefield";unit.battlefield=i;}
+   return unit;
+  });
+  const projected={...view,cards};
+  const before=previewCombat(projected,i,"human");
+  return before.ready&&before.winner==="human"?[{i,projected,before}]:[];
+ });
+}
+function defensivePlacement(card,threats){
+ let best=null;
+ for(const {i,projected,before} of threats){
+  const cards=[...projected.cards,{...card,zone:"battlefield",battlefield:i}];
+  const after=previewCombat({...projected,cards},i,"human");
+  if(!after.ready||after.defendingMight<=before.defendingMight)continue;
+  const gain=after.defendingMight-before.defendingMight;
+  const value=(after.winner!=="human"?30:0)+gain+after.damage.filter(hit=>hit.owner==="human"&&hit.dead).length*4;
+  if(!best||value>best.value)best={i,value};
+ }
+ return best?.i??null;
 }
 function concealedDefender(state){
  const fight=state.pendingCombat;
@@ -190,7 +221,7 @@ function concealForDefense(state){
 export function enumerateAIAssaults(view,{limit=5,searchBudget=90}={}){
  if(!view.started||view.active!=="ai"||view.phase!=="Main"||view.finished||
     view.pendingCombat||view.spellChain||view.pendingEffects?.length)return [];
- const ready=own(view,"base").filter(c=>isUnit(c)&&!c.exhausted&&c.might!=null)
+ const ready=own(view,"base").filter(c=>readyToMove(c)&&c.might!=null)
   .sort((a,b)=>(effectiveMight(b,"attack",view)||0)-(effectiveMight(a,"attack",view)||0)).slice(0,7);
  const fields=emptyBattlefieldTargets(view).filter(x=>x.enemy>0);
  const enemyWinNext=view.players.human.score+fields.length>=8;
@@ -277,7 +308,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
   // while the AI continues playing new units into base.
   let moved=0;
   function moveUncontested(reinforce=false){
-   for(const unit of own(view,"base").filter(c=>isUnit(c)&&!c.exhausted)){
+   for(const unit of own(view,"base").filter(readyToMove)){
     if(interrupted())break;
     if(moved>=maxMoves)break;
     const field=targetForConquest(view)??(reinforce?targetForReinforcement(view):null);
@@ -314,6 +345,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
   // Only units with fully known printed costs, including domain-coloured Power,
   // are eligible. Do not guess spells/gear/effects requiring custom timing.
   for(let played=0;played<maxUnits&&!view.finished;played++){
+   const threats=opponentNextScore<8?threatenedFields(view):[];
    const candidates=[...own(view,"hand"),...own(view,"champion")]
     .filter(c=>isPlayable(c))
     .map(c=>{
@@ -329,16 +361,17 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
     })
     .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
     .filter(x=>!x.payment.error&&x.discardUids!==null)
-    .map(x=>{
-     try{
-      const simulated=applyCommand(view,{type:"play-paid",uid:x.card.uid,
-       zone:"base",discardUids:x.discardUids,accelerate:x.accelerate});
+    .flatMap(x=>{
+     const cmd={type:"play-paid",uid:x.card.uid,zone:"base",discardUids:x.discardUids,accelerate:x.accelerate};
+     const field=isUnit(x.card)&&!x.accelerate?defensivePlacement(x.card,threats):null;
+     for(const command of field===null?[cmd]:[{...cmd,zone:"battlefield",battlefield:field},cmd])try{
+      const simulated=applyCommand(view,command);
       // Never knowingly enter an unresolved mandatory or continuous ability
       // when other legal actions can progress the complete physical match.
-      return {...x,safe:!simulated.pendingEffects?.length};
-     }catch{return {...x,safe:false};}
-    })
-    .filter(x=>x.safe);
+      if(!simulated.pendingEffects?.length)return [{...x,command}];
+     }catch{}
+     return [];
+    });
    if(!candidates.length)break;
    // Prefer useful units with affordable Power cost, so the AI develops a
    // board while preserving the rune economy when two choices are comparable.
@@ -349,14 +382,14 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
       (a.card.might??0)*2+(a.card.energy??0)-a.payment.power*2)||
     a.payment.power-b.payment.power||
     String(a.card.code).localeCompare(String(b.card.code)));
-   const {card,payment,discardUids,accelerate}=candidates[0];
+   const {card,payment,discardUids,command}=candidates[0];
    const discarded=discardUids.map(uid=>view.cards.find(c=>c.uid===uid)?.name||"carte");
-   apply({type:"play-paid",uid:card.uid,zone:"base",discardUids,accelerate});
+   apply(command);
    if(view.pendingEffects?.length){
     refused.push("Effet de "+card.name+" à résoudre : "+view.pendingEffects[0].text);
     break;
    }
-   enacted.push("joué "+card.name+" ("+payment.energy+" énergie, "+
+   enacted.push("joué "+card.name+(command.zone==="battlefield"?" à "+view.battlefields[command.battlefield].card.name:"")+" ("+payment.energy+" énergie, "+
     payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s)"+
     (payment.goldUids.length?" / "+payment.goldUids.length+" Gold dépensé(s)":"")+
     (payment.poolPower?" / "+payment.poolPower+" Power de la réserve":"")+")"+

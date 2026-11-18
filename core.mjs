@@ -5,7 +5,7 @@ import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent,unitBeforeDeath} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects,spellRule} from "./effect-engine.mjs";
-import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
+import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
@@ -104,6 +104,7 @@ export function applyCommand(old, command) {
   const runtime={place,deckCard,random:()=>nextRandom(s),stageCardAbility};
   const movementTriggers=[];
   const onBoard=v=>v&&["base","battlefield"].includes(v.zone);
+  const canMove=(card,actor)=>card.counters?.tempNoMoveBy!==actor;
   const turnIndex=()=>s.turn*2+Number(s.active!==s.firstPlayer);
   const fieldController=field=>s.pendingCombat?.battlefield===field?
     s.pendingCombat.previousController:battlefieldController(s,field);
@@ -236,6 +237,11 @@ export function applyCommand(old, command) {
      priority:owner,lastPass:null,opener:owner};
     return "capacité +3 en attente sur "+target.name;
   }
+  function paidPlayTriggers(source,choices){
+    if(fieldMusicians(source))return [stageMusicians(source,choices.targetUid),
+     ...processCardEvent(s,{trigger:"opponent-play",actor:OPPOSITE[source.owner],source},runtime)];
+    return processCardEvent(s,{trigger:"play",actor:source.owner,source,choices},runtime);
+  }
   const chainOwner=item=>item.owner??getCard(s,item.uid).owner;
   function appendChainItem(item,{triggered=false}={}){
     s.spellChain??={items:[],lastPass:null,opener:item.owner,triggered};
@@ -305,7 +311,9 @@ export function applyCommand(old, command) {
     const item={uid:"token-"+(s.revision+1)+"-"+(++stagedAbilitySerial),
      ability:step.kind,owner,sourceUid:source.uid,cardName:source.name,
      count:step.count,exhausted:Boolean(step.exhausted),field:event.field??null,
-     ...(step.kind==="create-units"&&{tokenName:step.tokenName,tokenMight:step.tokenMight})};
+     ...(step.kind==="create-units"&&{tokenName:step.tokenName,tokenMight:step.tokenMight,
+      destination:step.destination,ready:step.ready,temporary:step.temporary}),
+     ...(step.kind==="stun-played-unit"&&{targetUid:event.source?.uid,blockedPlayer:event.source?.owner})};
     if(Object.hasOwn(targetRule,step.kind))return offerTriggeredTarget(item);
     if(step.energy&&planRunePayment(s,owner,{name:source.name,energy:step.energy}).error)
       return source.name+" · énergie insuffisante pour la capacité facultative";
@@ -325,20 +333,31 @@ export function applyCommand(old, command) {
   }
   function resolveTokens(item,birdField){
     const isBird=item.ability==="create-bird",isGold=item.ability==="create-gold";
+    const source=item.destination==="here"?s.cards.find(card=>card.uid===item.sourceUid):null;
+    if(item.destination==="here"&&(!onBoard(source)||source.zone==="base"&&source.owner!==item.owner))
+      return item.cardName+" · aucun emplacement valide pour le jeton";
     const token=isGold?{code:"TOKEN-GOLD",name:"Gold",type:"Gear",text:"[Reaction][>] Kill this, [T]: [Add] [A].",tags:["Token"]}:
      isBird?{code:"TOKEN-BIRD",name:"Bird",type:"Unit",might:1,text:"[Deflect]",tags:["Token","Bird"]}:
       {code:"TOKEN-"+item.tokenName.toUpperCase().replace(/[^A-Z0-9]+/g,"-"),name:item.tokenName,type:"Unit",
-       might:item.tokenMight,tags:["Token",item.tokenName]};
-    const field=isBird?(birdField??(item.owner==="ai"&&fieldController(item.field)===item.owner?item.field:null)):null;
-    if(field!==null&&(!Number.isInteger(field)||!s.battlefields[field]?.card||fieldController(field)!==item.owner))
+       might:item.tokenMight,tags:["Token",item.tokenName],text:item.temporary?"[Temporary]":""};
+    const field=isBird?(birdField??(item.owner==="ai"&&fieldController(item.field)===item.owner?item.field:null)):
+     source?.zone==="battlefield"?source.battlefield:null;
+    if(field!==null&&(!Number.isInteger(field)||!s.battlefields[field]?.card||fieldController(field)!==item.owner)){
+      if(item.destination==="here")return item.cardName+" · champ devenu invalide pour le jeton";
       throw Error("Choisis la base ou un champ que tu contrôles pour le jeton Bird.");
+    }
+    const exhausted=isGold?item.exhausted:!item.ready;
+    const logs=[];
     for(let n=0;n<item.count;n++){
       const card=place(s,item.owner,{...token,energy:0,power:0},field===null?"base":"battlefield",field);
-      card.exhausted=!isGold||item.exhausted;
+      card.exhausted=exhausted;
+      logs.push(...processCardEvent(s,{trigger:"play",actor:item.owner,source:card},runtime));
+      s.turnActions.played[item.owner]++;
+      logs.push(...processCardEvent(s,{trigger:"ally-play",actor:item.owner,source:card},runtime));
     }
     const location=field===null?"en base":"à "+s.battlefields[field].card.name;
     return item.cardName+" · "+item.count+" jeton(s) "+token.name+" "+location+
-     (!isGold||item.exhausted?" · épuisé(s)":" · prêt(s)");
+     (exhausted?" · épuisé(s)":" · prêt(s)")+(logs.length?" · "+logs.join(" · "):"");
   }
   function stageEndingRunes(effect,uids){
     s.spellChain={items:[{uid:effect.id,ability:"ready-runes-ending",owner:effect.player,
@@ -388,6 +407,21 @@ export function applyCommand(old, command) {
   }
   function spellResolution(item,physicalCard,birdField,detach){
     if(["create-gold","create-bird","create-units"].includes(item.ability))return resolveTokens(item,birdField);
+    if(item.ability==="expire-temporary"){
+      const source=s.cards.find(card=>card.uid===item.sourceUid);
+      if(!onBoard(source))return item.cardName+" · a déjà quitté le plateau";
+      const logs=[],lastKnown=defeatBySpell(source,logs);
+      logs.push(...processCardEvent(s,{trigger:"die",actor:source.owner,source:lastKnown},runtime));
+      return logs.join(" · ");
+    }
+    if(item.ability==="stun-played-unit"){
+      const target=s.cards.find(card=>card.uid===item.targetUid);
+      if(!onBoard(target))return item.cardName+" · l’unité jouée a quitté le plateau";
+      target.stunned=true;
+      target.counters.stunned=1;
+      target.counters.tempNoMoveBy=item.blockedPlayer;
+      return item.cardName+" · "+target.name+" étourdie et bloquée pour ce tour";
+    }
     if(item.ability==="mill-main")
       return item.cardName+" · "+burnMainCards(s,item.owner,item.count,
        {uid:item.sourceUid,name:item.cardName},{...runtime,label:"Défausse du dessus du deck"});
@@ -422,7 +456,7 @@ export function applyCommand(old, command) {
     if(item.ability==="return-field-unit"){
       const target=s.cards.find(card=>card.uid===item.targetUid);
       if(!fieldUnitTarget(target,item.owner))return item.cardName+" · cible devenue invalide";
-      return [item.cardName,...returnUnitToBase(target)].join(" · ");
+      return [item.cardName,...returnUnitToBase(target,item.owner)].join(" · ");
     }
     if(item.ability==="schedule-enemy-move"){
       (s.delayedMain??=[]).push({...item,ability:"move-enemy-here"});
@@ -433,6 +467,7 @@ export function applyCommand(old, command) {
       if(!targetRule[item.ability](target,item.owner))return item.cardName+" · cible devenue invalide";
       const field=item.field,previousController=fieldController(field);
       const location=s.battlefields[field].card.name;
+      if(!canMove(target,item.owner))return item.cardName+" · déplacement de "+target.name+" interdit ce tour";
       if(target.zone==="battlefield"&&target.battlefield===field)return item.cardName+" · cible déjà à "+location;
       target.zone="battlefield";target.battlefield=field;
       if(previousController!==target.owner&&!(s.queuedContests||[]).some(contest=>contest.field===field))
@@ -469,12 +504,14 @@ export function applyCommand(old, command) {
     if(rule.target&&checkSpellTarget(rule,target,source.owner,item.field)&&
        (item.hiddenField===undefined||target.battlefield===item.hiddenField)){
       if(rule.target==="friendly-transfer"){
-        target.zone="battlefield";target.battlefield=item.field;
-        logs.push(target.name+" rejoint "+s.battlefields[item.field].card.name);
-        logs.push(...moveTriggers(target));
+        if(canMove(target,source.owner)){
+          target.zone="battlefield";target.battlefield=item.field;
+          logs.push(target.name+" rejoint "+s.battlefields[item.field].card.name);
+          logs.push(...moveTriggers(target));
+        }else logs.push("déplacement de "+target.name+" interdit ce tour");
       }
       if(rule.returnToBase){
-        logs.push(...returnUnitToBase(target));
+        logs.push(...returnUnitToBase(target,source.owner));
       }
       if(rule.might)target.counters.tempMight=(target.counters.tempMight||0)+rule.might;
       if(rule.prevention)target.counters.preventDamage=(target.counters.preventDamage||0)+rule.prevention;
@@ -543,7 +580,8 @@ export function applyCommand(old, command) {
     }
     return processCardEvent(s,{trigger:"move",actor:v.owner,source:v},runtime);
   }
-  function returnUnitToBase(target){
+  function returnUnitToBase(target,actor){
+    if(!canMove(target,actor))return ["déplacement de "+target.name+" interdit ce tour"];
     if(movementRestricted(target.battlefield))
       return ["déplacement interdit à "+s.battlefields[target.battlefield].card.name];
     target.zone="base";target.battlefield=null;
@@ -693,38 +731,21 @@ export function applyCommand(old, command) {
     delete s.delayedEnding;
     delete s.finishAfterDelayedEnding;
     // End-of-turn cleanup: marked damage heals and stun / temporary buffs expire.
-    for(const unit of s.cards)if(/^unit$/i.test(unit.type||"")){
-      unit.damage=0;unit.stunned=false;
-      if(unit.counters){
-       for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud","tempTank"])
-        delete unit.counters[key];
-      }
-    }
+    for(const unit of s.cards)if(/^unit$/i.test(unit.type||""))clearTurnUnitState(unit);
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
     s.turnActions=newTurnActions();
     s.energyPool={human:0,ai:0};s.powerPool={human:0,ai:0};
     s.scoredFields??={human:[],ai:[]};
     s.scoredFields[s.active]=[];
-    // Awaken precedes Beginning. Ready the active player's cards, then
-    // automatically mark obvious uncontested Hold scores; card effects stay manual.
+    // Awaken precedes Beginning. Beginning abilities resolve before Hold scoring.
     for(const card of s.cards)if(card.owner===s.active)card.exhausted=false;
     s.phase="Beginning";s.started=true;
-    // Temporary units die before beginning-of-turn Hold scoring.
-    const temporaryDeaths=[];
-    for(const card of s.cards.filter(x=>x.owner===s.active&&
-      ["base","battlefield"].includes(x.zone)&&/\[Temporary\]/i.test(x.text||""))){
-     const lastKnown=unitBeforeDeath(s,card);
-     card.zone="trash";card.battlefield=null;card.exhausted=false;card.damage=0;
-     temporaryDeaths.push(card.name);
-     processCardEvent(s,{trigger:"die",actor:card.owner,source:lastKnown},runtime);
-    }
     s.beginningScoringDue=true;
     // Rule order: beginning abilities (including any choices/chain) BEFORE Hold.
     const triggered=processCardEvent(s,{trigger:"beginning",actor:s.active},runtime);
     const holds=finishBeginningScoring();
     const message="Tour "+s.turn+" : "+(s.active==="human"?"joueur":"IA")+
-     (temporaryDeaths.length?" · Temporary : "+temporaryDeaths.join(", "):"")+
      (triggered.length?" · "+triggered.join(" · "):"")+
      (holds.length?" · "+holds.join(" · "):"");
     return message+(s.beginningScoringDue?" · effet(s) à résoudre avant le maintien":"");
@@ -908,8 +929,7 @@ export function applyCommand(old, command) {
     v.zone=zone;v.battlefield=field??null;
     v.exhausted=!gear&&!(shadowAssassin(v)?
      s.cards.some(x=>x.owner==="human"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
-    const logs=fieldMusicians(v)?[stageMusicians(v,c.targetUid)]:processCardEvent(s,{trigger:"play",actor:"human",source:v,
-     choices:{targetUid:c.targetUid}},runtime);
+    const logs=paidPlayTriggers(v,{targetUid:c.targetUid});
     s.turnActions.played.human++;
     if(!s.pendingEffects.length)logs.push(...processCardEvent(s,{trigger:"ally-play",actor:"human",source:v},runtime));
     if(ambush){
@@ -1069,8 +1089,7 @@ export function applyCommand(old, command) {
     v.exhausted=isGear||accelerate?false:
       !(shadowAssassin(v)?s.cards.some(x=>x.owner==="ai"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
     if(!accelerate&&!isGear&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
-    const triggered=fieldMusicians(v)?[stageMusicians(v,c.targetUid)]:processCardEvent(s,{trigger:"play",actor:"ai",source:v,
-     choices:{discardUids}},runtime);
+    const triggered=paidPlayTriggers(v,{targetUid:c.targetUid,discardUids});
     s.turnActions.played.ai++;
     if(!s.pendingEffects.length)
      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},runtime));
@@ -1164,6 +1183,7 @@ export function applyCommand(old, command) {
       throw Error("Sélectionne une ou plusieurs unités distinctes pour l'assaut.");
     const attacking=ids.map(uid=>getCard(s,string(uid,80)));
     for(const v of attacking){
+      if(!canMove(v,p))throw Error(v.name+" : déplacement interdit ce tour.");
       if(v.owner!==p||v.zone!=="base"||v.exhausted||!/^unit$/i.test(v.type||""))
         throw Error(v.name+" : seule une unité prête dans ta base peut attaquer normalement.");
     }
@@ -1234,6 +1254,7 @@ export function applyCommand(old, command) {
       ["base","battlefield"].includes(origin)&&["base","battlefield"].includes(zone)&&
       (origin!==zone||(zone==="battlefield"&&Number(c.battlefield)!==v.battlefield));
     if(standard){
+     if(!canMove(v,v.owner))throw Error(v.name+" : déplacement interdit ce tour.");
      if(s.pendingCombat||s.spellChain||s.pendingEffects.length)
       throw Error("Déplacement normal impossible pendant une confrontation ou un effet en attente.");
      if(v.exhausted)throw Error("Cette unité est épuisée : elle ne peut pas se déplacer.");
@@ -1412,7 +1433,10 @@ export function applyCommand(old, command) {
   const holds=finishBeginningScoring();
   if(holds.length)summary+=" · "+holds.join(" · ");
   flushStagedAbilities();
-  for(const card of s.cards)if(card.counters?.buff&&!onBoard(card))delete card.counters.buff;
+  for(const card of s.cards)if(card.counters&&!onBoard(card)){
+    delete card.counters.buff;
+    delete card.counters.tempNoMoveBy;
+  }
   // Tokens exist only on the board, never in trash or a recycled Main Deck.
   s.cards=s.cards.filter(card=>
    !(card.tags||[]).some(tag=>String(tag).toLowerCase()==="token")&&

@@ -88,8 +88,57 @@ test("Temporary unit dies before its controller's next Hold scoring",()=>{
  const last=s.players.ai.score;
  s=applyCommand(s,{type:"next-turn"});
  s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.cards.find(c=>c.name==="Ephemeral").zone,"battlefield");
+ assert.equal(s.spellChain.items.at(-1).ability,"expire-temporary");
+ s=applyCommand(applyCommand(s,{type:"chain-pass",player:"ai"}),{type:"chain-pass",player:"human"});
  assert.equal(s.cards.find(c=>c.name==="Ephemeral").zone,"trash");
  assert.equal(s.players.ai.score,last);
+});
+test("Trevor survives his own printed token keyword and creates a ready Sprite on Hold",()=>{
+ let s=setup();
+ s=add(s,card("Trevor Snoozebottom","Unit",{might:3,
+  text:"[Shield] (+1 [S] while I'm a defender.)\nWhen I hold, play a ready 3 [S] Sprite unit token with [Temporary] here. (Kill it at the start of its controller's next Beginning Phase, before scoring.)"}),"battlefield",0);
+ const find=(name)=>s.cards.find(c=>c.name===name);
+ const end=()=>{s=applyCommand(s,{type:"next-turn"});};
+ const resolve=()=>{s=applyCommand(applyCommand(s,{type:"chain-pass",player:"ai"}),{type:"chain-pass",player:"human"});};
+ end();end();
+ assert.equal(find("Trevor Snoozebottom").zone,"battlefield");
+ assert.equal(find("Sprite"),undefined);
+ resolve();
+ const firstSprite=find("Sprite");
+ assert.equal(firstSprite.battlefield,0);
+ assert.equal(firstSprite.might,3);
+ assert.equal(firstSprite.exhausted,false);
+ end();end();
+ assert.equal(s.spellChain.items.at(-1).sourceUid,firstSprite.uid);
+ resolve();
+ assert.equal(find("Sprite"),undefined);
+ resolve();
+ assert.notEqual(find("Sprite").uid,firstSprite.uid);
+ assert.equal(find("Trevor Snoozebottom").zone,"battlefield");
+});
+test("Vex, Apathetic stuns the played enemy after reactions and locks its movement through end of turn",()=>{
+ let s=setup();
+ s=add(s,card("Vex, Apathetic","Unit",{might:4,
+  text:"[Deflect] (Opponents must pay [A] to choose me with a spell or ability.)\nWhen an opponent plays a unit while I'm at a battlefield, [Stun] it. They can't move it this turn. (It doesn't deal combat damage this turn.)"}),"battlefield",0);
+ s=applyCommand(s,{type:"next-turn"});
+ s=applyCommand(s,{type:"phase",phase:"Main"});
+ s=applyCommand(s,{type:"play-physical",card:card("Newcomer","Unit",{text:"[Deflect]"})});
+ const uid=s.cards.find(c=>c.name==="Newcomer").uid;
+ const find=state=>state.cards.find(c=>c.uid===uid);
+ assert.equal(s.spellChain.items.at(-1).targetUid,uid);
+ assert.equal(find(s).stunned,undefined);
+ const runes=s.players.ai.runeCount;
+ s=applyCommand(applyCommand(s,{type:"chain-pass",player:"ai"}),{type:"chain-pass",player:"human"});
+ assert.equal(find(s).stunned,true);
+ assert.equal(s.players.ai.runeCount,runes);
+ s=applyCommand(s,{type:"ready",uid});
+ assert.throws(()=>applyCommand(s,{type:"move",uid,zone:"battlefield",battlefield:1}),/déplacement interdit/);
+ assert.throws(()=>applyCommand(s,{type:"combat-attack",player:"human",uids:[uid],battlefield:0}),/déplacement interdit/);
+ s=applyCommand(s,{type:"phase",phase:"Ending"});
+ s=applyCommand(s,{type:"next-turn"});
+ assert.equal(find(s).counters.tempNoMoveBy,undefined);
+ assert.equal(find(s).stunned,false);
 });
 test("Vision lets AI inspect its own deck without asking for a revealed opponent hand",()=>{
  let s=setup();
