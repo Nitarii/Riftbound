@@ -63,7 +63,14 @@ async function connect(){
  const browser=await chromium.connectOverCDP(debugURL);
  const page=await waitFor(()=>browser.contexts().flatMap(context=>context.pages()).find(p=>p.url().startsWith("http://127.0.0.1:")));
  await page.locator(".desktop-app #home-create-game").waitFor();
- await waitFor(()=>page.getByRole("button",{name:/Commencer la partie|Start game/}).isEnabled());
+ try{
+  await waitFor(()=>page.locator("#home-create-game").isEnabled());
+ }catch(error){
+  const symptoms=await Promise.all(["#connection","#home-catalog-count","#home-feedback"].map(id=>page.locator(id).textContent()));
+  const [snapshot,catalog]=await Promise.all([call(page,"/api/state"),call(page,"/api/catalog?limit=1")]);
+  throw Error("Board setup unavailable. "+symptoms.join(" · ")+" · state HTTP "+snapshot.status+
+   " · catalog HTTP "+catalog.status,{cause:error});
+ }
  return {browser,page};
 }
 const call=(page,url,json)=>page.evaluate(async ({url,json})=>{

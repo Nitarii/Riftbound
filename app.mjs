@@ -92,7 +92,8 @@ function applyUILanguage(){
 
 // Declare the loopback destination so Chrome/Edge can request the right permission.
 // Browsers that do not implement the option simply ignore it.
-const localFetchOptions=url=>/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(url)
+const localFetchOptions=url=>!desktop&&new URL(url,location.href).origin!==location.origin&&
+ /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(url)
  ? {targetAddressSpace:"loopback"} : {};
 const storage="riftbound-companion-state-v1";
 const onboardingStorage="riftbound-onboarding-v1";
@@ -2317,4 +2318,5 @@ autoBootstrapCompanion();
 loadAppCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();renderWelcome();}).catch(e=>{
  $("catalog-status").textContent=e.message;
  $("home-catalog-count").textContent="Impossible de charger les cartes : "+e.message;
+ if(desktop)notify("Impossible de charger les cartes locales. "+e.message,true);
 });
