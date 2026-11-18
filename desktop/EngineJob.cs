@@ -60,6 +60,7 @@ internal sealed class EngineJob : IDisposable
     }
 
     public bool HasExited => WaitForSingleObject(process, 0) == 0;
+    public uint? ExitCode => GetExitCodeProcess(process, out var code) ? code : null;
 
     public void Dispose()
     {
@@ -119,6 +120,9 @@ internal sealed class EngineJob : IDisposable
     private static extern uint ResumeThread(SafeFileHandle thread);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool TerminateProcess(SafeFileHandle process, uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(SafeFileHandle process, out uint exitCode);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(SafeFileHandle handle, uint milliseconds);
 }

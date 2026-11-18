@@ -37,7 +37,7 @@ internal sealed class EngineSession : IDisposable
     {
         for (var attempt = 0; attempt < 200; attempt++)
         {
-            if (job.HasExited) throw new IOException("Le moteur local s’est arrêté au démarrage.");
+            if (job.HasExited) throw new IOException($"Le moteur local s’est arrêté au démarrage (0x{job.ExitCode:X8}).");
             if (File.Exists(readyPath))
             {
                 using var ready = JsonDocument.Parse(await File.ReadAllTextAsync(readyPath, cancellation));

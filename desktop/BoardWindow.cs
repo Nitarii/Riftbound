@@ -40,16 +40,24 @@ internal sealed class BoardWindow : Form
 
     private async Task StartAsync()
     {
+        var startupLog = Path.Combine(Program.DataDirectory, "temp", "desktop-startup.log");
+        var step = "Locate WebView2 runtime";
         try
         {
+            try { if (File.Exists(startupLog)) File.Delete(startupLog); }
+            catch (Exception logError) when (logError is IOException or UnauthorizedAccessException) { }
             CoreWebView2Environment.GetAvailableBrowserVersionString();
+            step = "Launch the local engine";
             engine = new EngineSession(Program.DataDirectory);
             await engine.ConnectAsync(lifetime.Token);
+            step = "Create WebView2 environment";
             var environment = await CoreWebView2Environment.CreateAsync(
                 userDataFolder: Path.Combine(Program.DataDirectory, "webview"));
             if (closing) return;
+            step = "Initialize the board WebView2 control";
             await board.EnsureCoreWebView2Async(environment);
             if (closing) return;
+            step = "Configure board navigation";
             await ConfigureWebViewAsync(environment, engine);
             if (closing) return;
             board.CoreWebView2.Navigate(engine.Origin.AbsoluteUri);
@@ -61,7 +69,15 @@ internal sealed class BoardWindow : Form
             engine?.Dispose();
             engine = null;
             if (!closing)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(startupLog)!);
+                    File.WriteAllText(startupLog, $"{step}\n{error.GetType().Name} (0x{error.HResult:X8}): {error.Message}\n");
+                }
+                catch (Exception logError) when (logError is IOException or UnauthorizedAccessException) { }
                 splash.Text = "Riftbound Companion n’a pas démarré.\n\n" + error.Message;
+            }
         }
     }
 

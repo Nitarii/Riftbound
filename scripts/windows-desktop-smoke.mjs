@@ -52,7 +52,13 @@ function start(){
   env:{...process.env,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:"--remote-debugging-port="+new URL(debugURL).port}});
 }
 async function connect(){
- await waitFor(async()=> (await fetch(debugURL+"/json/version",{signal:AbortSignal.timeout(500)})).ok);
+ const startupLog=path.join(data,"temp","desktop-startup.log");
+ try{
+  await waitFor(async()=> (await fetch(debugURL+"/json/version",{signal:AbortSignal.timeout(500)})).ok);
+ }catch(error){
+  const startup=await fs.readFile(startupLog,"utf8").catch(()=>null);
+  throw Error(startup||"WebView2 did not start. Host exit code: "+host.exitCode,{cause:error});
+ }
  const browser=await chromium.connectOverCDP(debugURL);
  const page=await waitFor(()=>browser.contexts().flatMap(context=>context.pages()).find(p=>p.url().startsWith("http://127.0.0.1:")));
  await page.locator(".desktop-app #home-create-game").waitFor();
