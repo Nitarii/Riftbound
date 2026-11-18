@@ -504,7 +504,8 @@ const receiveHumanMessage=(text,requestId)=>{
   }
   if(plan.recognized&&!plan.commands?.length){
    outcome="unchanged";
-   receiveAgentMessage(english?"Already reflected on the board.":"Cette action est déjà prise en compte sur le plateau.");
+   receiveAgentMessage(english?(plan.summaryEN||"Already reflected on the board."):
+    (plan.summary||"Cette action est déjà prise en compte sur le plateau."));
    return;
   }
   if(!plan.recognized&&!remoteAccess.status().active&&

@@ -287,10 +287,10 @@ try{
  await apply({type:"combat-pass",player:"human"});
  assert.equal(state.history[0].combat.attackingMight,13);
  assert.equal(state.history[0].combat.defendingMight,2);
- const announce=async text=>{
+ const announce=async (text,status="applied")=>{
   const posted=await request("/api/messages",{text,requestId:crypto.randomUUID()});
   assert.equal(posted.status,200,posted.value.error);
-  assert.equal((await waitForAnnouncement(posted.value.message.id)).table.status,"applied");
+  assert.equal((await waitForAnnouncement(posted.value.message.id)).table.status,status);
   state=(await request("/api/state")).value.state;
   return state;
  };
@@ -379,8 +379,51 @@ try{
  const hiddenReply=(await request("/api/messages?after="+hiddenInspect.value.message.id)).value.messages.at(-1);
  assert.equal(hiddenReply.view,undefined);
  assert.doesNotMatch(hiddenReply.text,/Confidential Preview Unit/);
+ await apply({type:"reset"});
+ const leader={...card("Shen, Leader of the Kinkou Order"),code:"VEN-138",energy:6,power:2,might:7,domains:["Order"]};
+ await apply({...shenDeck,champion:leader});
+ await apply(zedDeck);
+ await apply({type:"start",player:"human"});
+ await announce("Je canalise deux Order.");
+ const openingRunes=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes").map(c=>c.uid);
+ for(const domain of ["Calm","Calm","Calm","Order"])
+  await put("human",{...card(domain+" Rune","Rune"),domains:[domain]},"runes");
+ const championUid=state.cards.find(c=>c.code===leader.code).uid;
+ const paymentRevision=state.revision;
+ const payment="Je joue mon champion choisi, six runes épuisées, je recycle deux Order.";
+ await announce(payment.replace("six","cinq"),"rejected");
+ assert.equal(state.revision,paymentRevision);
+ const humanBefore=state.players.human;
+ await announce(payment);
+ assert.equal(state.cards.find(c=>c.uid===championUid).zone,"base");
+ assert.equal(state.players.human.handCount,humanBefore.handCount);
+ assert.equal(state.players.human.runeCount,humanBefore.runeCount+2);
+ assert.ok(openingRunes.every(uid=>!state.cards.some(c=>c.uid===uid)));
  await stop();
- console.log("PASS: packaged Windows, hidden data, combat rewind, Targon and Pakaa after restart, Shen Tank, saved follow-up, public board and card.");
+ launch();
+ await ready();
+ const channelRevision=state.revision;
+ await announce("Je te l’ai dit, j’ai canalisé deux Ordre.","unchanged");
+ assert.equal(state.revision,channelRevision);
+ await apply({type:"reset"});
+ await apply(shenDeck);
+ await apply(zedDeck);
+ await apply({type:"start",player:"ai"});
+ const shenHold={...card("Shen, Scourge of Shadows"),code:"VEN-042",might:6,
+  text:"When I hold, if there is exactly one other unit you control here, draw 1."};
+ await put("human",shenHold,"battlefield",1);
+ await put("human",witness,"battlefield",1);
+ const beforeHold=state.players.human;
+ await apply({type:"next-turn"});
+ assert.equal(state.players.human.handCount,beforeHold.handCount+2);
+ assert.equal(state.players.human.deckCount,beforeHold.deckCount-2);
+ const holdRevision=state.revision;
+ const recap=await request("/api/messages",{text:"J’ai Hold avec Shen, je pioche pour Shen et pour mon tour."});
+ assert.deepEqual((await waitForAnnouncement(recap.value.message.id)).table,{status:"unchanged",revision:holdRevision});
+ assert.match((await request("/api/messages?after="+recap.value.message.id)).value.messages.at(-1).text,
+  /deux pioches.*Shen, Scourge of Shadows/);
+ await stop();
+ console.log("PASS: packaged Windows, private cards, combat restore, persisted effects, public chat, physical payments, channel and Hold draw.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

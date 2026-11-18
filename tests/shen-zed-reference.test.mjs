@@ -35,10 +35,10 @@ const catalog=[witness,disciple,sacred,discipline,ruthless,ki,strike,hammer,ambu
 const get=(s,name)=>s.cards.find(c=>c.name===name);
 const add=(s,player,value,zone="base",battlefield)=>applyCommand(s,{type:"add",player,card:value,zone,battlefield});
 const pass=(s,player)=>applyCommand(s,{type:"chain-pass",player});
-function table(active="human"){
+function table(active="human",champion=card("Shen Chosen","champion")){
  let s=createState({seed:41});
  s=applyCommand(s,{type:"setup-human",legend:card("Shen","legend","Legend"),
-  champion:card("Shen Chosen","champion"),battlefield:grove});
+  champion,battlefield:grove});
  s=applyCommand(s,{type:"setup-ai",legend:card("Zed","zed","Legend"),champion:assassin,
   battlefield:zaun,main:Array.from({length:12},(_,i)=>card("Deck "+i,"deck-"+i,"Unit",9)),
   runes:Array.from({length:12},()=>rune("Fury")),mainIncludesChampion:false});
@@ -61,6 +61,74 @@ test("spoken French card names and an explicit payment reach the board or fail a
  const fuzzy=planPlayerSequence("Je joue Mountful Winters.",s,catalog);
  assert.ok(!fuzzy.error,fuzzy.error);
  assert.equal(fuzzy.commands.at(-1).card.name,witness.name);
+});
+test("R06 validates the spoken champion cost, recycles two Order and leaves the physical hand alone",()=>{
+ const leader=card("Shen, Leader of the Kinkou Order","VEN-138","Unit",6,7,{power:2,domains:["Order"]});
+ let s=table("human",leader);
+ for(const domain of ["Calm","Calm","Calm","Order","Order","Order"])s=add(s,"human",rune(domain),"runes");
+ const snapshot=structuredClone(s),uid=get(s,leader.name).uid;
+ const valid="Je joue mon champion choisi, six runes épuisées, je recycle deux Order.";
+ for(const message of [
+  valid.replace("six","cinq"),valid.replace("deux","une"),valid.replace("Order","Calm")
+ ]){
+  const bad=planPlayerSequence(message,s);
+  assert.ok(bad.error,message);
+  assert.deepEqual(bad.commands,[]);
+  assert.deepEqual(s,snapshot);
+ }
+ const plan=planPlayerSequence(valid,s);
+ assert.ok(!plan.error,plan.error);
+ assert.equal(plan.commands.at(-1).uid,uid);
+ const next=plan.commands.reduce(applyCommand,s);
+ assert.equal(get(next,leader.name).uid,uid);
+ assert.equal(get(next,leader.name).zone,"base");
+ assert.equal(next.players.human.handCount,s.players.human.handCount);
+ assert.equal(next.players.human.runeCount,s.players.human.runeCount+2);
+ const remaining=next.cards.filter(c=>c.zone==="runes"&&c.owner==="human");
+ assert.equal(remaining.length,4);
+ assert.equal(remaining.filter(c=>c.domains.includes("Order")).length,1);
+ assert.ok(remaining.every(c=>c.exhausted));
+});
+test("R13 validates the stated payment before playing a unit straight to a controlled battlefield",()=>{
+ let s=add(table(),"human",witness,"battlefield",1);
+ for(const domain of ["Calm","Calm","Calm","Order"])s=add(s,"human",rune(domain),"runes");
+ const valid="Je pose Sacred Protector à Zaun Warrens, tout épuisé et une Order recyclée.";
+ const extra=add(s,"human",rune("Calm"),"runes");
+ for(const [message,state] of [[valid,extra],[valid.replace("Order","Calm"),s]]){
+  const bad=planPlayerSequence(message,state,catalog);
+  assert.ok(bad.error,message);
+  assert.deepEqual(bad.commands,[]);
+  assert.equal(get(state,sacred.name),undefined);
+ }
+ const plan=planPlayerSequence(valid,s,catalog);
+ assert.ok(!plan.error,plan.error);
+ const next=plan.commands.reduce(applyCommand,s);
+ assert.equal(get(next,sacred.name).battlefield,1);
+ assert.equal(get(next,sacred.name).exhausted,true);
+ assert.equal(next.players.human.handCount,s.players.human.handCount-1);
+ assert.equal(next.players.human.runeCount,s.players.human.runeCount+1);
+});
+test("R12 Zaun's conquest records only the public discard and its draw once",()=>{
+ let s=add(table(),"human",witness);
+ s.battlefields[1].card.text="When you conquer here, discard 1, then draw 1.";
+ s=applyCommand(s,{type:"move",uid:get(s,witness.name).uid,zone:"battlefield",battlefield:1});
+ s=passShowdown(s);
+ const {deckCount,handCount,score}=s.players.human;
+ assert.equal(score,1);
+ assert.equal(s.pendingEffects[0].cardName,"Zaun Warrens");
+ const voice="Je défausse Pakaa Protector et je pioche.";
+ const plan=planPlayerSequence(voice,s,[pakaa]);
+ assert.ok(!plan.error,plan.error);
+ s=plan.commands.reduce(applyCommand,s);
+ assert.equal(get(s,pakaa.name).zone,"trash");
+ assert.equal(s.players.human.deckCount,deckCount-1);
+ assert.equal(s.players.human.handCount,handCount);
+ assert.equal(s.players.human.score,score);
+ assert.match(s.message,/Zaun Warrens.*Pakaa Protector.*1 carte/);
+ assert.throws(()=>applyCommand(s,plan.commands[0]),/Aucun effet/);
+ const repeat=planPlayerSequence(voice,s,[pakaa]);
+ assert.ok(repeat.error);
+ assert.deepEqual(repeat.commands,[]);
 });
 test("R02 stages Discipline and keeps the announced attack until two passes resolve the spell",()=>{
  let s=table();
@@ -210,6 +278,28 @@ test("The last spoken rune quantity wins without channeling again",()=>{
  s=plan.commands.reduce(applyCommand,s);
  assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.domains[0]==="Order").length,2);
  assert.equal(s.turnActions.channeled,2);
+});
+test("R15 repeats only the current turn's channeling, including a rune since recycled",()=>{
+ let s=add(table("ai"),"human",card("Rune physique","PHYSICAL-RUNE","Rune"),"runes");
+ s.turn=3;
+ const oldRune=get(s,"Rune physique").uid;
+ s=advanceMandatoryTurn(applyCommand(s,{type:"next-turn"}));
+ const announce="Je te l’ai dit, j’ai canalisé Ordre et Calme.";
+ assert.ok(planPlayerSequence("Je canalise deux Order et deux Calm.",s,catalog).error);
+ const first=planPlayerSequence(announce,s,catalog);
+ assert.equal(first.commands.length,2);
+ assert.ok(first.commands.every(c=>c.uid!==oldRune));
+ s=first.commands.reduce(applyCommand,s);
+ const recycled=first.commands.find(c=>c.domain==="Order").uid;
+ s=applyCommand(add(s,"human",witness,"battlefield",1),{type:"hide",player:"human",battlefield:1,runeUid:recycled});
+ s=JSON.parse(JSON.stringify(s));
+ assert.ok(!s.cards.some(c=>c.uid===recycled));
+ const replay=planPlayerSequence(announce,s,catalog);
+ assert.ok(!replay.error,replay.error);
+ assert.equal(replay.recognized,true);
+ assert.deepEqual(replay.commands,[]);
+ assert.equal(s.cards.find(c=>c.uid===oldRune).code,"PHYSICAL-RUNE");
+ assert.ok(planPlayerSequence("Je canalise deux Order.",s,catalog).error);
 });
 test("Shen–Jinx declares a group, resolves Pakaa on the chain and records 13 against 2",()=>{
  let s=table();
@@ -516,10 +606,17 @@ test("Shen hold ability counts only units and the hold draw does not replace the
  const before=s.players.human.handCount;
  let t=advanceMandatoryTurn(applyCommand(s,{type:"next-turn"}));
  assert.equal(t.players.human.handCount,before+1);
+ const announce="J’ai Hold avec Shen, je pioche pour Shen et pour mon tour.";
+ assert.ok(planPlayerSequence(announce,t,catalog).error);
  t=advanceMandatoryTurn(applyCommand(add(s,"human",sacred,"battlefield",1),{type:"next-turn"}));
  assert.equal(t.players.human.handCount,before+2);
  assert.equal(t.turnActions.drawn,1);
  assert.equal(t.pendingEffects.length,0);
+ const replay=planPlayerSequence(announce,JSON.parse(JSON.stringify(t)),catalog);
+ assert.equal(replay.recognized,true);
+ assert.ok(!replay.error,replay.error);
+ assert.match(replay.summary,/Scourge of Shadows/);
+ assert.deepEqual(replay.commands,[]);
 });
 test("move and attachment share the same stable unit; combat strategy contests the winning hold",()=>{
  let s=table();

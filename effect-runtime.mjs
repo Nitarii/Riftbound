@@ -136,7 +136,7 @@ function buildSteps(state,source,ability,actor,choices){
   return {reason:"Le nombre de cartes défaussées ne correspond pas au texte."};
  return {instructions};
 }
-function applySteps(state,source,steps,actor,place,deckCard){
+function applySteps(state,source,steps,actor,place,deckCard,trigger){
  const logs=[];
  for(const step of steps){
   const n=step.count;
@@ -203,6 +203,8 @@ function applySteps(state,source,steps,actor,place,deckCard){
     (step.kind==="channel-exhausted"?" épuisées":""));
   }else if(step.kind==="draw"){
    const result=drawMainCards(state,actor,n,{place,deckCard});
+   if(trigger==="hold"&&actor===state.active&&result.actual)
+    (state.turnActions.holdDraws??=[]).push({name:source.name,count:result.actual});
    logs.push("pioche "+result.actual+" carte(s)"+
     (result.burnOuts?" (Burn Out ×"+result.burnOuts+")":""));
   }else if(step.kind==="ready-runes-ending"){
@@ -329,7 +331,7 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
     if(plan.choice)state.pendingEffects.at(-1).choice=plan.choice;
     continue;
    }
-   const logs=applySteps(state,source,plan.instructions,actor,place,deckCard);
+   const logs=applySteps(state,source,plan.instructions,actor,place,deckCard,trigger);
    if(logs.length)summaries.push(ownerName(actor)+" · "+source.name+" : "+logs.join(", "));
   }
  }

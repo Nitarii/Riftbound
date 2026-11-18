@@ -10,8 +10,11 @@ const clean=value=>String(value||"").normalize("NFKD")
  .replace(/[.,;:!?()[\]{}]+/g," ").replace(/[-–—]+/g," ")
  .replace(/\s+/g," ").trim();
 const words=value=>clean(value).match(/[a-z0-9']+/g)||[];
-const num=value=>({un:1,une:1,one:1,a:1,an:1,deux:2,two:2,trois:3,three:3,quatre:4,four:4}[value]||Number(value));
-const number="(\\d+|un|une|one|two|deux|trois|three|four|quatre)";
+const spokenNumbers={un:1,une:1,one:1,deux:2,two:2,trois:3,three:3,quatre:4,four:4,
+ cinq:5,five:5,six:6,sept:7,seven:7,huit:8,eight:8,neuf:9,nine:9,dix:10,ten:10};
+const num=value=>Object.hasOwn(spokenNumbers,value)?spokenNumbers[value]:Number(value);
+const numberToken="\\d+|"+Object.keys(spokenNumbers).join("|");
+const number="("+numberToken+")";
 const domainNames={...Object.fromEntries(RUNE_DOMAINS.map(x=>[x.toLowerCase(),x])),
  ordre:"Order",calme:"Calm",fureur:"Fury",corps:"Body",esprit:"Mind"};
 const fail=(fr,en)=>({commands:[],recognized:true,error:fr,errorEN:en});
@@ -96,6 +99,52 @@ function expectedChannel(state){
  return Math.min(state.players.human.runeCount,
   state.turn===1&&state.active!==first?3:2);
 }
+function announcedPayment(text){
+ if(!/^(?:je (?:vais )?(?:joue|pose)|i (?:will )?(?:play|cast))\b/.test(text))return {text};
+ const clause="(?:\\s+(?:et|and))?\\s+";
+ const recycle=new RegExp(clause+"(?:(?:je recycle|en recyclant|(?:i )?recycle|by recycling) "+number+
+  "(?: runes?)?(?: (?:d'|de )?([a-z]+))?|"+number+"(?: runes?)? (?:d'|de )?([a-z]+) recycle(?:e|es|s)?)$");
+ const power=text.match(recycle);
+ const domain=power?.[2]??power?.[4];
+ if(domain&&!Object.hasOwn(domainNames,domain))return {error:fail(
+  "Précise le domaine des runes recyclées.","Name the domain of the recycled runes.")};
+ if(!power&&/\b(?:je recycle|en recyclant|i recycle|by recycling)\b/.test(text))return {error:fail(
+  "Précise combien de runes tu recycles et leur domaine.","Specify how many runes you recycle and their domain.")};
+ if(power)text=text.slice(0,power.index);
+ const exhaust=text.match(new RegExp(clause+"(?:(?:j'epuise|je epuise|(?:i )?exhaust|pour|for) "+number+
+  " runes?|"+number+" runes? (?:epuise(?:e|es|s)?|exhausted)|(tout epuis(?:e|ee|ees|es)|exhaust all runes))$"));
+ if(exhaust)text=text.slice(0,exhaust.index);
+ if(!power&&!exhaust)return {text};
+ return {text,payment:{
+  ...(power?{recycled:num(power[1]??power[3]),domain:domainNames[domain]}:{}),
+  ...(exhaust?(exhaust[3]?{exhaustAll:true}:{exhausted:num(exhaust[1]??exhaust[2])}):{})
+ }};
+}
+function identifyChanneledRunes(state,domains){
+ const current=state.turnActions?.channeled||0;
+ if(state.active!=="human"||!current||domains.length!==current)return fail(
+  "Précise les "+current+" domaines des runes canalisées ce tour.","Name the domains of the runes channeled this turn.");
+ const runes=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes");
+ const byUid=new Map(runes.map(r=>[r.uid,r]));
+ // Legacy saves lack rune IDs for the channel step. Only infer them from
+ // the board when the remaining history still shows an untouched opening.
+ const lastAction=state.history?.find(entry=>!/^Rune physique identifiée/.test(entry.text));
+ const legacy=state.turnActions.channelRunes==null&&/^Début du tour : \+ [123] runes/.test(lastAction?.text??"");
+ const latest=legacy?runes.slice(-current).map(r=>({uid:r.uid,domain:runeDomain(r)})):state.turnActions.channelRunes;
+ if(latest?.length!==current||latest.some(r=>!r.domain&&!byUid.has(r.uid)))return fail(
+  "Je ne retrouve pas toutes les runes canalisées ce tour. Vérifie les runes physiques sur le plateau.",
+  "I cannot identify all runes channeled this turn. Check the physical runes on the board.");
+ const remaining=[...domains];
+ for(const rune of latest.filter(r=>r.domain)){
+  const index=remaining.indexOf(rune.domain);
+  if(index<0)return fail("Les domaines déjà enregistrés ne correspondent pas à l’annonce.",
+   "Already recorded rune domains do not match.");
+  remaining.splice(index,1);
+ }
+ const commands=latest.filter(r=>!r.domain).map((r,i)=>({type:"rune-identify",uid:r.uid,domain:remaining[i]}));
+ return {recognized:true,commands,summary:"Canalisation déjà enregistrée pour ce tour.",
+  summaryEN:"This turn’s channeling is already recorded."};
+}
 export function spokenPublicTarget(cards,phrase){
  const query=clean(phrase).replace(/^(?:la |le |mon |ma |my |the |l')/,"").trim();
  const identified=matchSpokenCard(cards.map((c,i)=>({...c,code:c.code||"voice-"+i})),query).card?.name;
@@ -108,6 +157,12 @@ export function spokenField(state,phrase){
  return spokenPublicTarget(state.battlefields.map((b,index)=>b.card&&({...b.card,index})).filter(Boolean),phrase)?.index??null;
 }
 export function planTargetedPlay(text,state,catalog){
+ const explicit=announcedPayment(text);
+ if(explicit.error)return explicit.error;
+ const plan=targetedPlay(explicit.text,state,catalog);
+ return plan&&!plan.error&&explicit.payment?{...plan,payment:explicit.payment}:plan;
+}
+function targetedPlay(text,state,catalog){
  // Preserve the target and battlefield as separate choices, with no model guessing.
  const board=state.cards.filter(c=>["base","battlefield"].includes(c.zone)&&/^unit$/i.test(c.type)&&!c.faceDown);
  const shen=text.match(/^(?:j'(?:active|epuise)|je (?:active|epuise)|i (?:activate|exhaust)) (?:ma |la |my |the )?(?:legende (?:de )?|legend )?shen(?: eye of twilight)? (?:pour (?:donner|octroyer) tank a|sur|on) (.+)$/);
@@ -203,7 +258,7 @@ export function planTargetedPlay(text,state,catalog){
 
 export function planHumanAnnouncement(message,startingState,catalog=[]){
  const text=normalizePlayerAnnouncement(message).slice(0,1200)
-  .replace(/\b(?:pour de|pour des) runes?$/,"").trim(),state=startingState;
+  .replace(/\bpour de (runes?)$/,"pour deux $1").replace(/\bpour des runes?$/,"").trim(),state=startingState;
  if(!text||!state?.started)return {commands:[],recognized:false};
  // A question, negation or hypothesis is not an instruction to move physical pieces.
  if(/[?]/.test(String(message))||
@@ -225,7 +280,7 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   if(play.error||!play.commands.length)return play;
   return {...play,commands:[...corrections,...play.commands]};
  }
- const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(?:\s+et je pioche|\s+and i draw)?$/);
+ const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
  if(waiting?.trigger==="ending-ready-runes"){
   const select=text.match(/^(?:je redresse|je prepare|i ready) (.+)$/);
@@ -263,46 +318,64 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   if(!card)return unknownCard(catalog,declaredDiscard[1]);
   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};
  }
+ if(declaredDiscard?.[2])return fail("Aucune défausse suivie d’une pioche n’est en attente.",
+  "No discard-and-draw effect is pending.");
  if(/^(?:je passe|i pass|vas y|tu peux resoudre|je ne peux pas reagir|aucune reaction)$/.test(text)){
   if(state.spellChain)return {commands:[{type:"chain-pass",player:"human"}],recognized:true};
  }
- const targeted=planTargetedPlay(text,state,catalog);
+ const explicit=announcedPayment(text);
+ if(explicit.error)return explicit.error;
+ const {text:playText,payment}=explicit;
+ const chosen=/\b(?:je joue|i play) (?:mon |my )?(?:champion choisi|chosen champion)\b/.test(playText);
+ const targeted=targetedPlay(playText,state,catalog);
  if(targeted){
   if(targeted.error)return targeted;
+  if(payment)targeted.payment=payment;
   try{const preview=applyCommand(state,targeted);
    return {commands:[targeted],recognized:true,summary:preview.message};
   }catch(error){return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);}
  }
- const destination=text.match(/^(?:je joue|je pose)\s+(.+?)\s+(?:a|au)\s+(.+?)(?:\s+tout epuis.*|\s+pour .*runes?)?$/);
+ const destination=playText.match(/^(?:je joue|je pose)\s+(.+?)\s+(?:a|au)\s+(.+?)(?:\s+pour .*runes?)?$/);
  if(destination){
-  const card=findAnnouncedCard(catalog,destination[1]),field=spokenField(state,destination[2]);
+  const champion=chosen&&state.cards.find(c=>c.owner==="human"&&c.zone==="champion");
+  const card=champion||(!chosen&&findAnnouncedCard(catalog,destination[1]));
+  const field=spokenField(state,destination[2]);
+  if(chosen&&!champion)return fail("Ton champion choisi n’est plus dans sa zone.","Your chosen champion is no longer in its zone.");
+  if(chosen&&field===null)return fail("Précise le champ où jouer ton champion choisi.","Name the battlefield for your chosen champion.");
   if(card&&field!==null){
-   const cmd={type:"play-physical",card,battlefield:field};
+   const cmd={type:"play-physical",...(champion?{uid:champion.uid}:{card}),battlefield:field,...(payment&&{payment})};
    try{return {commands:[cmd],recognized:true,summary:applyCommand(state,cmd).message};}
    catch(error){return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);}
   }
+ }
+ const holdDraw=text.match(/^(?:j'ai hold avec .+? )?je pioche pour (.+?) et pour mon tour$/)||
+  text.match(/^(?:i held with .+? )?i draw for (.+?) and for my turn$/);
+ if(holdDraw){
+  const holds=state.turnActions?.holdDraws||[];
+  const source=spokenPublicTarget([...new Set(holds.map(h=>h.name))].map(name=>({name})),holdDraw[1]);
+  if(state.active!=="human"||!source||!state.turnActions.drawn)return fail(
+   "Je ne retrouve pas la pioche de maintien et la pioche normale de ce tour sur le plateau. Vérifie les effets en attente.",
+   "I cannot verify both the Hold draw and the normal draw this turn. Check the pending effects.");
+  return {recognized:true,commands:[],
+   summary:"Les deux pioches sont enregistrées, celle de "+source.name+" au maintien et celle du tour.",
+   summaryEN:"Both draws are recorded, from "+source.name+" holding and from the normal draw step."};
  }
  const correctedChannel=text.match(/^((?:je )?(?:canalise|channel))\s+.+?\s+(?:euh\s+)?(?:non|pardon)\s+(.+)$/);
  const namedChannel=(correctedChannel?correctedChannel[1]+" "+correctedChannel[2]:text)
   .match(/\b(?:canalise|channel)\s+(.+)$/);
  if(namedChannel){
-  const singleDomain=namedChannel[1].match(new RegExp("^"+number+" (?:runes? )?(?:d'|de )?([a-z]+)$"));
-  if(singleDomain&&Object.hasOwn(domainNames,singleDomain[2])&&!(num(singleDomain[1])>=1&&num(singleDomain[1])<=3))
-   return fail("Indique un nombre de runes canalisées entre un et trois.","Name between one and three channeled runes.");
-  const names=singleDomain&&Object.hasOwn(domainNames,singleDomain[2])?
-   Array(num(singleDomain[1])).fill(domainNames[singleDomain[2]]):
-   namedChannel[1].split(" ").filter(x=>Object.hasOwn(domainNames,x)).map(x=>domainNames[x]);
-  if(names.length){
-   const unknown=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.code==="PHYSICAL-RUNE");
-   const current=state.turnActions?.channeled||0;
-   if(state.active!=="human"||!current||names.length!==current)return fail(
-    "Précise les "+current+" domaines des runes canalisées ce tour.","Name the domains of the runes channeled this turn.");
-   const latest=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes").slice(-current);
-   if(latest.length!==names.length||latest.some((v,i)=>v.code!=="PHYSICAL-RUNE"&&v.domains?.[0]!==names[i]))
-    return fail("Les domaines déjà enregistrés ne correspondent pas à l’annonce.","Already recorded rune domains do not match.");
-   return {recognized:true,commands:latest.flatMap((v,i)=>unknown.includes(v)?
-    [{type:"rune-identify",uid:v.uid,domain:names[i]}]:[])};
+  const group=new RegExp("^(?:(?:les|mes|my|the) )?(?:"+number+" (?:runes? )?)?(?:d'|de )?([a-z]+)$");
+  const selected=namedChannel[1].split(/\s+(?:et|and)\s+/).map(part=>part.match(group));
+  if(selected.every(match=>match&&Object.hasOwn(domainNames,match[2]))){
+   const counts=selected.map(match=>match[1]?num(match[1]):1);
+   const total=counts.reduce((sum,count)=>sum+count,0);
+   if(counts.some(count=>count<1)||total>3)return fail(
+    "Indique un nombre de runes canalisées entre un et trois.","Name between one and three channeled runes.");
+   return identifyChanneledRunes(state,selected.flatMap((match,i)=>Array(counts[i]).fill(domainNames[match[2]])));
   }
+  const tokens=namedChannel[1].split(" ");
+  if(tokens.every(token=>Object.hasOwn(domainNames,token)))
+   return identifyChanneledRunes(state,tokens.map(token=>domainNames[token]));
  }
  const channel=text.match(new RegExp("\\b(?:pioche|canalise|channel|draw|prends|take)\\s+(?:(?:mes|my|the|les|des|de)\\s+)?"+number+"\\s+runes?\\b"))||
   text.match(new RegExp("\\b(?:canalise|channel)\\s+"+number+"\\b"));
@@ -310,11 +383,10 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   (/\b(?:pioche|draw)\s+(?:ma|une|la|my|one|a|the)\s+(?:carte|card)\b/.test(text)?["","1"]:null);
  const spend=text.match(new RegExp("\\b(?:exhaust|epuise|tap|spend|utilise|use)\\s+(?:(?:mes|my|les)\\s+)?"+number+"(?:\\s+runes?)?\\b"))||
   text.match(new RegExp("\\b(?:pour|for|avec|with|contre|cout|coute|payer|pay)\\s+"+number+"\\s+runes?\\b"));
- const play=text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{2,96}?)\s+(?:dans|sur|in|onto|on|to)\s+(?:(?:ma|mon|my|the|la|le)\s+)?(base|champ(?: de bataille)?|battlefield|terrain|field)\b/)||
-   text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{3,90}?)(?=\s+(?:pour|for|avec|with|contre|cout|coute|payer|pay)\s+(?:\d+|un|une|one|two|deux|trois|three|four|quatre)\s+runes?\b|\s+(?:et\s+je|and\s+i|puis\s+je|then\s+i)\b|$)/);
+ const play=playText.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{2,96}?)\s+(?:dans|sur|in|onto|on|to)\s+(?:(?:ma|mon|my|the|la|le)\s+)?(base|champ(?: de bataille)?|battlefield|terrain|field)\b/)||
+   playText.match(new RegExp("\\b(?:joue|pose|place|invoque|play|summon|mets)\\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\\s+|l')?([a-z0-9' -]{3,90}?)(?=\\s+(?:pour|for|avec|with|contre|cout|coute|payer|pay)\\s+(?:"+numberToken+")\\s+runes?\\b|\\s+(?:et\\s+je|and\\s+i|puis\\s+je|then\\s+i)\\b|$)"));
  const endTurn=/\b(?:termine|finis|passe|end|finish|pass)\s+(?:(?:mon|my|le|the)\s+)?(?:tour|turn)\b|\b(?:mon|my)\s+(?:tour|turn)\s+(?:(?:is|est)\s+)?(?:fini|termine|over)\b/.test(text)||
    state.phase==="Main"&&!state.pendingCombat&&!state.spellChain&&/^(?:je passe|i pass)$/.test(text);
- const chosen=/\b(?:je joue|i play) (?:mon |my )?(?:champion choisi|chosen champion)\b/.test(text);
  const recognized=Boolean(channel||draw||spend||play||endTurn||chosen);
  if(!recognized)return {commands:[],recognized:false};
  if(state.active!=="human")return fail("Ce n'est pas ton tour : attends que l'IA termine le sien.",
@@ -372,20 +444,9 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    if(card.energy==null||card.energy===""||!Number.isFinite(Number(card.energy))||Number(card.energy)<0)
     return fail("Le coût de "+card.name+" est indisponible : paiement non vérifiable.",
       "The cost of "+card.name+" is missing; payment cannot be verified.");
-   const energy=Number(card.energy),ready=preview.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&!c.exhausted).length;
-   const spent=spend?num(spend[1]):energy;
-   // Energy is printed on the card: infer payment without making the player
-   // announce a number. A spoken number must still be checked against the card.
-   if(ready<energy)return fail(
-     "Tu ne peux pas encore jouer "+card.name+" : cette carte coûte "+energy+
-     " énergies, mais tu n'as que "+ready+" runes prêtes. Aucune carte n'a été posée.",
-     "You cannot play "+card.name+" yet: it costs "+energy+
-     " energy, but you only have "+ready+" ready rune(s). No card was played.");
-    if(!Number.isInteger(spent)||spent!==energy)
-     return fail("Pour jouer "+card.name+", il faut épuiser exactement "+energy+" runes, et non "+spent+".",
-      "Playing "+card.name+" requires exactly "+energy+" runes, not "+spent+".");
+   const cost=spend?{...payment,exhausted:payment?.exhausted??num(spend[1])}:payment;
    if(preview.phase!=="Main")add({type:"phase",phase:"Main"});
-   add({type:"play-physical",...(champion?{uid:champion.uid}:{card})});
+   add({type:"play-physical",...(champion?{uid:champion.uid}:{card}),...(cost&&{payment:cost})});
   }else if(spend){
    const count=num(spend[1]),ready=preview.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&!c.exhausted).length;
    if(!Number.isInteger(count)||count<1||count>ready)

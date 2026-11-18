@@ -27,8 +27,9 @@ function shuffle(a,state) {
   return a;
 }
 const player = () => ({legend:null,champion:null,score:0,handCount:4,deckCount:35,runeCount:12,notes:""});
+const newTurnActions = () => ({channeled:0,channelRunes:[],drawn:0,holdDraws:[],played:{human:0,ai:0}});
 export function createState({seed=Math.floor(Math.random()*4294967296)}={}) {
-  return {version:VERSION,rng:seed>>>0,cardSerial:0,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:{channeled:0,drawn:0,played:{human:0,ai:0}},pendingCombat:null,spellChain:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
+  return {version:VERSION,rng:seed>>>0,cardSerial:0,revision:0,createdAt:new Date().toISOString(),turn:1,active:"human",firstPlayer:"human",turnActions:newTurnActions(),pendingCombat:null,spellChain:null,pendingEffects:[],beginningScoringDue:false,effectMarks:[],winner:null,finished:false,scoredFields:{human:[],ai:[]},phase:"Setup",started:false,
     players:{human:player(),ai:player()},
     battlefields:[{owner:"human",card:null},{owner:"ai",card:null}],
     cards:[], decks:{ai:{main:[],runes:[],battlefields:[]}}, history:[], message:"Nouvelle table. Choisis ta légende et ton champion."};
@@ -72,7 +73,7 @@ export function applyCommand(old, command) {
   s.pendingEffects??=[];s.effectMarks??=[];
   s.energyPool??={human:0,ai:0};
   s.effectWork=0; // New action has its own bounded resolution budget.
-  s.turnActions??={channeled:0,drawn:0};
+  s.turnActions??=newTurnActions();
   s.turnActions.played??={human:0,ai:0};
   if(s.pendingEffects.length&&["next-turn","play-paid","combat-attack"].includes(type))
    throw Error("Effet de carte en attente : résous-le avant de poursuivre la partie.");
@@ -139,8 +140,8 @@ export function applyCommand(old, command) {
     }
     return revealed;
   }
-  function pay(owner,cost){
-    const paid=planRunePayment(s,owner,cost);
+  function pay(owner,cost,announced){
+    const paid=planRunePayment(s,owner,cost,announced);
     if(paid.error)throw Error(paid.error);
     for(const uid of paid.exhaustUids)getCard(s,uid).exhausted=true;
     s.energyPool[owner]-=paid.poolEnergy;
@@ -509,7 +510,7 @@ export function applyCommand(old, command) {
     }
     s.active=s.active==="human"?"ai":"human";
     if(s.active===(s.firstPlayer||"human"))s.turn++;
-    s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};
+    s.turnActions=newTurnActions();
     s.energyPool={human:0,ai:0};
     s.scoredFields??={human:[],ai:[]};
     s.scoredFields[s.active]=[];
@@ -586,7 +587,7 @@ export function applyCommand(old, command) {
     delete s.combatRewindId;
     delete s.delayedEnding;
     delete s.finishAfterDelayedEnding;
-    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions={channeled:0,drawn:0,played:{human:0,ai:0}};s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
+    checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions=newTurnActions();s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
     summary=s.started&&s.phase!=="Ending"&&s.delayedEnding?.length?enterEnding():advanceToNextTurn();
@@ -621,6 +622,8 @@ export function applyCommand(old, command) {
       throw Error("Choisis une rune physique non identifiée.");
     if(!RUNE_DOMAINS.includes(c.domain))throw Error("Domaine de rune inconnu.");
     v.name=c.domain+" Rune";v.domains=[c.domain];v.code="PHYSICAL-"+c.domain.toUpperCase();
+    const channeled=s.turnActions.channelRunes?.find(r=>r.uid===v.uid);
+    if(channeled)channeled.domain=c.domain;
     summary="Rune physique identifiée : "+c.domain;
   } else if(type==="hide"){
     checkOwner(p);
@@ -695,7 +698,7 @@ export function applyCommand(old, command) {
     const text=String(card.text||"");
     if(/\b(?:play only|can't play|cannot play|as an additional cost|must pay)\b/i.test(text))
       throw Error("Coût supplémentaire ou restriction non prise en charge.");
-    const paid=pay("human",card),zone=field!=null?"battlefield":"base";
+    const paid=pay("human",card,c.payment),zone=field!=null?"battlefield":"base";
     const v=chosen||place(s,"human",card,zone,field,false);
     if(!chosen)s.players.human.handCount--;
     v.zone=zone;v.battlefield=field??null;
@@ -747,7 +750,7 @@ export function applyCommand(old, command) {
       if(p!=="ai"||!rule.discardDamage||discard.uid===source.uid||discard.owner!==p||discard.zone!=="hand")
         throw Error("Défausse supplémentaire invalide.");
     }
-    const paid=pay(p,{...(hidden?{energy:0,power:0}:flow?rule.flow:rule),name:source.name});
+    const paid=pay(p,{...(hidden?{energy:0,power:0}:flow?rule.flow:rule),name:source.name},c.payment);
     if(discard){discard.zone="trash";s.players[p].handCount--;}
     const v=hidden?.slot??(fromBoard?source:place(s,p,source,"chain"));
     if(hidden)turnFaceUp(v,source,"chain");
@@ -885,13 +888,16 @@ export function applyCommand(old, command) {
        if(pending.buff&&onBoard(unit))unit.counters.tempMight=(unit.counters.tempMight||0)+pending.buff;
       }
     }else if(pending.choice?.kind==="discard-draw"){
+      let discarded;
       if(s.players.human.handCount>0){
-       const discarded=validateCard(c.card);
+       discarded=validateCard(c.card);
        if(!(/^(unit|gear|spell)$/i.test(discarded.type)))throw Error("Indique la carte physique défaussée.");
        s.players.human.handCount--;
        place(s,"human",discarded,"trash");
       }
-      drawMainCards(s,"human",pending.choice.draw,runtime);
+      const result=drawMainCards(s,"human",pending.choice.draw,runtime);
+      summary=pending.cardName+(discarded?" · "+discarded.name+" défaussé":"")+
+       " · "+result.actual+" carte(s) piochée(s)"+(result.burnOuts?" · Burn Out ×"+result.burnOuts:"");
     }
     if(!chainChoice){
       s.pendingEffects.shift();
@@ -1079,8 +1085,10 @@ export function applyCommand(old, command) {
     }else{
      const actual=Math.min(n,s.players.human.runeCount);
      channeled=actual;
-     for(let i=0;i<actual;i++)place(s,"human",
-      {code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
+     for(let i=0;i<actual;i++){
+      const rune=place(s,"human",{code:"PHYSICAL-RUNE",name:"Rune physique",type:"Rune"},"runes");
+      if(normal)(s.turnActions.channelRunes??=[]).push({uid:rune.uid,domain:null});
+     }
      s.players.human.runeCount=Math.max(0,s.players.human.runeCount-actual);
     }
     if(normal){

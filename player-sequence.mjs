@@ -122,7 +122,7 @@ export function planPlayerSequence(message,state,catalog=[]){
   return planHumanAnnouncement(message,state,catalog);
  if(/^(?:je (?:joue|pose)|i play)\b/.test(text)&&/\s+(?:a|au)\s+/.test(text)){
   const play=planHumanAnnouncement(message,state,catalog);
-  if(play.commands?.some(c=>c.type==="play-physical"&&Number.isInteger(c.battlefield)))return play;
+  if(play.error||play.commands?.some(c=>c.type==="play-physical"&&Number.isInteger(c.battlefield)))return play;
  }
  const movement=extractMovement(text);
  if(!movement)return planBaseSequence(message,state,catalog);
