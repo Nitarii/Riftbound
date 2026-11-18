@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 25
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -48,13 +48,6 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: ./scripts/build-desktop.ps1 -Iscc (Resolve-Path dist/desktop-tools/inno/ISCC.exe)
-      - name: Test installed WebView2 application
-        shell: pwsh
-        env:
-          DESKTOP_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
-          ./scripts/windows-installer-smoke.ps1 -Installer "dist/RiftboundCompanion-$env:DESKTOP_VERSION-x64-Setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: riftbound-windows-installer
@@ -62,6 +55,13 @@ jobs:
             dist/RiftboundCompanion-*-x64-Setup.exe
             dist/RiftboundCompanion-*-x64-Setup.exe.sha256
           if-no-files-found: error
+      - name: Test installed WebView2 application
+        shell: pwsh
+        env:
+          DESKTOP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
+          ./scripts/windows-installer-smoke.ps1 -Installer "dist/RiftboundCompanion-$env:DESKTOP_VERSION-x64-Setup.exe"
 
   release:
     needs: build

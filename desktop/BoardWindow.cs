@@ -41,26 +41,43 @@ internal sealed class BoardWindow : Form
     private async Task StartAsync()
     {
         var startupLog = Path.Combine(Program.DataDirectory, "temp", "desktop-startup.log");
-        var step = "Locate WebView2 runtime";
+        var step = "";
+        var traceStartup = Environment.GetEnvironmentVariable("RIFTBOUND_DESKTOP_STARTUP_TRACE") == "1";
+        void WriteStartupLog(string message)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(startupLog)!);
+                File.WriteAllText(startupLog, message + "\n");
+            }
+            catch (Exception logError) when (logError is IOException or UnauthorizedAccessException) { }
+        }
+        void BeginStep(string name)
+        {
+            step = name;
+            if (traceStartup) WriteStartupLog(step);
+        }
         try
         {
             try { if (File.Exists(startupLog)) File.Delete(startupLog); }
             catch (Exception logError) when (logError is IOException or UnauthorizedAccessException) { }
+            BeginStep("Locate WebView2 runtime");
             CoreWebView2Environment.GetAvailableBrowserVersionString();
-            step = "Launch the local engine";
+            BeginStep("Launch the local engine");
             engine = new EngineSession(Program.DataDirectory);
             await engine.ConnectAsync(lifetime.Token);
-            step = "Create WebView2 environment";
+            BeginStep("Create WebView2 environment");
             var environment = await CoreWebView2Environment.CreateAsync(
                 userDataFolder: Path.Combine(Program.DataDirectory, "webview"));
             if (closing) return;
-            step = "Initialize the board WebView2 control";
+            BeginStep("Initialize the board WebView2 control");
             await board.EnsureCoreWebView2Async(environment);
             if (closing) return;
-            step = "Configure board navigation";
+            BeginStep("Configure board navigation");
             await ConfigureWebViewAsync(environment, engine);
             if (closing) return;
             board.CoreWebView2.Navigate(engine.Origin.AbsoluteUri);
+            BeginStep("Board navigation requested");
             _ = updates.CheckAsync(lifetime.Token);
         }
         catch (OperationCanceledException) when (closing) { }
@@ -70,12 +87,7 @@ internal sealed class BoardWindow : Form
             engine = null;
             if (!closing)
             {
-                try
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(startupLog)!);
-                    File.WriteAllText(startupLog, $"{step}\n{error.GetType().Name} (0x{error.HResult:X8}): {error.Message}\n");
-                }
-                catch (Exception logError) when (logError is IOException or UnauthorizedAccessException) { }
+                WriteStartupLog($"{step}\n{error.GetType().Name} (0x{error.HResult:X8}): {error.Message}");
                 splash.Text = "Riftbound Companion n’a pas démarré.\n\n" + error.Message;
             }
         }

@@ -49,7 +49,8 @@ async function waitFor(test,timeout=30000){
 }
 function start(){
  return spawn(executable,["--data-dir",data],{stdio:"ignore",
-  env:{...process.env,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:"--remote-debugging-port="+new URL(debugURL).port}});
+  env:{...process.env,RIFTBOUND_DESKTOP_STARTUP_TRACE:"1",
+   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:"--remote-debugging-port="+new URL(debugURL).port}});
 }
 async function connect(){
  const startupLog=path.join(data,"temp","desktop-startup.log");
