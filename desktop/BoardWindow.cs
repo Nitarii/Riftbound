@@ -34,7 +34,7 @@ internal sealed class BoardWindow : Form
                 Text = "Riftbound Companion  ·  " + next.Version +
                     (preferences.Language == "en" ? " available" : " disponible");
         };
-        Shown += async (_, _) => await StartAsync();
+        Load += async (_, _) => await StartAsync();
         FormClosing += HandleClosing;
     }
 

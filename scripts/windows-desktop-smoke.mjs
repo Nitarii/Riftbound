@@ -48,7 +48,7 @@ async function waitFor(test,timeout=30000){
  throw Error("Desktop test timed out.",{cause:lastError});
 }
 function start(){
- return spawn(executable,["--data-dir",data],{windowsHide:true,stdio:"ignore",
+ return spawn(executable,["--data-dir",data],{stdio:"ignore",
   env:{...process.env,WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:"--remote-debugging-port="+new URL(debugURL).port}});
 }
 async function connect(){
