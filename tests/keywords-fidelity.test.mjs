@@ -78,7 +78,8 @@ test("unit-only play triggers ignore spells",()=>{
  s=add(s,card("Watcher","Unit",{text:"When you play a unit, draw 1."}),"base");
  s=add(s,card("Quick Spell","Spell",{text:"Draw 1."}));
  const oldDeck=s.decks.ai.main.length;
- s=play(s,"Quick Spell");
+ s=applyCommand(s,{type:"cast",player:"ai",uid:s.cards.find(c=>c.name==="Quick Spell").uid});
+ s=applyCommand(applyCommand(s,{type:"chain-pass",player:"ai"}),{type:"chain-pass",player:"human"});
  assert.equal(s.decks.ai.main.length,oldDeck-1);
 });
 test("Temporary unit dies before its controller's next Hold scoring",()=>{

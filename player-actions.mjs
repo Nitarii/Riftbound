@@ -2,7 +2,8 @@
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
-import {fieldMusicians,shenLegend,verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
+import {fieldMusicians,shenLegend,soulspinner} from "./verified-cards.mjs";
+import {compileCardAbilities,spellRule} from "./effect-engine.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 
@@ -101,7 +102,7 @@ function expectedChannel(state){
   state.turn===1&&state.active!==first?3:2);
 }
 function announcedPayment(text){
- if(!/^(?:je (?:vais )?(?:joue|pose)|i (?:will )?(?:play|cast))\b/.test(text))return {text};
+ if(!/^(?:je (?:vais )?(?:joue|pose|lance)|i (?:will )?(?:play|cast))\b/.test(text))return {text};
  const clause="(?:\\s+(?:et|and))?\\s+";
  const recycle=new RegExp(clause+"(?:(?:je recycle|en recyclant|(?:i )?recycle|by recycling) "+number+
   "(?: runes?)?(?: (?:d'|de )?([a-z]+))?|"+number+"(?: runes?)? (?:d'|de )?([a-z]+) recycle(?:e|es|s)?)$");
@@ -271,24 +272,28 @@ function targetedPlay(text,state,catalog){
   if(!slot)return fail("Précise le champ de ta carte cachée.","Specify the battlefield of your hidden card.");
   const card=findAnnouncedCard(catalog,hiddenPlay[1]);
   if(!card)return unknownCard(catalog,hiddenPlay[1]);
-  const rule=verifiedSpell(card);
+  const rule=spellRule(card);
   if(!rule)return {type:"play-hidden",player:"human",uid:slot.uid,card};
-  const targets=rule.returnToBase?board.filter(c=>c.zone==="battlefield"&&c.battlefield===field):
+  const command={type:"cast",player:"human",uid:slot.uid,hidden:true,battlefield:field,card};
+  if(!rule.target&&!hiddenPlay[3])return command;
+  const targets=rule.returnToBase||rule.hidden?board.filter(c=>c.zone==="battlefield"&&c.battlefield===field):
    board.filter(c=>c.owner==="human");
   const target=hiddenPlay[3]&&spokenPublicTarget(targets,hiddenPlay[3]);
   if(!target)return fail("Indique l’unité ciblée par le sort caché.",
    "Name the unit targeted by the hidden spell.");
-  return {type:"cast",player:"human",uid:slot.uid,hidden:true,battlefield:field,targetUid:target.uid,card};
+  return {...command,targetUid:target.uid};
  }
- const flow=text.match(/^(?:je (?:joue|lance)|i (?:play|cast))\s+(.+?)\s+(?:depuis (?:ma|la) defausse|par flux|from (?:my|the) trash|with flow)\s+(?:sur|on)\s+(.+)$/);
+ const flow=text.match(/^(?:je (?:joue|lance)|i (?:play|cast))\s+(.+?)\s+(?:depuis (?:ma|la) defausse|par flux|from (?:my|the) trash|with flow)(?:\s+(?:sur|on)\s+(.+))?$/);
  if(flow){
-  const trash=state.cards.filter(c=>c.owner==="human"&&c.zone==="trash"&&verifiedSpell(c)?.flow);
+  const trash=state.cards.filter(c=>c.owner==="human"&&c.zone==="trash"&&spellRule(c)?.flow);
   const source=findAnnouncedCard(trash,flow[1]);
-  const target=spokenPublicTarget(board,flow[2]);
-  if(!source||!target)return fail("Indique un sort avec Flux dans ta défausse et une cible visible.",
-   "Name a supported Flow spell from your trash and its visible target.");
-  const instance=trash.find(c=>printedCode(c)===printedCode(source));
-  return {type:"cast",player:"human",uid:instance.uid,flow:true,targetUid:target.uid};
+  if(!source)return fail("Indique un sort avec Flux dans ta défausse.","Name a supported Flow spell from your trash.");
+  const target=flow[2]&&spokenPublicTarget(board,flow[2]);
+  const rule=spellRule(source);
+  if(!rule.target&&flow[2])return fail(source.name+" ne choisit aucune cible.",source.name+" has no target.");
+  if(rule.target&&!target)return fail("Indique la cible visible de ce sort avec Flux.",
+   "Name the visible target of this Flow spell.");
+  return {type:"cast",player:"human",uid:source.uid,flow:true,...(target&&{targetUid:target.uid})};
  }
  const transfer=text.match(/^(?:je joue )?resonating strike\s*(?:je deplace|pour deplacer|sur)\s+(.+?)(?:\s+de\s+.+?)?\s+(?:vers|au|sur|a)\s+(.+?)(?:\s+\+?2.*)?$/);
  if(transfer){
@@ -306,20 +311,25 @@ function targetedPlay(text,state,catalog){
    "Specify the supported Ambush unit and the battlefield.");
   return {type:"play-physical",card,battlefield:field,ambush:true};
  }
- const play=text.match(/^(?:je joue|je pose|i play|le bonus de)\s+(.+?)(?:\s+que je mets)?\s+(?:sur|cible|targeting|on)\s+(.+?)(?:\s+pour .*runes?)?$/);
+ const play=text.match(/^(?:je joue|je pose|je lance|i play|i cast|le bonus de)\s+(.+?)(?:\s+que je mets)?\s+(?:sur|cible|targeting|on)\s+(.+?)(?:\s+pour .*runes?)?$/);
  if(!play){
+  const implicit=text.match(/^(?:je joue|je lance|i play|i cast)\s+(.+)$/);
+  const spell=implicit&&findAnnouncedCard(catalog,implicit[1]);
+  const rule=spellRule(spell);
+  if(rule&&!rule.target)return {type:"cast",player:"human",card:spell};
   const threatening=state.spellChain?.items.at(-1);
   const target=threatening?.damage>0&&board.find(c=>c.uid===threatening.targetUid&&c.owner==="human");
-  if(!target)return null;
-  const implicit=text.match(/^(?:je joue|i play)\s+(.+)$/);
-  const spell=implicit&&findAnnouncedCard(catalog,implicit[1]);
-  return spell&&verifiedSpell(spell)?.prevention&&target?
-   {type:"cast",player:"human",card:spell,targetUid:target.uid}:null;
+  if(rule?.prevention&&target)return {type:"cast",player:"human",card:spell,targetUid:target.uid};
+  if(rule)return fail("Indique la cible du sort " + spell.name+".","Name the target for "+spell.name+".");
+  return /^spell$/i.test(spell?.type||"")?unsupportedSpell(spell):null;
  }
  const card=findAnnouncedCard(catalog,play[1]);
- if(!card||!verifiedSpell(card)&&!/^unit$/i.test(card.type))return null;
+ const rule=spellRule(card);
+ if(!rule&&/^spell$/i.test(card?.type||""))return unsupportedSpell(card);
+ if(!card||!rule&&!/^unit$/i.test(card.type))return null;
  const target=spokenPublicTarget(board,play[2]);
- if(verifiedSpell(card)){
+ if(rule){
+  if(!rule.target)return fail(card.name+" ne choisit aucune cible.",card.name+" has no target.");
   if(!target)return fail("Cible de "+card.name+" ambiguë : indique le nom de l’unité sur le plateau.",
     "Specify the unit targeted by "+card.name+".");
   return {type:"cast",player:"human",card,targetUid:target.uid};
@@ -328,6 +338,11 @@ function targetedPlay(text,state,catalog){
  if(text.startsWith("le bonus de "))return null;
  const field=spokenField(state,play[2]);
  return field!==null?{type:"play-physical",card,battlefield:field}:null;
+}
+function unsupportedSpell(card){
+ const reason=compileCardAbilities(card).unsupported[0]?.reason;
+ return fail(card.name+" demande encore un arbitrage."+(reason?" "+reason+".":""),
+  card.name+" needs manual adjudication.");
 }
 
 export function planHumanAnnouncement(message,startingState,catalog=[]){

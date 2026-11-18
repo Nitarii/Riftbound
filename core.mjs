@@ -4,9 +4,9 @@ import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
 import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
-import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
+import {migrateLegacyPassivePendingEffects,spellRule} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult, effectiveMight,OPPOSITE} from "./combat-engine.mjs";
-import {verifiedSpell,shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
+import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
 const ZONES = new Set(["legend","champion","hand","deck","base","battlefield","trash","banished","runes","rune-deck","rune-trash","chain","hidden","hidden-reveal"]);
@@ -158,9 +158,19 @@ export function applyCommand(old, command) {
     return " · "+paid.energy+" énergie · "+paid.power+" Power ("+
       paid.recycleUids.length+" rune(s) recyclée(s))";
   }
+  function combatRole(unit){
+    return s.pendingCombat?.kind==="combat"&&unit.zone==="battlefield"&&s.pendingCombat.battlefield===unit.battlefield?
+      (s.pendingCombat.attacker===unit.owner?"attack":"defend"):"none";
+  }
   function checkSpellTarget(rule,target,owner,field){
+    if(!rule.target)return !target;
     if(!onBoard(target)||target.faceDown||!/^unit$/i.test(target.type)||
        target.owner!==owner&&target.counters?.tempShroud)return false;
+    if(rule.atBattlefield&&target.zone!=="battlefield"||
+       rule.side==="enemy"&&target.owner===owner||rule.side==="friendly"&&target.owner!==owner)
+      return false;
+    if(rule.maxTargetMight!=null&&(effectiveMight(target,combatRole(target),s)??Infinity)>rule.maxTargetMight)
+      return false;
     if(rule.target==="friendly-unit")return target.owner===owner;
     if(rule.target==="field-unit")return target.zone==="battlefield";
     if(rule.target==="friendly-transfer"){
@@ -177,7 +187,7 @@ export function applyCommand(old, command) {
     target.exhausted=false;
     target.damage=0;
     logs.push(target.name+" éliminé");
-    logs.push(...processCardEvent(s,{trigger:"die",actor:target.owner,source:lastKnown},runtime));
+    return lastKnown;
   }
   function discardForSpell(owner,uid,physicalCard){
     const player=s.players[owner];
@@ -276,7 +286,7 @@ export function applyCommand(old, command) {
       target.counters.tempTank=true;
       return item.cardName+" · "+target.name+" reçoit Tank jusqu’à la fin du tour.";
     }
-    const source=getCard(s,item.uid),rule=verifiedSpell(source);
+    const source=getCard(s,item.uid),rule=spellRule(source);
     const target=s.cards.find(v=>v.uid===item.targetUid);
     if(item.ability==="field-musicians"){
       if(!checkSpellTarget({target:"unit"},target,source.owner))
@@ -285,11 +295,11 @@ export function applyCommand(old, command) {
       return source.name+" · +3 Might à "+target.name+" ce tour";
     }
     if(!rule)throw Error("Effet de sort non pris en charge.");
-    source.zone=item.flow?"banished":"trash";
-    const logs=[];
-    const discarded=rule.damageFromDiscard?discardForSpell(source.owner,source.uid,physicalCard):null;
-    if(rule.damageFromDiscard)logs.push(discarded?"défausse "+discarded.name:"aucune carte à défausser");
-    if(checkSpellTarget(rule,target,source.owner,item.field)&&
+    const logs=[],deaths=[];
+    const mustDiscard=rule.damageFromDiscard||rule.discardThenDraw;
+    const discarded=mustDiscard?discardForSpell(source.owner,source.uid,physicalCard):null;
+    if(mustDiscard)logs.push(discarded?"défausse "+discarded.name:"aucune carte à défausser");
+    if(rule.target&&checkSpellTarget(rule,target,source.owner,item.field)&&
        (item.hiddenField===undefined||target.battlefield===item.hiddenField)){
       if(rule.target==="friendly-transfer"){
         target.zone="battlefield";target.battlefield=item.field;
@@ -311,29 +321,40 @@ export function applyCommand(old, command) {
       if(rule.shroud)target.counters.tempShroud=true;
       if(rule.ready)target.exhausted=false;
       if(rule.assault)target.counters.tempAssault=(target.counters.tempAssault||0)+rule.assault;
+      if(rule.stun){
+        target.stunned=true;target.counters.stunned=1;
+        logs.push(target.name+" étourdie jusqu’à la fin du tour");
+      }
       if(rule.baseMight!==undefined)target.counters.tempBaseMight=rule.baseMight;
       if(rule.disempower&&target.counters.empowered>0)target.counters.empowered--;
       if(rule.killAtMost!==undefined){
         const might=effectiveMight(target,"none",s);
-        if(might!==null&&might<=rule.killAtMost)defeatBySpell(target,logs);
+        if(might!==null&&might<=rule.killAtMost)deaths.push(defeatBySpell(target,logs));
       }
-      if(rule.damage||discarded){
-        const damage=discarded?Math.max(0,discarded.energy??0):item.damage;
+      if(rule.damage||rule.damageFromDiscard&&discarded){
+        const damage=rule.damageFromDiscard?Math.max(0,discarded.energy??0):item.damage;
         const blocked=Math.min(damage,target.counters.preventDamage||0);
         target.counters.preventDamage=(target.counters.preventDamage||0)-blocked;
         target.damage=(target.damage||0)+damage-blocked;
         logs.push((damage-blocked)+" dégât(s) à "+target.name+(blocked?" · "+blocked+" prévenu(s)":""));
-        const role=s.pendingCombat?.kind==="combat"&&s.pendingCombat.battlefield===target.battlefield?
-          (target.owner===s.pendingCombat.attacker?"attack":"defend"):"none";
-        const might=effectiveMight(target,role,s);
-        if(might===null)throw Error("Force de la cible inconnue.");
-        if(target.damage>0&&target.damage>=might)defeatBySpell(target,logs);
+        if(effectiveMight(target,combatRole(target),s)===null)throw Error("Force de la cible inconnue.");
       }
-    }else logs.push("cible devenue invalide");
+      if(rule.kill)deaths.push(defeatBySpell(target,logs));
+      if(rule.compiled&&rule.might)logs.push(target.name+" reçoit "+(rule.might>0?"+":"")+rule.might+" Might ce tour");
+      if(rule.compiled&&rule.assault)logs.push(target.name+" reçoit Assaut "+rule.assault+" ce tour");
+    }else if(rule.target)logs.push("cible devenue invalide");
     if(rule.draw){
       const result=drawMainCards(s,source.owner,rule.draw,runtime);
-      logs.push("pioche "+result.actual+" carte(s)");
+      logs.push("pioche "+result.actual+" carte(s)"+(result.burnOuts?" · Burn Out ×"+result.burnOuts:""));
     }
+    source.zone=item.flow?"banished":"trash";
+    // Marked damage is cleaned up after all printed instructions, so a
+    // subsequent draw cannot recycle the resolving spell or a lethal unit.
+    if((rule.damage||rule.damageFromDiscard||rule.might<0)&&onBoard(target)&&target.damage>0&&
+       target.damage>=(effectiveMight(target,combatRole(target),s)??Infinity))
+      deaths.push(defeatBySpell(target,logs));
+    for(const unit of deaths)
+      logs.push(...processCardEvent(s,{trigger:"die",actor:unit.owner,source:unit},runtime));
     if(item.flow)logs.push(source.name+" banni après son lancement par Flux");
     return source.name+" résolu"+(logs.length?" · "+logs.join(" · "):"");
   }
@@ -715,7 +736,7 @@ export function applyCommand(old, command) {
       payLabel(paid)+(logs.length?" · "+logs.join(" · "):"");
   } else if(type==="cast"){
     checkOwner(p);
-    if(!s.started||(s.phase!=="Main"&&!(s.phase==="Ending"&&s.spellChain))||s.pendingEffects.length)
+    if(!s.started||s.phase!=="Main"&&!s.spellChain||s.pendingEffects.length)
       throw Error("Aucune fenêtre de sort disponible.");
     const chain=s.spellChain,fight=s.pendingCombat;
     if(!hasPriority(p))
@@ -729,7 +750,7 @@ export function applyCommand(old, command) {
     if(!hidden&&fromBoard&&(source.owner!==p||source.zone!==(flow?"trash":"hand")))
       throw Error(flow?"Sort absent de ta défausse.":"Sort absent de la main de l'IA.");
     if(p==="human"&&!flow&&!hidden&&s.players.human.handCount<1)throw Error("Aucune carte dans ta main physique.");
-    const rule=verifiedSpell(source);
+    const rule=spellRule(source);
     if(!rule)throw Error("Sort non pris en charge : son effet n'est pas validé par le moteur.");
     if(flow&&!rule.flow)throw Error("Ce sort ne peut pas être lancé par Flux.");
     if(chain&&rule.timing!=="reaction"&&!hidden)throw Error("Ce sort n'est pas une Réaction.");
@@ -737,13 +758,15 @@ export function applyCommand(old, command) {
       throw Error("Ce sort se lance pendant ta phase principale, hors confrontation.");
     if(hidden&&rule.target==="friendly-transfer"&&c.battlefield!==hidden.field)
       throw Error("Resonating Strike caché choisit d’abord le champ où il a été caché.");
-    if(hidden&&rule.target!=="friendly-transfer"&&!rule.returnToBase)
+    if(hidden&&rule.target!=="friendly-transfer"&&!rule.returnToBase&&!rule.hidden)
       throw Error("Ce sort n’est pas pris en charge depuis la zone cachée.");
-    const target=getCard(s,string(c.targetUid,80));
-    if(hidden&&rule.returnToBase&&target.battlefield!==hidden.field)
+    if(!rule.target&&c.targetUid!=null)throw Error("Ce sort ne choisit aucune cible.");
+    const target=rule.target?getCard(s,string(c.targetUid,80)):null;
+    const restrictedToHiddenField=hidden&&target&&(rule.returnToBase||rule.hidden);
+    if(restrictedToHiddenField&&target.battlefield!==hidden.field)
       throw Error("Choisis une unité sur le champ où le sort était caché.");
     if(!checkSpellTarget(rule,target,p,c.battlefield))throw Error("La cible ou le champ n'est pas légal pour ce sort.");
-    if(target.owner!==p&&/\[Deflect\]/i.test(target.text||""))throw Error("Le coût Deflect supplémentaire n'est pas pris en charge pour ce sort.");
+    if(target&&target.owner!==p&&/\[Deflect(?: \d+)?\]/i.test(target.text||""))throw Error("Le coût Deflect supplémentaire n'est pas pris en charge pour ce sort.");
     let discard=null;
     if(c.discardUid){
       discard=getCard(s,string(c.discardUid,80));
@@ -758,11 +781,11 @@ export function applyCommand(old, command) {
     if(!flow&&!hidden)s.players[p].handCount--;
     s.turnActions.played[p]++;
     s.spellChain=chain||{items:[],lastPass:null,opener:p};
-    s.spellChain.items.push({uid:v.uid,targetUid:target.uid,field:c.battlefield??null,
+    s.spellChain.items.push({uid:v.uid,...(target&&{targetUid:target.uid}),field:c.battlefield??null,
       damage:discard?rule.discardDamage:rule.damage??0,
-      ...(hidden&&rule.returnToBase?{hiddenField:hidden.field}:{}),...(flow?{flow:true}:{})});
+      ...(restrictedToHiddenField?{hiddenField:hidden.field}:{}),...(flow?{flow:true}:{})});
     s.spellChain.priority=p;s.spellChain.lastPass=null;
-    summary=v.name+(flow?" par Flux":"")+" sur la chaîne → "+target.name+payLabel(paid)+
+    summary=v.name+(flow?" par Flux":"")+" sur la chaîne"+(target?" → "+target.name:"")+payLabel(paid)+
       (discard?" · défausse "+discard.name:"");
   } else if(type==="activate"){
     checkOwner(p);
@@ -785,12 +808,14 @@ export function applyCommand(old, command) {
     if(chain.lastPass===OPPOSITE[p]){
       const item=chain.items.at(-1);
       const source=item.ability?null:getCard(s,item.uid);
+      const rule=source?.owner==="human"?spellRule(source):null;
       if(item.ability==="pakaa-reveal"&&item.owner==="human"&&s.players.human.deckCount>0){
         s.pendingEffects.push({id:"reveal-"+item.uid,player:"human",sourceUid:item.sourceUid,chainUid:item.uid,
          cardName:item.cardName,trigger:"pakaa-reveal",text:"Révèle la première carte de ton deck principal.",
          reason:"Annonce seulement la carte révélée."});
         summary=item.cardName+" attend la carte du dessus de ton deck.";
-      }else if(verifiedSpell(source)?.damageFromDiscard&&source.owner==="human"&&s.players.human.handCount>0){
+      }else if(source?.owner==="human"&&s.players.human.handCount>0&&
+       (rule?.damageFromDiscard||rule?.discardThenDraw)){
         s.pendingEffects.push({id:"discard-"+source.uid,player:"human",sourceUid:source.uid,
          cardName:source.name,trigger:"spell-discard",text:"Défausse une carte de ta main.",
          reason:"Indique seulement le nom de la carte défaussée."});
@@ -806,8 +831,9 @@ export function applyCommand(old, command) {
     if(!s.started||s.active!=="ai"||s.phase!=="Main")
       throw Error("Jouer une carte payée nécessite la phase Main de l'IA.");
     const v=getCard(s,string(c.uid,80));
+    if(/^spell$/i.test(v.type))throw Error("Lance ce sort avec cast pour ouvrir les réactions.");
     if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||
-       !["unit","gear","spell"].includes(String(v.type||"").toLowerCase()))
+       !/^(unit|gear)$/i.test(v.type))
      throw Error("La carte ne peut pas être jouée depuis cette zone.");
     const restrictedText=String(v.text||"").replace(/^\[Accelerate\][^\n]*$/gim,"");
     if(/\b(?:play only|can't play|cannot play|you may only play|as an additional cost|must pay)\b/i.test(restrictedText))
@@ -821,11 +847,9 @@ export function applyCommand(old, command) {
     const discardCards=discardUids.map(uid=>getCard(s,string(uid,80)));
     if(discardCards.some(x=>x.owner!=="ai"||x.zone!=="hand"||x.uid===v.uid))
      throw Error("La défausse obligatoire doit venir de la main de l'IA.");
-    const isSpell=String(v.type).toLowerCase()==="spell";
-    if(isSpell&&verifiedSpell(v))throw Error("Lance ce sort avec sa cible par la chaîne.");
     const isGear=String(v.type).toLowerCase()==="gear";
-    const dest=isSpell?"trash":c.zone||"base";
-    if(!isSpell&&dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
+    const dest=c.zone||"base";
+    if(dest!=="base"&&dest!=="battlefield")throw Error("Lieu de jeu invalide.");
     const field=Number(c.battlefield);
     if(dest==="battlefield"&&(isGear||!Number.isInteger(field)||field<0||
       field>=s.battlefields.length||battlefieldController(s,field)!=="ai"))
@@ -838,15 +862,15 @@ export function applyCommand(old, command) {
     const paid=pay("ai",cost);
     if(v.zone==="hand")s.players.ai.handCount--;
     v.zone=dest;v.battlefield=dest==="battlefield"?field:null;
-    v.exhausted=isSpell||isGear||accelerate?false:
+    v.exhausted=isGear||accelerate?false:
       !(shadowAssassin(v)?s.cards.some(x=>x.owner==="ai"&&x.zone==="trash"&&x.name===v.name):entersNaturallyReady(v));
-    if(!accelerate&&!isGear&&!isSpell&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
+    if(!accelerate&&!isGear&&/\baccelerate\b/i.test(v.text||""))v.exhausted=true;
     const triggered=fieldMusicians(v)?[stageMusicians(v,c.targetUid)]:processCardEvent(s,{trigger:"play",actor:"ai",source:v,
      choices:{discardUids}},{place,deckCard});
     s.turnActions.played.ai++;
     if(!s.pendingEffects.length)
      triggered.push(...processCardEvent(s,{trigger:"ally-play",actor:"ai",source:v},{place,deckCard}));
-    summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":dest==="trash"?"comme sort":"sur "+s.battlefields[field].card.name)+
+    summary="IA : "+v.name+" jouée "+(dest==="base"?"en base":"sur "+s.battlefields[field].card.name)+
      " · "+paid.energy+" énergie ("+paid.exhaustUids.length+" rune(s) épuisée(s))"+
      " · "+paid.power+" Power ("+paid.recycleUids.length+" rune(s) recyclée(s) : "+
      paid.domains.join("/")+")"+(accelerate?" · Accelerate payé":"")+

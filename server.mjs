@@ -195,7 +195,7 @@ const guide={
  start:{type:"start",player:"human"},
  "next-turn":{type:"next-turn"},
  "play-paid":{type:"play-paid",uid:"AI hand or champion UID",battlefield:"optional controlled battlefield index"},
- cast:{type:"cast",player:"ai",uid:"AI spell UID",targetUid:"unit UID",flow:"true for a supported spell in your trash",
+ cast:{type:"cast",player:"ai",uid:"AI spell UID",targetUid:"unit UID when the spell requires a target",flow:"true for a supported spell in your trash",
   hidden:"true for a supported spell in your hidden zone"},
  activate:{type:"activate",player:"ai",uid:"ready Shen legend UID",targetUid:"friendly unit UID"},
  hide:{type:"hide",player:"ai",uid:"AI card with Hidden",battlefield:0,runeUid:"optional rune UID to recycle"},

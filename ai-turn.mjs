@@ -6,11 +6,18 @@ import {planRunePayment} from "./rune-payment.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight,hasKeyword} from "./combat-engine.mjs";
-import {verifiedSpell,hiddenDisciple,shenLegend} from "./verified-cards.mjs";
+import {hiddenDisciple,shenLegend} from "./verified-cards.mjs";
+import {spellRule} from "./effect-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
-const isPlayable=c=>/^(unit|gear|spell)$/i.test(c?.type||"");
+const isPlayable=c=>/^(unit|gear)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
 const own=(view,zone)=>view.cards.filter(c=>c.owner==="ai"&&c.zone===zone);
+const availableSpells=state=>[...own(state,"hand"),...own(state,"trash")].flatMap(card=>{
+ const rule=spellRule(card);
+ return rule&&(card.zone==="hand"||rule.flow)?[{card,rule}]:[];
+});
+const cast=(card,target)=>({type:"cast",player:"ai",uid:card.uid,...(target&&{targetUid:target.uid}),
+ ...(card.zone==="trash"&&{flow:true})});
 function emptyBattlefieldTargets(view){
  return (view.battlefields||[]).map((b,i)=>({
   i,enemy:view.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i&&
@@ -69,12 +76,42 @@ function defensiveTank(state){
  }
  return best;
 }
+function combatSpell(state){
+ const fight=state.pendingCombat;
+ if(fight?.kind!=="combat")return null;
+ const value=result=>(result.winner==="ai"?30:result.winner==="human"?-30:0)+
+  result.damage.filter(hit=>hit.dead).reduce((total,hit)=>
+   total+(hit.owner==="human"?1:-1)*(2+hit.might),0);
+ const before=previewCombat(state,fight.battlefield,fight.attacker,fight.orders);
+ if(!before.ready)return null;
+ const participants=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===fight.battlefield&&isUnit(c));
+ let best=value(before),chosen=null;
+ for(const {card,rule} of availableSpells(state)){
+  if(rule.timing==="main"||!(rule.might||rule.assault||rule.stun))continue;
+  const beneficial=rule.might>0||rule.assault;
+  for(const target of participants.filter(c=>(c.owner==="ai")===Boolean(beneficial))){
+   const counters={...target.counters,
+    tempMight:(target.counters?.tempMight||0)+(rule.might||0),
+    tempAssault:(target.counters?.tempAssault||0)+(rule.assault||0)};
+   const projected={...target,counters,stunned:target.stunned||rule.stun};
+   const after=previewCombat({...state,cards:state.cards.map(c=>c===target?projected:c)},
+    fight.battlefield,fight.attacker,fight.orders);
+   if(!after.ready)continue;
+   const rating=value(after)-0.5*Number((card.zone==="trash"?rule.flow:rule).energy||0);
+   if(rating<=best)continue;
+   const command=cast(card,target);
+   try{applyCommand(state,command);chosen=command;best=rating;}catch{}
+  }
+ }
+ return chosen;
+}
 export function planAIChainAction(state){
  const chain=state.spellChain;
  if(state.pendingEffects?.length)return null;
  if(!chain){
   if(state.pendingCombat?.focus!=="ai"||state.pendingCombat.passes.ai)return null;
-  return removalSpell(state)?.command??concealedDefender(state)??defensiveTank(state)??{type:"combat-pass",player:"ai"};
+  return removalSpell(state)?.command??concealedDefender(state)??defensiveTank(state)??
+   combatSpell(state)??{type:"combat-pass",player:"ai"};
  }
  if(chain.priority!=="ai")return null;
  const top=chain.items.at(-1);
@@ -82,22 +119,18 @@ export function planAIChainAction(state){
    ["base","battlefield"].includes(c.zone));
  if(target&&top.damage>0&&top.damage+(target.damage||0)-(target.counters.preventDamage||0)>=
     (effectiveMight(target,"none",state)??Infinity)){
-  for(const card of own(state,"hand").filter(c=>verifiedSpell(c)?.prevention)){
-   const command={type:"cast",player:"ai",uid:card.uid,targetUid:target.uid};
+  for(const {card,rule} of availableSpells(state)){
+   if(!rule.prevention)continue;
+   const command=cast(card,target);
    try{applyCommand(state,command);return command;}catch{}
   }
  }
  return concealedDefender(state)??{type:"chain-pass",player:"ai"};
 }
 function removalSpell(state){
- const spells=[...own(state,"hand"),...own(state,"trash")].filter(c=>{
-  const rule=verifiedSpell(c);
-  return (rule?.damage||rule?.damageFromDiscard||rule?.returnToBase||rule?.killAtMost!==undefined)&&
-   (c.zone==="hand"||rule.flow);
- });
  let best=null;
- for(const spell of spells){
-  const rule=verifiedSpell(spell);
+ for(const {card:spell,rule} of availableSpells(state)){
+  if(!rule.damage&&!rule.damageFromDiscard&&!rule.returnToBase&&!rule.kill&&rule.killAtMost===undefined)continue;
   const discard=rule.discardDamage?chooseRequiredDiscards(state,spell.uid,1)?.[0]:null;
   const resolutionDiscard=rule.damageFromDiscard&&
    state.cards.find(c=>c.uid===chooseRequiredDiscards(state,spell.uid,1)?.[0]);
@@ -112,8 +145,7 @@ function removalSpell(state){
    const needsDiscard=rule.damage!==undefined&&need>rule.damage;
    if(needsDiscard&&(!discard||need>rule.discardDamage))continue;
    if(rule.killAtMost!==undefined&&effectiveMight(after,"none",state)>rule.killAtMost)continue;
-   const command={type:"cast",player:"ai",uid:spell.uid,targetUid:unit.uid,
-    ...(spell.zone==="trash"?{flow:true}:{}),...(needsDiscard?{discardUid:discard}:{})};
+   const command={...cast(spell,unit),...(needsDiscard?{discardUid:discard}:{})};
    try{
     applyCommand(state,command);
     const value=might*2-(command.discardUid||resolutionDiscard?3:0)-(rule.returnToBase?2:0);
@@ -128,12 +160,20 @@ function readyForConquest(state){
  const exhausted=own(state,"base").filter(c=>isUnit(c)&&c.exhausted&&c.might!=null)
   .sort((a,b)=>b.might-a.might);
  if(!exhausted.length)return null;
- for(const spell of [...own(state,"hand"),...own(state,"trash")]){
-  const rule=verifiedSpell(spell);
-  if(!rule?.ready||spell.zone==="trash"&&!rule.flow)continue;
-  const command={type:"cast",player:"ai",uid:spell.uid,targetUid:exhausted[0].uid,
-   ...(spell.zone==="trash"?{flow:true}:{})};
+ for(const {card:spell,rule} of availableSpells(state)){
+  if(!rule.ready)continue;
+  const command=cast(spell,exhausted[0]);
   try{applyCommand(state,command);return {command,name:spell.name,target:exhausted[0].name};}catch{}
+ }
+ return null;
+}
+function drawSpell(state){
+ const {handCount,deckCount}=state.players.ai;
+ if(handCount>5)return null;
+ for(const {card,rule} of availableSpells(state)){
+  if(rule.target||!rule.draw||rule.draw>deckCount)continue;
+  const command=cast(card);
+  try{applyCommand(state,command);return {command,name:card.name};}catch{}
  }
  return null;
 }
@@ -340,6 +380,12 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    refused.push("Les champs sont défendus : un combat avec réactions doit être résolu avant de compter une conquête.");
   }
   if(!view.pendingCombat&&!view.pendingEffects?.length){
+   const refill=drawSpell(view);
+   if(refill){
+    apply(refill.command);
+    enacted.push("lancé "+refill.name);
+    return partial();
+   }
    const concealed=concealForDefense(view);
    if(concealed){
     apply(concealed);

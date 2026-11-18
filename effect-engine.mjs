@@ -1,6 +1,6 @@
 // Card-driven ability compiler with explicit handlers for verified exceptions.
 import {verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,
- shadowDisciple,zedChampion,zedLegend,thresholdOfGray,pakaaProtector,shenLegend,noxianEmissary} from "./verified-cards.mjs";
+ shadowDisciple,zedChampion,zedLegend,thresholdOfGray,pakaaProtector,shenLegend,noxianEmissary,printedCode} from "./verified-cards.mjs";
 // Unsupported instructions are reported, never treated as resolved.
 const normalize=x=>String(x||"").replace(/\r/g,"").replace(/[’‘]/g,"'").replace(/[–—]/g,"-").trim();
 const toCount=x=>({one:1,two:2,three:3,a:1,an:1,un:1,une:1,deux:2,trois:3})[String(x).toLowerCase()]??Number(x);
@@ -62,20 +62,29 @@ const patterns=[
  ["heal-self",new RegExp("^(?:heal|remove)\\s+("+AMOUNT+")\\s+damage\\s+(?:from|on)\\s+(?:me|this unit|this card)$","i")],
  ["self-buff",new RegExp("^(?:i get|i gain|get|gain)\\s*\\+("+AMOUNT+")\\s+(?:might|\\{might\\})(?:\\s+this turn)?$","i")],
  ["damage-enemy",new RegExp("^deal\\s+("+AMOUNT+")\\s+damage\\s+to\\s+(?:(?:an?|one|target)\\s+)?enemy\\s+unit$","i")],
- ["buff-friendly",new RegExp("^give\\s+(?:another\\s+)?friendly\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\})\\s+this\\s+turn$","i")],
+ ["buff-friendly",new RegExp("^give\\s+(?:(?<another>another)\\s+)?friendly\\s+unit\\s+\\+(?<amount>"+AMOUNT+")\\s+(?:might|\\{might\\}|\\[S\\])\\s+this\\s+turn$","i")],
  ["buff-unit",new RegExp("^give\\s+(?:a|another)\\s+unit\\s+\\+("+AMOUNT+")\\s+(?:might|\\{might\\}|\\[S\\])\\s+this\\s+turn$","i")],
- ["stun-enemy",/^(?:stun)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
- ["stun-unit",/^(?:stun)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
- ["kill-enemy",/^(?:kill|destroy)\s+(?:an?|one)\s+enemy\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
- ["kill-unit",/^(?:kill|destroy)\s+(?:a|an|one)\s+unit(?:\s+at\s+a\s+battlefield)?$/i],
+ ["stun-enemy",/^stun\s+(?:an?|one)\s+enemy\s+unit(?<field>\s+at\s+a\s+battlefield)?$/i],
+ ["stun-unit",/^stun\s+(?:a|an|one)\s+unit(?<field>\s+at\s+a\s+battlefield)?$/i],
+ ["kill-enemy",/^(?:kill|destroy)\s+(?:an?|one)\s+enemy\s+unit(?<field>\s+at\s+a\s+battlefield)?$/i],
+ ["kill-unit",/^(?:kill|destroy)\s+(?:a|an|one)\s+unit(?<field>\s+at\s+a\s+battlefield)?$/i],
  ["ready-self",/^(?:ready|redresse(?:r|z|s)?)\s+(?:me|this unit)$/i],
  ["channel-exhausted",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?\s+exhausted$/i],
  ["channel",/^(?:channel)\s+(\d{1,2}|one|two|three|a|an)\s+runes?$/i],
  ["exhaust-self",/^(?:exhaust|[ée]puise(?:r|z|s)?)\s+(?:me|this unit)$/i]
 ];
-function parseInstructions(raw){
+const spellPatterns=[
+ ["damage-unit",/^deal (\d+) (?:damage )?to (?:a|one) unit(?<field> at a battlefield)?$/i],
+ ["assault-unit",/^give a unit \[Assault (\d+)\] this turn$/i],
+ ["kill-small",/^kill a unit(?<field> at a battlefield)? with (?<amount>\d+) (?:\[S\]|\[M\]|Might) or less$/i],
+ ["reduce-might",/^give a unit -(\d+) (?:\[S\]|\[M\]) this turn$/i],
+ ["ready-unit",/^ready a unit$/i],
+ ["ready-friendly-unit",/^ready a friendly unit$/i]
+];
+function parseInstructions(raw,spell=false){
  let expr=normalize(raw)
   .replace(/(\[Burn \d+\])\.?\s*\(Put the top [^)]*\)/gi,"$1")
+  .replace(/(\[Assault (\d+)\] this turn)\.?\s*\(\+\2 (?:\[S\]|\[M\]) while it(?:'s| is) an attacker\.?\)\.?$/i,"$1")
   .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
   .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
  if(!expr)return {steps:[],reason:"effet sans instruction"};
@@ -100,21 +109,65 @@ function parseInstructions(raw){
     destination:token[1]?"base":"here"});continue;
   }
   let parsed=false;
-  for(const [kind,regex] of patterns){
+  for(const [kind,regex] of spell?[...patterns,...spellPatterns]:patterns){
    const m=regex.exec(item);
    if(!m)continue;
-   const amount=m[1]?toCount(m[1]):1;
+   const value=m.groups?.amount??(m[1]!==m.groups?.field?m[1]:undefined);
+   const amount=value?toCount(value):1;
    if(!Number.isInteger(amount)||amount<1||amount>12)
     return {steps:[],reason:"quantité hors limites : "+item};
-   steps.push({kind,count:amount});parsed=true;break;
+   steps.push({kind,count:amount,...(m.groups?.field&&{atBattlefield:true}),...(m.groups?.another&&{another:true})});
+   parsed=true;break;
   }
   if(!parsed)return {steps:[],reason:"instruction à résoudre : "+item.slice(0,130)};
  }
  return {steps,reason:""};
 }
+const spellSteps={
+ "damage-unit":(n)=>({damage:n}),"damage-enemy":(n)=>({damage:n}),
+ "buff-unit":(n)=>({might:n}),"buff-friendly":(n)=>({might:n}),
+ "reduce-might":(n)=>({might:-n}),"assault-unit":(n)=>({assault:n}),
+ "stun-unit":()=>({stun:true}),"stun-enemy":()=>({stun:true}),
+ "kill-unit":()=>({kill:true}),"kill-enemy":()=>({kill:true}),
+ "kill-small":(n)=>({kill:true,maxTargetMight:n}),
+ "ready-unit":()=>({ready:true}),"ready-friendly-unit":()=>({ready:true})
+};
+// The official Spiritforged errata requires separate target choices for each
+// instruction on these cards. The Gallery export contains only one line.
+const multiDamageErrata=card=>["OGN-029","OGN-248"].includes(printedCode(card));
+export function spellRule(card){
+ const known=verifiedSpell(card);
+ if(known)return known;
+ if(!/^spell$/i.test(card?.type||"")||multiDamageErrata(card))return null;
+ const text=normalize(card.text);
+ const timing=text.match(/^\[(Action|Reaction)\](?:\s*\([^)\n]*\))?\s*$/im)?.[1]?.toLowerCase()||"main";
+ const hidden=/^\[Hidden\](?:\s*\([^)\n]*\))?\s*$/im.test(text);
+ const flowText=text.match(/^\[Flow\]\s*(?:\[(\d{1,2})\])?((?:\[[CA]\]){0,5})(?:[ \t]*\([^)\n]*\))?[ \t]*$/im);
+ const powerSymbols=flowText?.[2].match(/\[[CA]\]/g)||[];
+ const flow=flowText&&(flowText[1]||powerSymbols.length)&&new Set(powerSymbols).size<=1?
+  {energy:Number(flowText[1]||0),power:powerSymbols.length,domains:card.domains,
+   ...(powerSymbols[0]==="[A]"&&{anyPower:true})}:null;
+ const body=text.split("\n").filter(line=>
+  !/^\[(?:Hidden|Action|Reaction)\](?:\s*\([^)]*\))?\s*$/i.test(line.trim())&&
+  (!flow||line.trim()!==flowText[0].trim())).join("\n");
+ const {steps,reason}=parseInstructions(body,true);
+ const [step,second]=steps;
+ if(reason||!step||steps.length>2||second&&second.kind!=="draw"||
+    /\b(?:you may|may)\b/i.test(body))return null;
+ const rule={energy:card.energy,power:card.power,domains:card.domains,timing,hidden,compiled:true,...(flow&&{flow})};
+ if(step.kind==="draw"&&!second)return {...rule,draw:step.count};
+ if(step.kind==="discard"&&step.count===1&&second)return {...rule,discardThenDraw:true,draw:second.count};
+ if(step.another||!Object.hasOwn(spellSteps,step.kind))return null;
+ const side=step.kind.endsWith("-enemy")?"enemy":step.kind.includes("friendly")?"friendly":null;
+ return {...rule,target:"unit",side,atBattlefield:Boolean(step.atBattlefield),...spellSteps[step.kind](step.count),
+  ...(second&&{draw:second.count})};
+}
 export function compileCardAbilities(card){
  const type=String(card?.type||"").toLowerCase();
  const abilities=[],unsupported=[],continuous=[];
+ if(type==="spell"&&multiDamageErrata(card))
+  return {abilities,continuous,unsupported:[{trigger:"play",text:card.text,
+   reason:"Cibles multiples selon l’errata Spiritforged"}]};
  if(zedChampion(card)){
   abilities.push({trigger:"conquer",text:"Jeton Shadow Clone de conquête",supported:true,
    steps:[{kind:"shadow-clone",count:1}]});
@@ -189,7 +242,7 @@ export function compileCardAbilities(card){
    "one-other-unit":null;
   if(condition)body=body.replace(/^if there is exactly one other unit you control here,\s*/i,"");
   const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
-  const {steps,reason}=parseInstructions(body);
+  const {steps,reason}=parseInstructions(body,type==="spell");
   // Match event card type rather than firing "play a unit" when a spell
   // or gear is played. "Another" already excludes the played card itself.
   const playedType=trigger==="ally-play"?(

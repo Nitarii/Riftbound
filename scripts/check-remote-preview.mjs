@@ -123,9 +123,24 @@ try{
  assert.equal(turn.active,"ai");
  assert.equal(turn.revision,announcement.table.revision);
  assert.ok(!turn.decks);
- const playable=turn.cards.find(c=>c.owner==="ai"&&c.zone==="hand");
+ await command({type:"add",player:"ai",card:{...card("Remote Draw","Spell",0),
+  text:"[Reaction]\nDraw 1."},zone:"hand"});
+ const readyForCast=(await agent("/api/state")).data.state;
+ const drawSpell=readyForCast.cards.find(c=>c.zone==="hand"&&c.name==="Remote Draw");
+ const shortcut=await agent("/api/command",{type:"play-paid",uid:drawSpell.uid,ifRevision:readyForCast.revision});
+ assert.equal(shortcut.status,400);
+ const cast=await agent("/api/command",{type:"cast",uid:drawSpell.uid,ifRevision:readyForCast.revision});
+ assert.equal(cast.status,200,cast.data.error);
+ assert.equal(cast.data.state.cards.find(c=>c.uid===drawSpell.uid).zone,"chain");
+ assert.equal(cast.data.state.players.ai.deckCount,readyForCast.players.ai.deckCount);
+ const passChain=await agent("/api/command",{type:"chain-pass",ifRevision:cast.data.state.revision});
+ assert.equal(passChain.status,200,passChain.data.error);
+ const afterCast=await command({type:"chain-pass",player:"human"});
+ assert.equal(afterCast.players.ai.deckCount,readyForCast.players.ai.deckCount-1);
+ assert.equal(afterCast.cards.find(c=>c.uid===drawSpell.uid).zone,"trash");
+ const playable=readyForCast.cards.find(c=>c.owner==="ai"&&c.zone==="hand"&&c.type==="Unit");
  assert.ok(playable?.name);
- const play={type:"play-paid",uid:playable.uid,ifRevision:turn.revision,commandId:crypto.randomUUID()};
+ const play={type:"play-paid",uid:playable.uid,ifRevision:afterCast.revision,commandId:crypto.randomUUID()};
  const played=await agent("/api/command",play);
  assert.equal(played.data.receipt.status,"applied");
  assert.equal(played.data.state.cards.find(c=>c.uid===playable.uid).zone,"base");

@@ -197,7 +197,7 @@ function renderCombatPanel(){
     return info;
    }
    info.textContent=item.ability==="pakaa-reveal"?item.cardName+" · révélation du dessus du deck":
-    (spell?.name||item.cardName||"Sort")+" → "+(target?.name||"cible absente")+
+    (spell?.name||item.cardName||"Sort")+(item.targetUid?" → "+(target?.name||"cible absente"):"")+
     (item.ability==="shen-tank"?" · Tank":item.damage?" · "+item.damage+" dégâts":"");
    if(spell){
     info.type="button";
@@ -1331,7 +1331,7 @@ function agentPromptText(includeAccess=true){
     "Aucun jeton temporaire disponible. Propose des commandes JSON au joueur si tu n'as pas d'accès direct.",
   "Si tu es autorisé et capable d'envoyer des requêtes HTTP, commence par GET /api/guide puis GET /api/state. Utilise la console web sinon.",
   "Si l'IA n'est pas configurée, choisis un deck : POST /api/command {\"type\":\"select-precon\",\"id\":\"random\"}.",
-  "Utilise play-paid, cast et combat-attack pour les actions de jeu. Passe avec chain-pass ou combat-pass selon la fenêtre. Annonce au joueur les effets et cartes qui apparaissent dans l’état renvoyé.",
+  "Utilise play-paid pour les unités et équipements, cast pour les sorts, et combat-attack pour les assauts. Passe avec chain-pass ou combat-pass selon la fenêtre. Annonce au joueur les effets et cartes qui apparaissent dans l’état renvoyé.",
   "Ne confonds pas ce compagnon de suivi avec un arbitre automatique complet des règles.",
   "Si ton environnement n'a ni navigateur agent ni outil HTTP, dis-le clairement et donne des commandes à copier manuellement.",
   "N'expose pas ces informations en public et ne les publie pas sur GitHub."

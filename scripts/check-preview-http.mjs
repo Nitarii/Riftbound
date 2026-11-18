@@ -17,9 +17,12 @@ const root=await fs.mkdtemp(path.join(dist,"test-http-"));
 const soulspinner={name:"Soulspinner",type:"Unit",code:"VEN-123",energy:3,might:3};
 const discipline={name:"Discipline",type:"Spell",code:"OGN-058",energy:2};
 const musicians={name:"Field Musicians",type:"Unit",code:"VEN-026",energy:4,might:3};
+const lunar={name:"Lunar Boon",type:"Spell",code:"UNL-125",energy:3,domains:["Chaos"],
+ text:"[Reaction] (Play any time, even before spells and abilities resolve.)\nDiscard 1, then draw 2."};
+const poro={name:"Loyal Poro",type:"Unit",code:"UNL-156",energy:1,might:2};
 // Supply the catalogue locally so the spoken reveal smoke is independent of the CDN.
 await fs.writeFile(path.join(root,".riftbound-catalog-cache.json"),JSON.stringify({updatedAt:Date.now(),
- cards:[soulspinner,discipline,musicians,...Array.from({length:500},(_,i)=>({name:"Test catalogue "+i,type:"Unit",code:"TEST-"+i}))]}));
+ cards:[soulspinner,discipline,musicians,lunar,poro,...Array.from({length:500},(_,i)=>({name:"Test catalogue "+i,type:"Unit",code:"TEST-"+i}))]}));
 let child,closed;
 function launch(){
  child=spawn(app,["--no-browser"],{cwd:root,windowsHide:true,stdio:"ignore",env:{
@@ -440,8 +443,26 @@ try{
  assert.deepEqual((await waitForAnnouncement(recap.value.message.id)).table,{status:"unchanged",revision:holdRevision});
  assert.match((await request("/api/messages?after="+recap.value.message.id)).value.messages.at(-1).text,
   /deux pioches.*Shen, Scourge of Shadows/);
+ const beforeLunar=state.players.human;
+ await announce("Je lance Lunar Boon.");
+ const lunarUid=state.cards.find(c=>c.code===lunar.code).uid;
+ assert.equal(state.cards.find(c=>c.uid===lunarUid).zone,"chain");
+ assert.equal(state.players.human.deckCount,beforeLunar.deckCount);
+ await apply({type:"chain-pass",player:"human"});
  await stop();
- console.log("PASS: packaged Windows, private cards, combat restore, persisted effects, public chat, champion placement, physical payments, channel and Hold draw.");
+ launch();
+ await ready();
+ await apply({type:"chain-pass",player:"ai"});
+ assert.equal(state.pendingEffects[0].trigger,"spell-discard");
+ assert.equal(state.cards.find(c=>c.uid===lunarUid).zone,"chain");
+ await announce("Je défausse Loyal Poro et je pioche.");
+ assert.equal(state.spellChain,null);
+ assert.equal(state.cards.find(c=>c.uid===lunarUid).zone,"trash");
+ assert.equal(state.cards.find(c=>c.code===poro.code).zone,"trash");
+ assert.equal(state.players.human.handCount,beforeLunar.handCount);
+ assert.equal(state.players.human.deckCount,beforeLunar.deckCount-2);
+ await stop();
+ console.log("PASS: packaged Windows, combat restore, persisted effects, public chat, physical plays and payments, channel, Hold and Lunar Boon.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

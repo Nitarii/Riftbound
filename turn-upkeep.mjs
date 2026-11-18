@@ -6,7 +6,7 @@ import {applyCommand} from "./core.mjs";
 export function advanceMandatoryTurn(state){
  if(!state?.started||state.finished||!["human","ai"].includes(state.active))return state;
  if(["Main","Ending"].includes(state.phase))return state;
- if(state.pendingCombat||state.pendingEffects?.length)return state;
+ if(state.pendingCombat||state.spellChain||state.pendingEffects?.length)return state;
  let next=state,who=state.active;
  const wanted=duelOpeningRuneCount(state,who);
  if(!next.turnActions?.channeled&&!next.turnActions?.channelAttempted){

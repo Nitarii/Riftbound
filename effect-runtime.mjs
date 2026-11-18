@@ -40,9 +40,11 @@ function makePending(state,source,ability,actor,reason){
   reason:String(reason||"Choix ou capacité non automatisée").slice(0,250)
  });
 }
-function canChooseUnit(card,kind,actor){
+function canChooseUnit(card,step,actor,source){
  if(!card||!unit(card)||!["base","battlefield"].includes(card.zone)||card.faceDown||
+    step.atBattlefield&&card.zone!=="battlefield"||step.another&&card.uid===source.uid||
     card.owner!==actor&&card.counters?.tempShroud)return false;
+ const {kind}=step;
  const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(kind);
  const friendly=kind==="buff-friendly";
  return enemy?card.owner!==actor:friendly?card.owner===actor:true;
@@ -108,7 +110,7 @@ function buildSteps(state,source,ability,actor,choices){
   }
   if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
        "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
-   const pool=state.cards.filter(card=>canChooseUnit(card,step.kind,actor));
+   const pool=state.cards.filter(card=>canChooseUnit(card,step,actor,source));
    if(!pool.length&&!choices?.targetUid)continue;
    const target=choices?.targetUid?pool.find(c=>c.uid===choices.targetUid):
     actor==="ai"?selectTarget(pool,step.kind,actor):null;
