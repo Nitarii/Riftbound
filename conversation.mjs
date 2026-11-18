@@ -7,11 +7,12 @@ const LIMIT=180;
 const TEXT_LIMIT=1200;
 const HISTORY_BATCH=80;
 export function createConversation({file=null}={}){
- let entries=[],seq=0,lastAgentPoll=0,session=crypto.randomUUID();
+ let entries=[],seq=0,lastAgentPoll=0,session=crypto.randomUUID(),clarification=null;
  if(file){
   try{
    const loaded=JSON.parse(fs.readFileSync(file,"utf8"));
    if(typeof loaded.session==="string"&&loaded.session.length<=80)session=loaded.session;
+   if(["card","champion-placement"].includes(loaded.clarification?.kind))clarification=loaded.clarification;
    if(Array.isArray(loaded.messages)){
     entries=loaded.messages.filter(m=>m&&Number.isInteger(m.id)&&
       (m.role==="human"||m.role==="ai")&&typeof m.text==="string").slice(-LIMIT)
@@ -24,7 +25,7 @@ export function createConversation({file=null}={}){
   if(!file)return;
   const temp=file+"."+crypto.randomBytes(5).toString("hex")+".tmp";
   try{
-   fs.writeFileSync(temp,JSON.stringify({seq,session,messages:entries}),{flag:"wx",mode:0o600});
+   fs.writeFileSync(temp,JSON.stringify({seq,session,messages:entries,...(clarification&&{clarification})}),{flag:"wx",mode:0o600});
    fs.renameSync(temp,file);
   }finally{try{fs.unlinkSync(temp);}catch{}}
  }
@@ -47,10 +48,11 @@ export function createConversation({file=null}={}){
   if(entry&&entry.text!==String(text??"").trim())throw Error("Identifiant déjà utilisé pour une autre annonce.");
   return entry||null;
  }
- function markTable(id,expectedSession,table){
+ function markTable(id,expectedSession,table,nextClarification){
   if(session!==expectedSession)return;
   const entry=entries.find(m=>m.id===id&&m.role==="human");
   if(!entry)return;
+  if(nextClarification!==undefined)clarification=nextClarification;
   entry.table=table;save();
  }
  function list(after=0,{agent=false}={}){
@@ -65,6 +67,6 @@ export function createConversation({file=null}={}){
   return {messages,lastId:agent?(messages.at(-1)?.id??cursor):seq,session,agentSeenAt:lastAgentPoll||null};
  }
  function markAgentPoll(){lastAgentPoll=Date.now();}
- function clear(){entries=[];seq=0;lastAgentPoll=0;session=crypto.randomUUID();save();}
- return {post,findHumanRequest,list,markTable,markAgentPoll,clear};
+ function clear(){entries=[];seq=0;lastAgentPoll=0;session=crypto.randomUUID();clarification=null;save();}
+ return {post,findHumanRequest,list,markTable,markAgentPoll,clear,getClarification:()=>clarification};
 }

@@ -4,6 +4,7 @@ import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
 import {fieldMusicians,shenLegend,verifiedSpell,soulspinner,printedCode} from "./verified-cards.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
+import {battlefieldController} from "./battlefield-rules.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
  .replace(/[\u0300-\u036f]/g,"").replace(/[’‘]/g,"'").toLowerCase()
@@ -155,6 +156,79 @@ export function spokenPublicTarget(cards,phrase){
 }
 export function spokenField(state,phrase){
  return spokenPublicTarget(state.battlefields.map((b,index)=>b.card&&({...b.card,index})).filter(Boolean),phrase)?.index??null;
+}
+const championFromHand=/\b(?:depuis (?:ma|la) main|from (?:my|the) hand)\b/;
+const championFromZone=/\b(?:depuis (?:ma|la|sa) zone de champion|from (?:my|the|its) champion zone)\b/;
+const basePlacement=/^(?:en base|dans (?:ma|la) base|in (?:my|the) base|to (?:my|the) base)$/;
+const fieldPlacement=/^(?:a|au|sur|vers|at|on|to) (.+)$/;
+export function planChampionPlacement(message,state,request){
+ const spoken=normalizePlayerAnnouncement(message).replace(/^(?:je le (?:joue|pose|mets)|i play it) /,"");
+ const spokenPass=spoken.match(/ (?:et|puis|and|then) (?:je passe(?: mon tour)?|i pass(?: my turn)?)$/);
+ const text=spokenPass?spoken.slice(0,spokenPass.index):spoken;
+ const saysHand=championFromHand.test(text),saysZone=championFromZone.test(text);
+ if(saysHand&&saysZone)return fail("Précise si tu joues depuis la main ou la zone de champion.",
+  "Say whether you are playing from your hand or champion zone.");
+ const fromHand=saysHand||!saysZone&&request.fromHand;
+ const destination=text.replace(championFromHand," ").replace(championFromZone," ").replace(/\s+/g," ").trim();
+ const base=basePlacement.test(destination);
+ const field=destination.match(fieldPlacement);
+ if(field&&/\b(?:je|j'|i) (?:vais|veux|joue|pose|lance|passe|want|play|pass|cast)\b/.test(field[1]))return null;
+ const battlefields=state.battlefields.map((b,index)=>b.card&&({...b.card,index})).filter(Boolean);
+ const namedField=battlefields.find(b=>normalizePlayerAnnouncement(b.name)===destination);
+ if(!base&&!field&&!namedField)return null;
+ const battlefield=base?null:namedField?.index??spokenField(state,field[1]);
+ if(!base&&battlefield===null)return fail("Indique la base ou le nom d’un champ que tu contrôles.",
+  "Choose your base or name a battlefield you control.");
+ const chosen=state.cards.find(card=>card.uid===request.uid&&card.owner==="human"&&card.zone==="champion");
+ if(!fromHand&&!chosen)return fail("Le champion a quitté sa zone. Si tu joues une autre copie, précise « depuis ma main ».",
+  "The champion has left its zone. If you are playing another copy, say “from my hand”.");
+ const cmd={type:"play-physical",...(fromHand?{card:state.players.human.champion}:{uid:chosen.uid}),
+  battlefield,...(request.payment&&{payment:request.payment})};
+ try{
+  let preview=applyCommand(state,cmd);
+  const commands=[cmd];
+  if(spokenPass&&!preview.pendingEffects.length&&!preview.spellChain){
+   const ending={type:"phase",phase:"Ending"};
+   preview=applyCommand(preview,ending);commands.push(ending);
+   if(!preview.pendingEffects.length&&!preview.spellChain){
+    const next={type:"next-turn"};
+    preview=applyCommand(preview,next);commands.push(next);
+   }
+  }
+  return {commands,recognized:true,summary:preview.message};
+ }catch(error){
+  return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);
+ }
+}
+export function planNamedChampionAnnouncement(message,state){
+ if(!state?.started||!state.players.human.champion?.name||String(message).includes("?"))return null;
+ const text=normalizePlayerAnnouncement(message).slice(0,1200)
+  .replace(/\bpour de (runes?)$/,"pour deux $1").replace(/\bpour des runes?$/,"").trim();
+ const play=/^(?:je (?:vais )?(?:joue|pose)|i (?:will )?play) (?:(?:mon|le|my|the) )?(.+)$/;
+ const name=normalizePlayerAnnouncement(state.players.human.champion.name);
+ const announced=text.match(play)?.[1];
+ if(text===name?state.active!=="human":announced!==name&&!announced?.startsWith(name+" "))return null;
+ const parsed=announcedPayment(text);
+ if(parsed.error)return parsed.error;
+ const rest=(parsed.text.match(play)?.[1]??parsed.text).slice(name.length).trim();
+ if(/^(?:cachee?|face cachee|from hidden|en embuscade)\b/.test(rest))return null;
+ const champion=state.cards.find(card=>card.owner==="human"&&card.zone==="champion"&&
+  normalizePlayerAnnouncement(card.name)===name);
+ const fromHand=championFromHand.test(rest);
+ const request={kind:"champion-placement",uid:champion?.uid??null,fromHand,payment:parsed.payment};
+ const placed=planChampionPlacement(rest,state,request);
+ if(placed)return placed;
+ if(rest.replace(championFromHand,"").replace(championFromZone,"").trim())
+  return fail("Précise la destination du champion, par exemple « en base ».",
+   "Give the champion’s destination, for example “in my base”.");
+ const feasible=planChampionPlacement("en base",state,request);
+ if(feasible.error)return feasible;
+ const fields=state.battlefields.filter((b,index)=>b.card&&battlefieldController(state,index)==="human").map(b=>b.card.name);
+ return {commands:[],recognized:true,needsClarification:request,
+  prompt:"Où joues-tu "+state.players.human.champion.name+" depuis "+(fromHand?"ta main":"sa zone de champion")+" ? En base"+
+   (fields.length?" ou à "+fields.join(" ou à "):"")+" ?",
+  promptEN:"Where are you playing "+state.players.human.champion.name+" from "+(fromHand?"your hand":"its champion zone")+"? In your base"+
+   (fields.length?" or at "+fields.join(" or at "):"")+"?"};
 }
 export function planTargetedPlay(text,state,catalog){
  const explicit=announcedPayment(text);
@@ -323,6 +397,8 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  if(/^(?:je passe|i pass|vas y|tu peux resoudre|je ne peux pas reagir|aucune reaction)$/.test(text)){
   if(state.spellChain)return {commands:[{type:"chain-pass",player:"human"}],recognized:true};
  }
+ const namedChampion=planNamedChampionAnnouncement(message,state);
+ if(namedChampion)return namedChampion;
  const explicit=announcedPayment(text);
  if(explicit.error)return explicit.error;
  const {text:playText,payment}=explicit;

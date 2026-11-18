@@ -16,12 +16,12 @@ import {PRECONS,resolvePrecon} from "./precons.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
-import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
+import {detectMessageLanguage,planNamedChampionAnnouncement} from "./player-actions.mjs";
 import {planPlayerSequence} from "./player-sequence.mjs";
 import {correctSpokenCardPhrase} from "./card-voice.mjs";
 import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
 import {captureCombatOpening,matchesCombatOpening,requestsCombatRewind,rewindCombat} from "./combat-rewind.mjs";
-import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
+import {makeCardClarification,resolveAnnouncementClarification} from "./clarification.mjs";
 import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
 import {createLocalWhisper,WHISPER_MODEL} from "./whisper-local.mjs";
 import {createLocalPiper} from "./piper-local.mjs";
@@ -325,7 +325,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   const restored=rewindCombat(opening,state,{english});
   delete restored.pendingFollowUp;
   receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
-  pendingHumanAction=null;pendingSpokenPlay=null;
+  pendingSpokenPlay=null;
   while(checkpoints.at(-1)?.receipt.after>opening.revision)checkpoints.pop();
  }else if(command.type==="undo"){
   if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
@@ -350,7 +350,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
   if(next.active!==state.active||["start","next-turn","effect-confirm"].includes(command.type))next=advanceMandatoryTurn(next);
   if(["start","setup-human","setup-ai"].includes(command.type))delete next.pendingFollowUp;
   receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
-  if(input.type==="reset"){conversation.clear();pendingHumanAction=null;checkpoints.length=0;}
+  if(input.type==="reset"){conversation.clear();pendingSpokenPlay=null;checkpoints.length=0;}
  }
  if(commandKey){
   recentCommands.set(commandKey,{receipt,signature});
@@ -395,7 +395,6 @@ if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
  integratedAI.disable();
 // The physical player can correct the previous card name without a separate model request.
 // Pending actions are never executed until a real catalog card and all costs are verified.
-let pendingHumanAction=null;
 let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
 const receiveHumanMessage=(text,requestId)=>{
@@ -404,9 +403,9 @@ const receiveHumanMessage=(text,requestId)=>{
  const entry=conversation.post("human",text,{trackTable:true,requestId});
  const receivedRevision=state.revision;
  const receivedSession=conversation.list(0).session;
- let outcome="delegated";
+ let outcome="delegated",nextClarification;
  const mark=()=>{
-  try{conversation.markTable(entry.id,receivedSession,{status:outcome,revision:state.revision});}
+  try{conversation.markTable(entry.id,receivedSession,{status:outcome,revision:state.revision},nextClarification);}
   catch(error){console.warn("Suivi du message non sauvegardé :",error.message);}
  };
  if(/^(?:reprends|reprendre|resume)[.! ]*$/i.test(entry.text)){
@@ -442,53 +441,67 @@ const receiveHumanMessage=(text,requestId)=>{
   const barePlay=/^(?:(?:et|and)\s+)?(?:(?:je|j'|i)\s+)?(?:joue|jouer|pose|play|playing|place|mets)\s*(?:une?\s+carte|a\s+card)?$/i.test(normalized);
   if(barePlay){
    outcome="clarification";
+   nextClarification=null;
    pendingSpokenPlay={revision:state.revision,time:Date.now(),prefix:english?"I play ":"Je joue "};
    receiveAgentMessage(english?"I heard 'I play'. Which card?":
     "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
    return;
   }
-  // Passing priority and other public board commands must remain responsive
-  // even when the remote catalog is unavailable or expired.
-  let catalog=catalogCache||[];
-  if(!catalog.length&&(pendingSpokenPlay||pendingHumanAction||state.pendingEffects?.[0]?.trigger==="pakaa-reveal"||
-     /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike|bonus de field musicians)\b/i.test(normalized))){
-   try{catalog=await loadServerCatalog();}catch{}
-   if(conversation.list(0).session!==receivedSession)return;
-  }
+  const pending=conversation.getClarification();
   if(pendingSpokenPlay){
    const previous=pendingSpokenPlay;pendingSpokenPlay=null;
-   if(!pendingHumanAction&&previous.revision===state.revision&&Date.now()-previous.time<30000&&
+   if(!pending&&previous.revision===state.revision&&Date.now()-previous.time<30000&&
      !/\b(?:joue|pose|play|place|mets|pioche|draw|termine|finis|end|channel|canalise)\b/i.test(normalized)&&
      normalized.length>=4&&normalized.length<=90&&!/[?]/.test(entry.text)){
     announcement=previous.prefix+entry.text;
    }
   }
-  if(pendingHumanAction){
-   const answer=resolveCardClarification(pendingHumanAction,entry.text,catalog,state,{english});
+  // Public champion data is already on the table and works offline.
+  let plan=planNamedChampionAnnouncement(announcement,state);
+  let catalog=catalogCache||[];
+  const titleExpected=announcement!==entry.text||pending?.kind==="card"||state.pendingEffects?.[0]?.trigger==="pakaa-reveal";
+  if(!plan&&!catalog.length&&(titleExpected||
+     /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike|bonus de field musicians)\b/i.test(normalized))){
+   try{catalog=await loadServerCatalog();}catch{}
+   if(conversation.list(0).session!==receivedSession)return;
+  }
+  if(pending){
+   const answer=resolveAnnouncementClarification(pending,entry.text,catalog,state,{english});
    if(answer.status==="waiting"){
     outcome="clarification";
     receiveAgentMessage(answer.message);
     return;
    }
-   if(answer.status==="cancel"){
-    outcome="unchanged";
-    pendingHumanAction=null;
+   if(answer.status!=="question")nextClarification=null;
+   if(answer.status==="cancel"||answer.status==="expired"){
+    outcome=answer.status==="cancel"?"unchanged":"rejected";
     receiveAgentMessage(answer.message);
     return;
    }
    if(answer.status==="confirmed"){
-    announcement=answer.announcement;
-    pendingHumanAction=null;
-   }else pendingHumanAction=null; // new action or expired request
+    if(answer.plan)plan=answer.plan;
+    else {announcement=answer.announcement;plan=null;}
+   }
   }
-  const plan=planPlayerSequence(announcement,state,catalog);
+  plan??=planPlayerSequence(announcement,state,catalog);
   if(plan.needsClarification){
+   if(receivedRevision!==state.revision){
+    outcome="rejected";
+    receiveAgentMessage(english?"The board changed. Repeat your announcement.":"Le plateau a changé. Répète ton annonce.");
+    return;
+   }
    outcome="clarification";
-   pendingHumanAction=makeCardClarification({
-    announcement,query:plan.needsClarification.query,
+   const need=plan.needsClarification;
+   if(need.kind==="champion-placement"){
+    nextClarification={...need,revision:state.revision,createdAt:Date.now()};
+    receiveAgentMessage(english?plan.promptEN:plan.prompt);
+    return;
+   }
+   nextClarification=makeCardClarification({
+    announcement,query:need.query,
     revision:state.revision,catalog
    });
-   const prompt=resolveCardClarification(pendingHumanAction,"",catalog,state,{english});
+   const prompt=resolveAnnouncementClarification(nextClarification,"",catalog,state,{english});
    receiveAgentMessage(prompt.message);
    return;
   }
@@ -526,7 +539,10 @@ const receiveHumanMessage=(text,requestId)=>{
    try{
     applyAgentBatch(plan.commands,revision,"announcement",plan.afterChain);
     outcome="applied";
-    receiveAgentMessage(state.message+(plan.afterChain?" · L’attaque suivra la résolution de la chaîne.":""));
+    const firstPlay=plan.commands.length>1&&plan.commands[0].type==="play-physical"?
+     state.history.find(event=>event.revision===revision+1)?.text:"";
+    receiveAgentMessage([firstPlay,state.message,plan.afterChain?"L’attaque suivra la résolution de la chaîne.":""]
+     .filter(Boolean).join(" · "));
    }
    catch(e){
     outcome="rejected";

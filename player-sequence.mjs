@@ -1,7 +1,8 @@
 // Multi-action narration with safe battlefield movements.
 // Existing physical cards are identified by name, never by a guessed UID.
 import {applyCommand} from "./core.mjs";
-import {normalizePlayerAnnouncement,planHumanAnnouncement,spokenField,spokenPublicTarget,planTargetedPlay} from "./player-actions.mjs";
+import {normalizePlayerAnnouncement,planHumanAnnouncement,spokenField,spokenPublicTarget,planTargetedPlay,
+ planNamedChampionAnnouncement} from "./player-actions.mjs";
 import {combatVoicePlan} from "./combat-voice.mjs";
 
 const normalize=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
@@ -100,6 +101,8 @@ export function planPlayerSequence(message,state,catalog=[]){
  if(/[?]/.test(String(message))||/^(?:si je|if i|can i|could i|should i|puis je|je peux|peux je|est ce que|comment|how|pourquoi|why)\b/.test(text)||
     /\b(?:ne (?:veux|vais|deplace|joue) pas|je (?:ne )?veux pas|do not|don't)\b/.test(text))
   return {commands:[],recognized:false};
+ const champion=planNamedChampionAnnouncement(message,state);
+ if(champion)return champion;
  const explicitAttacker=text.match(/^(?<play>.+?)\s+(?:et|puis)\s+avec\s+(?<attacker>.+?)\s+j'\s*attaque\s+(?<field>.+)$/);
  const musicians=text.match(/^(?<play>(?:le bonus de|je joue) field musicians sur .+?) puis j'\s*attaque\s+(?<field>.+)$/);
  const compound=(explicitAttacker||musicians)?.groups;

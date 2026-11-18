@@ -388,13 +388,25 @@ try{
  const openingRunes=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes").map(c=>c.uid);
  for(const domain of ["Calm","Calm","Calm","Order"])
   await put("human",{...card(domain+" Rune","Rune"),domains:[domain]},"runes");
+ await put("ai",{...card("Raging Soul"),might:5},"battlefield",1);
+ for(const player of ["human","ai"])await apply({type:"score",player,value:5,set:true});
  const championUid=state.cards.find(c=>c.code===leader.code).uid;
  const paymentRevision=state.revision;
  const payment="Je joue mon champion choisi, six runes épuisées, je recycle deux Order.";
  await announce(payment.replace("six","cinq"),"rejected");
  assert.equal(state.revision,paymentRevision);
  const humanBefore=state.players.human;
- await announce(payment);
+ const namedPayment=payment.replace("mon champion choisi",leader.name);
+ await announce(namedPayment,"clarification");
+ assert.equal(state.revision,paymentRevision);
+ assert.equal(state.cards.find(c=>c.uid===championUid).zone,"champion");
+ await stop();
+ launch();
+ await ready();
+ const placeChampion=await request("/api/messages",{text:"En base.",requestId:crypto.randomUUID()});
+ assert.equal((await waitForAnnouncement(placeChampion.value.message.id)).table.status,"applied");
+ assert.match((await request("/api/messages?after="+placeChampion.value.message.id)).value.messages.at(-1).text,/Shen.*jouée en base/);
+ state=(await request("/api/state")).value.state;
  assert.equal(state.cards.find(c=>c.uid===championUid).zone,"base");
  assert.equal(state.players.human.handCount,humanBefore.handCount);
  assert.equal(state.players.human.runeCount,humanBefore.runeCount+2);
@@ -405,6 +417,12 @@ try{
  const channelRevision=state.revision;
  await announce("Je te l’ai dit, j’ai canalisé deux Ordre.","unchanged");
  assert.equal(state.revision,channelRevision);
+ await announce(namedPayment,"rejected");
+ assert.equal(state.revision,channelRevision);
+ await announce("Je passe.");
+ assert.equal(state.active,"ai");
+ assert.equal(state.players.ai.score,6);
+ assert.equal(state.players.human.score,5);
  await apply({type:"reset"});
  await apply(shenDeck);
  await apply(zedDeck);
@@ -423,7 +441,7 @@ try{
  assert.match((await request("/api/messages?after="+recap.value.message.id)).value.messages.at(-1).text,
   /deux pioches.*Shen, Scourge of Shadows/);
  await stop();
- console.log("PASS: packaged Windows, private cards, combat restore, persisted effects, public chat, physical payments, channel and Hold draw.");
+ console.log("PASS: packaged Windows, private cards, combat restore, persisted effects, public chat, champion placement, physical payments, channel and Hold draw.");
 }finally{
  if(child.exitCode===null)child.kill();
  await closed.catch(()=>{});

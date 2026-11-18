@@ -97,9 +97,26 @@ try{
  assert.equal(boardExchange.read.table.revision,(await agent("/api/state")).data.state.revision);
  assert.match(boardExchange.reply.text,/Public test defender/);
  assert.doesNotMatch(boardExchange.reply.text,/AI test unit/);
+ const defineChampion=await local("/api/messages",{text:"Je joue Test Champion."});
+ const choice=await poll(async()=>{
+  const {data}=await agent("/api/messages?after="+showBoard.data.message.id);
+  return data.messages?.find(m=>m.id===defineChampion.data.message.id&&m.table?.status==="clarification");
+ },"L’agent ne reçoit pas le choix de destination du champion.");
+ const beforePlacement=(await agent("/api/state")).data.state;
+ assert.equal(beforePlacement.revision,choice.table.revision);
+ const champion=beforePlacement.cards.find(c=>c.owner==="human"&&c.zone==="champion");
+ const location=await local("/api/messages",{text:"En base."});
+ const placement=await poll(async()=>{
+  const {data}=await agent("/api/messages?after="+choice.id);
+  return data.messages?.find(m=>m.id===location.data.message.id&&m.table?.status==="applied");
+ },"L’agent ne reçoit pas la destination confirmée du champion.");
+ const afterPlacement=(await agent("/api/state")).data.state;
+ assert.equal(afterPlacement.revision,placement.table.revision);
+ assert.equal(afterPlacement.cards.find(c=>c.uid===champion.uid).zone,"base");
+ assert.equal(afterPlacement.players.human.handCount,beforePlacement.players.human.handCount);
  const end=await local("/api/messages",{text:"Je passe mon tour."});
  const announcement=await poll(async()=>{
-  const r=await agent("/api/messages?after="+hide.data.message.id);
+  const r=await agent("/api/messages?after="+placement.id);
   return r.data.messages?.find(m=>m.id===end.data.message.id&&m.table?.status==="applied");
  },"L’agent ne reçoit pas le passage de tour avec son résultat.");
  const {data:{state:turn}}=await agent("/api/state");
