@@ -7,6 +7,7 @@ import {battlefieldController,hasScoredField} from "../battlefield-rules.mjs";
 import {planPlayerSequence} from "../player-sequence.mjs";
 import {isChatAtBottom,restoredChatPosition,shouldShowJump} from "../chat-scrolling.mjs";
 import {createConversation} from "../conversation.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
 const card=(name,type="Unit",energy=1)=>({code:name.replaceAll(" ","-"),name,type,energy});
 const catalog=[card("Loyal Poro")];
 const setup=()=>{
@@ -23,19 +24,23 @@ const boardMove=(state,unit,field=0)=>{
  const uid=state.cards.find(c=>c.owner==="human"&&c.name===unit&&c.zone==="base")?.uid;
  return applyCommand(state,{type:"move",uid,zone:"battlefield",battlefield:field});
 };
-test("sequential French announcements move an existing Poro, score a Conquer, and end the turn",()=>{
+test("sequential French announcements move an existing Poro and stop for the conquest showdown",()=>{
  let s=setup();
  s=applyCommand(s,{type:"add",player:"human",card:card("Loyal Poro"),zone:"base"});
  const announcement="je pioche deux runes, je pioche une carte, je conquiers le grove of the god willow avec mon loyal poro puis je termine mon tour";
  const plan=planPlayerSequence(announcement,s,catalog);
  assert.equal(plan.error,undefined,plan.error);
  assert.ok(plan.commands.some(x=>x.type==="move"),"must move the existing card");
- assert.ok(plan.commands.some(x=>x.type==="next-turn"));
+ assert.ok(!plan.commands.some(x=>x.type==="next-turn"));
  for(const cmd of plan.commands)s=applyCommand(s,cmd);
  const poro=s.cards.find(c=>c.owner==="human"&&c.name==="Loyal Poro");
  assert.equal(poro.zone,"battlefield");
  assert.equal(poro.battlefield,0);
  assert.equal(poro.exhausted,true);
+ assert.equal(s.players.human.score,0);
+ assert.equal(battlefieldController(s,0),null);
+ s=passShowdown(s);
+ s=applyCommand(s,{type:"next-turn"});
  assert.equal(s.players.human.score,1);
  assert.equal(s.active,"ai");
  assert.equal(battlefieldController(s,0),"human");
@@ -46,6 +51,7 @@ test("conquering once and then holding next turn score once per field per turn",
  s=applyCommand(s,{type:"channel",player:"human",count:2});
  s=applyCommand(s,{type:"draw",player:"human",count:1});
  s=boardMove(s,"Loyal Poro",0);
+ s=passShowdown(s);
  assert.equal(s.players.human.score,1);
  assert.equal(hasScoredField(s,"human",0),true);
  s=applyCommand(s,{type:"phase",phase:"Beginning"});
@@ -71,6 +77,7 @@ test("final point limitation: a first conquest at seven grants draw rather than 
  const original=s.players.human.handCount;
  s=boardMove(s,"Loyal Poro",0);
  assert.equal(s.players.human.score,7);
+ s=passShowdown(s);
  assert.equal(s.players.human.handCount,original+1);
  assert.equal(s.scoredFields.human.includes(0),true);
 });
@@ -132,7 +139,7 @@ test("two paid units spoken in one sentence are applied in order or rejected ato
  const speech="je canalise deux runes je pioche une carte j'en exhaust une et je joue loyal poro dans ma base puis j'en exhaust une et je joue loyal poro dans ma base";
  const result=planPlayerSequence(speech,s,catalog);
  assert.equal(result.error,undefined,result.error);
- assert.equal(result.commands.filter(x=>x.type==="add").length,2);
+ assert.equal(result.commands.filter(x=>x.type==="play-physical").length,2);
  for(const cmd of result.commands)s=applyCommand(s,cmd);
  assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="base"&&c.name==="Loyal Poro").length,2);
  assert.equal(s.cards.filter(c=>c.zone==="runes"&&c.exhausted).length,2);

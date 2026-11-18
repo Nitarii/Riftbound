@@ -33,6 +33,8 @@ test("lethal printed damage fires Deathknell and spawns tokens",()=>{
  }));
  s=playDamage(s);
  assert.equal(s.cards.find(c=>c.name==="Last Recruit").zone,"trash");
+ assert.equal(s.spellChain.items[0].ability,"create-units");
+ s=applyCommand(applyCommand(s,{type:"chain-pass",player:"human"}),{type:"chain-pass",player:"ai"});
  const tokens=s.cards.filter(c=>c.owner==="human"&&c.name==="Recruit"&&c.zone==="base");
  assert.equal(tokens.length,2);
  assert.ok(tokens.every(c=>c.exhausted&&c.might===1));

@@ -2,14 +2,23 @@
 // Understand intent without inventing cards, hidden hands, costs or rule effects.
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
+import {fieldMusicians,shenLegend,soulspinner,goldToken} from "./verified-cards.mjs";
+import {compileCardAbilities,spellRule} from "./effect-engine.mjs";
+import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
+import {battlefieldController} from "./battlefield-rules.mjs";
 
 const clean=value=>String(value||"").normalize("NFKD")
  .replace(/[\u0300-\u036f]/g,"").replace(/[’‘]/g,"'").toLowerCase()
  .replace(/[.,;:!?()[\]{}]+/g," ").replace(/[-–—]+/g," ")
  .replace(/\s+/g," ").trim();
 const words=value=>clean(value).match(/[a-z0-9']+/g)||[];
-const num=value=>({un:1,une:1,one:1,a:1,an:1,deux:2,two:2,trois:3,three:3,quatre:4,four:4}[value]||Number(value));
-const number="(\\d+|un|une|one|two|deux|trois|three|four|quatre)";
+const spokenNumbers={un:1,une:1,one:1,deux:2,two:2,trois:3,three:3,quatre:4,four:4,
+ cinq:5,five:5,six:6,sept:7,seven:7,huit:8,eight:8,neuf:9,nine:9,dix:10,ten:10};
+const num=value=>Object.hasOwn(spokenNumbers,value)?spokenNumbers[value]:Number(value);
+const numberToken="\\d+|"+Object.keys(spokenNumbers).join("|");
+const number="("+numberToken+")";
+const domainNames={...Object.fromEntries(RUNE_DOMAINS.map(x=>[x.toLowerCase(),x])),
+ ordre:"Order",calme:"Calm",fureur:"Fury",corps:"Body",esprit:"Mind"};
 const fail=(fr,en)=>({commands:[],recognized:true,error:fr,errorEN:en});
 
 export function detectMessageLanguage(message,fallback="fr"){
@@ -35,13 +44,13 @@ const aliases=new Map(Object.entries({
  chanel:"channel",chanell:"channel",channell:"channel",channelle:"channel",
  pioch:"pioche",piocher:"pioche",piohc:"pioche",piohce:"pioche",piocche:"pioche",piohshe:"pioche",
  drwa:"draw",draww:"draw",draws:"draw",drau:"draw",
- jou:"joue",jouer:"joue",jous:"joue",joeu:"joue",jou:"joue",
+ jou:"joue",jouer:"joue",jous:"joue",joeu:"joue",
  paly:"play",plai:"play",plaie:"play",
  poser:"pose",poses:"pose",placement:"place",
  exhauste:"exhaust",exaust:"exhaust",exahust:"exhaust",exhause:"exhaust",exoste:"exhaust",
  epuisee:"epuise",epuisse:"epuise",epuizer:"epuise",epuiser:"epuise",
  depense:"spend",depenses:"spend",spent:"spend",utiliser:"utilise",
- runne:"rune",runee:"rune",runnes:"runes",runees:"runes",deuz:"deux",troi:"trois",thre:"three",torn:"turn",
+ runne:"rune",runee:"rune",runnes:"runes",runees:"runes",deuz:"deux",troi:"trois",thre:"three",torn:"turn",tou:"tour",
  cartte:"carte",carttes:"cartes",carteee:"carte",
  finis:"finis",finni:"finis",fini:"finis",terminer:"termine",termineer:"termine",
  passez:"passe",paser:"passe",passer:"passe",finished:"finish",ended:"end"
@@ -88,28 +97,447 @@ function unknownCard(catalog,name){
   needsClarification:{kind:"card",query:name}};
 }
 function expectedChannel(state){
- const first=state.firstPlayer||((state.history||[]).find(h=>/Début de partie/.test(h.text||""))?.text?.includes("IA")?"ai":"human");
- return state.turn===1&&!(state.turnActions?.channeled)&&state.active!==first?3:2;
+ const first=state.firstPlayer||"human";
+ return Math.min(state.players.human.runeCount,
+  state.turn===1&&state.active!==first?3:2);
+}
+function announcedPayment(text){
+ if(!/^(?:je (?:vais )?(?:joue|pose|lance)|i (?:will )?(?:play|cast))\b/.test(text))return {text};
+ const clause="(?:\\s+(?:et|and))?\\s+";
+ const recycle=new RegExp(clause+"(?:(?:je recycle|en recyclant|(?:i )?recycle|by recycling) "+number+
+  "(?: runes?)?(?: (?:d'|de )?([a-z]+))?|"+number+"(?: runes?)? (?:d'|de )?([a-z]+) recycle(?:e|es|s)?)$");
+ const power=text.match(recycle);
+ const domain=power?.[2]??power?.[4];
+ if(domain&&!Object.hasOwn(domainNames,domain))return {error:fail(
+  "Précise le domaine des runes recyclées.","Name the domain of the recycled runes.")};
+ if(!power&&/\b(?:je recycle|en recyclant|i recycle|by recycling)\b/.test(text))return {error:fail(
+  "Précise combien de runes tu recycles et leur domaine.","Specify how many runes you recycle and their domain.")};
+ if(power)text=text.slice(0,power.index);
+ const exhaust=text.match(new RegExp(clause+"(?:(?:j'epuise|je epuise|(?:i )?exhaust|pour|for) "+number+
+  " runes?|"+number+" runes? (?:epuise(?:e|es|s)?|exhausted)|(tout epuis(?:e|ee|ees|es)|exhaust all runes))$"));
+ if(exhaust)text=text.slice(0,exhaust.index);
+ if(!power&&!exhaust)return {text};
+ return {text,payment:{
+  ...(power?{recycled:num(power[1]??power[3]),domain:domainNames[domain]}:{}),
+  ...(exhaust?(exhaust[3]?{exhaustAll:true}:{exhausted:num(exhaust[1]??exhaust[2])}):{})
+ }};
+}
+function identifyChanneledRunes(state,domains){
+ const current=state.turnActions?.channeled||0;
+ if(state.active!=="human"||!current||domains.length!==current)return fail(
+  "Précise les "+current+" domaines des runes canalisées ce tour.","Name the domains of the runes channeled this turn.");
+ const runes=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes");
+ const byUid=new Map(runes.map(r=>[r.uid,r]));
+ // Legacy saves lack rune IDs for the channel step. Only infer them from
+ // the board when the remaining history still shows an untouched opening.
+ const lastAction=state.history?.find(entry=>!/^Rune physique identifiée/.test(entry.text));
+ const legacy=state.turnActions.channelRunes==null&&/^Début du tour : \+ [123] runes/.test(lastAction?.text??"");
+ const latest=legacy?runes.slice(-current).map(r=>({uid:r.uid,domain:runeDomain(r)})):state.turnActions.channelRunes;
+ if(latest?.length!==current||latest.some(r=>!r.domain&&!byUid.has(r.uid)))return fail(
+  "Je ne retrouve pas toutes les runes canalisées ce tour. Vérifie les runes physiques sur le plateau.",
+  "I cannot identify all runes channeled this turn. Check the physical runes on the board.");
+ const remaining=[...domains];
+ for(const rune of latest.filter(r=>r.domain)){
+  const index=remaining.indexOf(rune.domain);
+  if(index<0)return fail("Les domaines déjà enregistrés ne correspondent pas à l’annonce.",
+   "Already recorded rune domains do not match.");
+  remaining.splice(index,1);
+ }
+ const commands=latest.filter(r=>!r.domain).map((r,i)=>({type:"rune-identify",uid:r.uid,domain:remaining[i]}));
+ return {recognized:true,commands,summary:"Canalisation déjà enregistrée pour ce tour.",
+  summaryEN:"This turn’s channeling is already recorded."};
+}
+export function spokenPublicTarget(cards,phrase){
+ const query=clean(phrase).replace(/^(?:la |le |mon |ma |my |the |l')/,"").trim();
+ const identified=matchSpokenCard(cards.map((c,i)=>({...c,code:c.code||"voice-"+i})),query).card?.name;
+ const viable=identified?cards.filter(c=>c.name===identified):
+  query.length>=4?cards.filter(c=>clean(c.name).split(" ").includes(query)||
+     clean(c.name).startsWith(query+" ")): [];
+ return viable.length===1?viable[0]:null;
+}
+export function spokenField(state,phrase){
+ return spokenPublicTarget(state.battlefields.map((b,index)=>b.card&&({...b.card,index})).filter(Boolean),phrase)?.index??null;
+}
+const championFromHand=/\b(?:depuis (?:ma|la) main|from (?:my|the) hand)\b/;
+const championFromZone=/\b(?:depuis (?:ma|la|sa) zone de champion|from (?:my|the|its) champion zone)\b/;
+const basePlacement=/^(?:en base|dans (?:ma|la) base|in (?:my|the) base|to (?:my|the) base)$/;
+const fieldPlacement=/^(?:a|au|sur|vers|at|on|to) (.+)$/;
+export function planChampionPlacement(message,state,request){
+ const spoken=normalizePlayerAnnouncement(message).replace(/^(?:je le (?:joue|pose|mets)|i play it) /,"");
+ const spokenPass=spoken.match(/ (?:et|puis|and|then) (?:je passe(?: mon tour)?|i pass(?: my turn)?)$/);
+ const text=spokenPass?spoken.slice(0,spokenPass.index):spoken;
+ const saysHand=championFromHand.test(text),saysZone=championFromZone.test(text);
+ if(saysHand&&saysZone)return fail("Précise si tu joues depuis la main ou la zone de champion.",
+  "Say whether you are playing from your hand or champion zone.");
+ const fromHand=saysHand||!saysZone&&request.fromHand;
+ const destination=text.replace(championFromHand," ").replace(championFromZone," ").replace(/\s+/g," ").trim();
+ const base=basePlacement.test(destination);
+ const field=destination.match(fieldPlacement);
+ if(field&&/\b(?:je|j'|i) (?:vais|veux|joue|pose|lance|passe|want|play|pass|cast)\b/.test(field[1]))return null;
+ const battlefields=state.battlefields.map((b,index)=>b.card&&({...b.card,index})).filter(Boolean);
+ const namedField=battlefields.find(b=>normalizePlayerAnnouncement(b.name)===destination);
+ if(!base&&!field&&!namedField)return null;
+ const battlefield=base?null:namedField?.index??spokenField(state,field[1]);
+ if(!base&&battlefield===null)return fail("Indique la base ou le nom d’un champ que tu contrôles.",
+  "Choose your base or name a battlefield you control.");
+ const chosen=state.cards.find(card=>card.uid===request.uid&&card.owner==="human"&&card.zone==="champion");
+ if(!fromHand&&!chosen)return fail("Le champion a quitté sa zone. Si tu joues une autre copie, précise « depuis ma main ».",
+  "The champion has left its zone. If you are playing another copy, say “from my hand”.");
+ const cmd={type:"play-physical",...(fromHand?{card:state.players.human.champion}:{uid:chosen.uid}),
+  battlefield,...(request.payment&&{payment:request.payment})};
+ try{
+  let preview=applyCommand(state,cmd);
+  const commands=[cmd];
+  if(spokenPass&&!preview.pendingEffects.length&&!preview.spellChain){
+   const ending={type:"phase",phase:"Ending"};
+   preview=applyCommand(preview,ending);commands.push(ending);
+   if(!preview.pendingEffects.length&&!preview.spellChain){
+    const next={type:"next-turn"};
+    preview=applyCommand(preview,next);commands.push(next);
+   }
+  }
+  return {commands,recognized:true,summary:preview.message};
+ }catch(error){
+  return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);
+ }
+}
+export function planNamedChampionAnnouncement(message,state){
+ if(!state?.started||!state.players.human.champion?.name||String(message).includes("?"))return null;
+ const text=normalizePlayerAnnouncement(message).slice(0,1200)
+  .replace(/\bpour de (runes?)$/,"pour deux $1").replace(/\bpour des runes?$/,"").trim();
+ const play=/^(?:je (?:vais )?(?:joue|pose)|i (?:will )?play) (?:(?:mon|le|my|the) )?(.+)$/;
+ const name=normalizePlayerAnnouncement(state.players.human.champion.name);
+ const announced=text.match(play)?.[1];
+ if(text===name?state.active!=="human":announced!==name&&!announced?.startsWith(name+" "))return null;
+ const parsed=announcedPayment(text);
+ if(parsed.error)return parsed.error;
+ const rest=(parsed.text.match(play)?.[1]??parsed.text).slice(name.length).trim();
+ if(/^(?:cachee?|face cachee|from hidden|en embuscade)\b/.test(rest))return null;
+ const champion=state.cards.find(card=>card.owner==="human"&&card.zone==="champion"&&
+  normalizePlayerAnnouncement(card.name)===name);
+ const fromHand=championFromHand.test(rest);
+ const request={kind:"champion-placement",uid:champion?.uid??null,fromHand,payment:parsed.payment};
+ const placed=planChampionPlacement(rest,state,request);
+ if(placed)return placed;
+ if(rest.replace(championFromHand,"").replace(championFromZone,"").trim())
+  return fail("Précise la destination du champion, par exemple « en base ».",
+   "Give the champion’s destination, for example “in my base”.");
+ const feasible=planChampionPlacement("en base",state,request);
+ if(feasible.error)return feasible;
+ const fields=state.battlefields.filter((b,index)=>b.card&&battlefieldController(state,index)==="human").map(b=>b.card.name);
+ return {commands:[],recognized:true,needsClarification:request,
+  prompt:"Où joues-tu "+state.players.human.champion.name+" depuis "+(fromHand?"ta main":"sa zone de champion")+" ? En base"+
+   (fields.length?" ou à "+fields.join(" ou à "):"")+" ?",
+  promptEN:"Where are you playing "+state.players.human.champion.name+" from "+(fromHand?"your hand":"its champion zone")+"? In your base"+
+   (fields.length?" or at "+fields.join(" or at "):"")+"?"};
+}
+export function planTargetedPlay(text,state,catalog){
+ const explicit=announcedPayment(text);
+ if(explicit.error)return explicit.error;
+ const plan=targetedPlay(explicit.text,state,catalog);
+ return plan&&!plan.error&&explicit.payment?{...plan,payment:explicit.payment}:plan;
+}
+function targetedPlay(text,state,catalog){
+ // Preserve the target and battlefield as separate choices, with no model guessing.
+ const board=state.cards.filter(c=>["base","battlefield"].includes(c.zone)&&/^unit$/i.test(c.type)&&!c.faceDown);
+ const shen=text.match(/^(?:j'(?:active|epuise)|je (?:active|epuise)|i (?:activate|exhaust)) (?:ma |la |my |the )?(?:legende (?:de )?|legend )?shen(?: eye of twilight)? (?:pour (?:donner|octroyer) tank a|sur|on) (.+)$/);
+ if(shen){
+  const source=state.cards.find(c=>c.zone==="legend"&&c.owner==="human"&&shenLegend(c));
+  const target=spokenPublicTarget(board.filter(c=>c.owner==="human"),shen[1]);
+  if(!source||!target)return fail("Indique une cible alliée en jeu pour la légende Shen.",
+   "Name a friendly unit in play for the Shen legend.");
+  return {type:"activate",player:"human",uid:source.uid,targetUid:target.uid};
+ }
+ const hide=text.match(/^(?:je cache une carte|i hide a card)\s+(?:au|a|sur|at|on)\s+(.+?)(?:\s+(?:en recyclant|avec|using)\s+(?:une rune |a rune )?([a-z]+))?$/);
+ if(hide){
+  const field=spokenField(state,hide[1]);
+  if(field===null)return fail("Choisis le champ où cacher une carte, sans donner son nom.",
+   "Name the battlefield where you are hiding a card. Keep the card name private.");
+  let runeUid;
+  if(hide[2]){
+   const domain=Object.hasOwn(domainNames,hide[2])?domainNames[hide[2]]:null;
+   const selected=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&
+    domain&&runeDomain(c)===domain).sort((a,b)=>Number(b.exhausted)-Number(a.exhausted))[0];
+   if(!selected)return fail("Identifie sur le plateau la rune que tu recycles pour cacher.",
+    "Identify the rune you are recycling to hide.");
+   runeUid=selected.uid;
+  }
+  return {type:"hide",player:"human",battlefield:field,runeUid};
+ }
+ const hiddenPlay=text.match(/^(?:je revele|je joue|i reveal|i play)\s+(.+?)(?:\s+(?:cachee?|face cachee|from hidden))\s+(?:au|a|at|from)\s+(.+?)(?:\s+(?:sur|avec|moving|on)\s+(.+))?$/)||
+  text.match(/^(?:je revele|i reveal)\s+(.+?)\s+(?:au|a|at|from)\s+(.+?)(?:\s+(?:sur|avec|moving|on)\s+(.+))?$/);
+ if(hiddenPlay){
+  const field=spokenField(state,hiddenPlay[2]);
+  const slot=state.cards.find(c=>c.owner==="human"&&c.zone==="hidden"&&c.faceDown&&c.battlefield===field);
+  if(!slot)return fail("Précise le champ de ta carte cachée.","Specify the battlefield of your hidden card.");
+  const card=findAnnouncedCard(catalog,hiddenPlay[1]);
+  if(!card)return unknownCard(catalog,hiddenPlay[1]);
+  const rule=spellRule(card);
+  if(!rule)return {type:"play-hidden",player:"human",uid:slot.uid,card};
+  const command={type:"cast",player:"human",uid:slot.uid,hidden:true,battlefield:field,card};
+  if(!rule.target&&!hiddenPlay[3])return command;
+  const targets=rule.returnToBase||rule.hidden?board.filter(c=>c.zone==="battlefield"&&c.battlefield===field):
+   board.filter(c=>c.owner==="human");
+  const target=hiddenPlay[3]&&spokenPublicTarget(targets,hiddenPlay[3]);
+  if(!target)return fail("Indique l’unité ciblée par le sort caché.",
+   "Name the unit targeted by the hidden spell.");
+  return {...command,targetUid:target.uid};
+ }
+ const flow=text.match(/^(?:je (?:joue|lance)|i (?:play|cast))\s+(.+?)\s+(?:depuis (?:ma|la) defausse|par flux|from (?:my|the) trash|with flow)(?:\s+(?:sur|on)\s+(.+))?$/);
+ if(flow){
+  const trash=state.cards.filter(c=>c.owner==="human"&&c.zone==="trash"&&spellRule(c)?.flow);
+  const source=findAnnouncedCard(trash,flow[1]);
+  if(!source)return fail("Indique un sort avec Flux dans ta défausse.","Name a supported Flow spell from your trash.");
+  const target=flow[2]&&spokenPublicTarget(board,flow[2]);
+  const rule=spellRule(source);
+  if(!rule.target&&flow[2])return fail(source.name+" ne choisit aucune cible.",source.name+" has no target.");
+  if(rule.target&&!target)return fail("Indique la cible visible de ce sort avec Flux.",
+   "Name the visible target of this Flow spell.");
+  return {type:"cast",player:"human",uid:source.uid,flow:true,...(target&&{targetUid:target.uid})};
+ }
+ const transfer=text.match(/^(?:je joue )?resonating strike\s*(?:je deplace|pour deplacer|sur)\s+(.+?)(?:\s+de\s+.+?)?\s+(?:vers|au|sur|a)\s+(.+?)(?:\s+\+?2.*)?$/);
+ if(transfer){
+  const card=findAnnouncedCard(catalog,"Resonating Strike");
+  const target=spokenPublicTarget(board.filter(c=>c.owner==="human"),transfer[1]);
+  const field=spokenField(state,transfer[2]);
+  if(!card||!target||field===null)return fail("Précise l’unité et le champ contrôlé de Resonating Strike.",
+   "Specify the friendly unit and controlled battlefield for Resonating Strike.");
+  return {type:"cast",player:"human",card,targetUid:target.uid,battlefield:field};
+ }
+ const ambush=text.match(/^(?:je joue|je pose|i play)\s+(.+?)\s+en embuscade\s+(?:sur|au|a)\s+(.+?)(?:\s+sur mes .*runes.*)?$/);
+ if(ambush){
+  const card=findAnnouncedCard(catalog,ambush[1]),field=spokenField(state,ambush[2]);
+  if(!soulspinner(card)||field===null)return fail("Embuscade non reconnue : précise la carte et le champ.",
+   "Specify the supported Ambush unit and the battlefield.");
+  return {type:"play-physical",card,battlefield:field,ambush:true};
+ }
+ const play=text.match(/^(?:je joue|je pose|je lance|i play|i cast|le bonus de)\s+(.+?)(?:\s+que je mets)?\s+(?:sur|cible|targeting|on)\s+(.+?)(?:\s+pour .*runes?)?$/);
+ if(!play){
+  const implicit=text.match(/^(?:je joue|je lance|i play|i cast)\s+(.+)$/);
+  const spell=implicit&&findAnnouncedCard(catalog,implicit[1]);
+  const rule=spellRule(spell);
+  if(rule&&!rule.target)return {type:"cast",player:"human",card:spell};
+  const threatening=state.spellChain?.items.at(-1);
+  const target=threatening?.damage>0&&board.find(c=>c.uid===threatening.targetUid&&c.owner==="human");
+  if(rule?.prevention&&target)return {type:"cast",player:"human",card:spell,targetUid:target.uid};
+  if(rule)return fail("Indique la cible du sort " + spell.name+".","Name the target for "+spell.name+".");
+  return /^spell$/i.test(spell?.type||"")?unsupportedSpell(spell):null;
+ }
+ const card=findAnnouncedCard(catalog,play[1]);
+ const rule=spellRule(card);
+ if(!rule&&/^spell$/i.test(card?.type||""))return unsupportedSpell(card);
+ if(!card||!rule&&!/^unit$/i.test(card.type))return null;
+ const target=spokenPublicTarget(board,play[2]);
+ if(rule){
+  if(!rule.target)return fail(card.name+" ne choisit aucune cible.",card.name+" has no target.");
+  if(!target)return fail("Cible de "+card.name+" ambiguë : indique le nom de l’unité sur le plateau.",
+    "Specify the unit targeted by "+card.name+".");
+  return {type:"cast",player:"human",card,targetUid:target.uid};
+ }
+ if(fieldMusicians(card)&&target)return {type:"play-physical",card,targetUid:target.uid};
+ if(text.startsWith("le bonus de "))return null;
+ const field=spokenField(state,play[2]);
+ return field!==null?{type:"play-physical",card,battlefield:field}:null;
+}
+function unsupportedSpell(card){
+ const reason=compileCardAbilities(card).unsupported[0]?.reason;
+ return fail(card.name+" demande encore un arbitrage."+(reason?" "+reason+".":""),
+  card.name+" needs manual adjudication.");
 }
 
 export function planHumanAnnouncement(message,startingState,catalog=[]){
- const text=normalizePlayerAnnouncement(message).slice(0,1200),state=startingState;
+ const text=normalizePlayerAnnouncement(message).slice(0,1200)
+  .replace(/\bpour de (runes?)$/,"pour deux $1").replace(/\bpour des runes?$/,"").trim(),state=startingState;
  if(!text||!state?.started)return {commands:[],recognized:false};
  // A question, negation or hypothesis is not an instruction to move physical pieces.
  if(/[?]/.test(String(message))||
   /^(?:est ce que|est-ce que|puis je|peux je|peut on|pourquoi|combien|comment|can i|could i|should i|may i|what if|how (?:do|many)|if i|si je)\b/.test(text)||
   /\b(?:ne\s+(?:veux|veut|vais|joue|pioche)\s+pas|je\s+(?:ne\s+)?(?:veux|veut)\s+pas|(?:joue|pose|play|pioche|draw|exhaust|canalise|channel)\s+pas|don'?t|do not|won'?t|cannot|not going to|pas envie|sans jouer)\b/.test(text))
   return {commands:[],recognized:false};
+ const inventory=text.match(new RegExp("^j'ai "+number+" runes? (?:d'|de )?([a-z]+) (?:pas|non) epuis(?:e|ees|es)(?: et)? je joue (.+)$"));
+ if(inventory&&Object.hasOwn(domainNames,inventory[2])){
+  const n=num(inventory[1]),domain=domainNames[inventory[2]];
+  const ready=state.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&!c.exhausted);
+  const typed=ready.filter(c=>runeDomain(c)===domain);
+  const unknown=ready.filter(c=>c.code==="PHYSICAL-RUNE");
+  if(typed.length!==n&&!(typed.length<n&&n-typed.length===unknown.length))return fail(
+   "Le nombre de runes prêtes annoncé ne concorde pas avec le plateau. Vérifie les runes physiques avant le sort.",
+   "The announced ready runes do not match the board. Check the physical runes before casting.");
+  const corrections=typed.length===n?[]:unknown.map(c=>({type:"rune-identify",uid:c.uid,domain}));
+  const next=corrections.reduce(applyCommand,state);
+  const play=planHumanAnnouncement("je joue "+inventory[3],next,catalog);
+  if(play.error||!play.commands.length)return play;
+  return {...play,commands:[...corrections,...play.commands]};
+ }
+ const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(\s+et je pioche|\s+and i draw)?$/);
+ const waiting=state.pendingEffects?.[0];
+ if(waiting?.player==="human"&&["ability-target","gear-detach"].includes(waiting.trigger)){
+  const detach=waiting.trigger==="gear-detach";
+  const decline=/^(?:je decline|je refuse|i decline|non|no|je (?:le )?garde attache|keep it attached)$/.test(text);
+  const accept=detach&&/^(?:je (?:le )?detache|detach(?: it)?|oui|yes)$/.test(text);
+  const selection=!detach&&text.match(/^(?:je (?:cible|choisis|redresse|prepare|deplace|renvoie)|i (?:target|choose|ready|move|return)) (.+?)(?: (?:en|a sa) base| to (?:its |the )?base)?$/);
+  if(decline||accept||selection){
+   const target=selection&&spokenPublicTarget(state.cards.filter(card=>waiting.targetUids.includes(card.uid)),selection[1]);
+   if(selection&&!target)return fail("Précise une des cibles proposées, ou dis « Je décline ».",
+    "Specify one of the available targets, or say “I decline”.");
+   const command={type:"effect-confirm",id:waiting.id,confirm:true,decline,...(target&&{targetUid:target.uid})};
+   try{return {commands:[command],recognized:true,summary:applyCommand(state,command).message};}
+   catch(error){return fail(error.message,error.message);}
+  }
+ }
+ if(waiting?.player==="human"&&waiting.trigger==="token-cost"){
+  const accept=/^(?:je paie|je paye|j'accepte|i pay|i accept|oui|yes)$/.test(text);
+  const decline=/^(?:je decline|je refuse|je ne paie pas|i decline|non|no)$/.test(text);
+  if(accept||decline){
+   const command={type:"effect-confirm",id:waiting.id,confirm:true,decline};
+   try{return {commands:[command],recognized:true,summary:applyCommand(state,command).message};}
+   catch(error){return fail(error.message,error.message);}
+  }
+ }
+ if(waiting?.player==="human"&&waiting.trigger==="bird-placement"){
+  const destination=text.replace(/^(?:je (?:joue|pose) (?:le jeton )?bird|i play (?:the )?bird)\s+/,"");
+  const base=basePlacement.test(destination);
+  const field=destination.match(fieldPlacement);
+  if(base||field){
+   const battlefield=base?null:spokenField(state,field[1]);
+   if(!base&&battlefield===null)return fail("Indique le champ du jeton Bird ou dis « en base ».",
+    "Name a battlefield for the Bird token or say “in my base”.");
+   const command={type:"effect-confirm",id:waiting.id,confirm:true,battlefield};
+   try{return {commands:[command],recognized:true,summary:applyCommand(state,command).message};}
+   catch(error){return fail(error.message,error.message);}
+  }
+ }
+ const spendGold=text.match(new RegExp("^(?:je |j'|i )(?:utilise|spend|use|sacrifie|sacrifice|active|activate) "+
+  "(?:"+number+" |(?:mon |mes |my |a |le |the ))?(?:jetons? (?:d')?)?(?:gold|or)(?: tokens?)?$"));
+ if(spendGold){
+  const count=spendGold[1]?num(spendGold[1]):1;
+  const ready=state.cards.filter(c=>goldToken(c)&&c.owner==="human"&&c.zone==="base"&&!c.exhausted&&!c.faceDown);
+  if(count<1||ready.length<count)return fail("Tu n’as pas assez de jetons Gold prêts.","You do not have enough ready Gold tokens.");
+  const commands=ready.slice(0,count).map(({uid})=>({type:"activate",player:"human",uid}));
+  try{return {commands,recognized:true,summary:commands.reduce(applyCommand,state).message};}
+  catch(error){return fail(error.message,error.message);}
+ }
+ if(waiting?.trigger==="ending-ready-runes"){
+  const select=text.match(/^(?:je redresse|je prepare|i ready) (.+)$/);
+  const none=/^(?:aucune rune|je ne redresse aucune rune|no runes)$/.test(text);
+  if(none)return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,uids:[]}],recognized:true};
+  if(select){
+   const pool=state.cards.filter(r=>r.owner==="human"&&r.zone==="runes"&&r.exhausted);
+   const uids=[];
+   for(const part of select[1].split(/\s+(?:et|and)\s+/)){
+    const match=part.match(new RegExp("^"+number+"(?: runes?)?(?: (?:d'|de )?([a-z]+))?$"));
+    const count=match&&num(match[1]);
+    const domain=match&&match[2]&&Object.hasOwn(domainNames,match[2])?domainNames[match[2]]:null;
+    const candidates=pool.filter(r=>!uids.includes(r.uid)&&(!domain||runeDomain(r)===domain));
+    if(!count||count+uids.length>waiting.count||candidates.length<count||match[2]&&!domain||
+       !domain&&count!==candidates.length&&new Set(candidates.map(runeDomain)).size>1)
+     return fail("Indique le nombre et le domaine des runes à redresser, ou choisis-les sur le plateau.",
+      "Give the number and domain of the runes to ready, or select them on the board.");
+    uids.push(...candidates.slice(0,count).map(r=>r.uid));
+   }
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,uids}],recognized:true};
+  }
+ }
+ if(waiting?.trigger==="burn"&&waiting.player==="human"){
+  const reveal=text.match(/^(?:je revele|i reveal)\s+(.+)$/);
+  const decline=waiting.optional&&/^(?:je decline|je refuse|i decline|non|no)$/.test(text);
+  if(decline)return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,decline:true}],recognized:true};
+  if(reveal){
+   const names=reveal[1].split(/\s+(?:et|and)\s+/);
+   if(names.length!==waiting.burnCount)return fail("Annonce uniquement les "+waiting.burnCount+" cartes mises en défausse.",
+    "Name only the "+waiting.burnCount+" cards put into the trash.");
+   const cards=names.map(name=>findAnnouncedCard(catalog,name));
+   if(cards.some(c=>!c))return unknownCard(catalog,names[cards.indexOf(null)]);
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,cards}],recognized:true};
+  }
+ }
+ if(waiting?.trigger==="hidden-reveal"||waiting?.trigger==="pakaa-reveal"){
+  const topCard=waiting.trigger==="pakaa-reveal"&&text.match(/^(?:la carte du dessus est|le dessus est|c'est une unite c'est|c'est|the top card is)\s+(?:(?:le|la|the) )?(.+)$/);
+  const reveal=topCard||text.match(/^(?:je revele|i reveal)\s+(.+)$/);
+  if(reveal){
+   const card=findAnnouncedCard(catalog,reveal[1]);
+   if(!card)return unknownCard(catalog,reveal[1]);
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};
+  }
+ }
+ if(declaredDiscard&&waiting?.player==="human"&&
+    (waiting.choice?.kind==="discard-draw"||waiting.trigger==="spell-discard")){
+  const card=findAnnouncedCard(catalog,declaredDiscard[1]);
+  if(!card)return unknownCard(catalog,declaredDiscard[1]);
+  return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};
+ }
+ if(declaredDiscard?.[2])return fail("Aucune défausse suivie d’une pioche n’est en attente.",
+  "No discard-and-draw effect is pending.");
+ if(/^(?:je passe|i pass|vas y|tu peux resoudre|je ne peux pas reagir|aucune reaction)$/.test(text)){
+  if(state.spellChain)return {commands:[{type:"chain-pass",player:"human"}],recognized:true};
+ }
+ const namedChampion=planNamedChampionAnnouncement(message,state);
+ if(namedChampion)return namedChampion;
+ const explicit=announcedPayment(text);
+ if(explicit.error)return explicit.error;
+ const {text:playText,payment}=explicit;
+ const chosen=/\b(?:je joue|i play) (?:mon |my )?(?:champion choisi|chosen champion)\b/.test(playText);
+ const targeted=targetedPlay(playText,state,catalog);
+ if(targeted){
+  if(targeted.error)return targeted;
+  if(payment)targeted.payment=payment;
+  try{const preview=applyCommand(state,targeted);
+   return {commands:[targeted],recognized:true,summary:preview.message};
+  }catch(error){return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);}
+ }
+ const destination=playText.match(/^(?:je joue|je pose)\s+(.+?)\s+(?:a|au)\s+(.+?)(?:\s+pour .*runes?)?$/);
+ if(destination){
+  const champion=chosen&&state.cards.find(c=>c.owner==="human"&&c.zone==="champion");
+  const card=champion||(!chosen&&findAnnouncedCard(catalog,destination[1]));
+  const field=spokenField(state,destination[2]);
+  if(chosen&&!champion)return fail("Ton champion choisi n’est plus dans sa zone.","Your chosen champion is no longer in its zone.");
+  if(chosen&&field===null)return fail("Précise le champ où jouer ton champion choisi.","Name the battlefield for your chosen champion.");
+  if(card&&field!==null){
+   const cmd={type:"play-physical",...(champion?{uid:champion.uid}:{card}),battlefield:field,...(payment&&{payment})};
+   try{return {commands:[cmd],recognized:true,summary:applyCommand(state,cmd).message};}
+   catch(error){return fail("Action non appliquée : "+error.message,"Action not applied: "+error.message);}
+  }
+ }
+ const holdDraw=text.match(/^(?:j'ai hold avec .+? )?je pioche pour (.+?) et pour mon tour$/)||
+  text.match(/^(?:i held with .+? )?i draw for (.+?) and for my turn$/);
+ if(holdDraw){
+  const holds=state.turnActions?.holdDraws||[];
+  const source=spokenPublicTarget([...new Set(holds.map(h=>h.name))].map(name=>({name})),holdDraw[1]);
+  if(state.active!=="human"||!source||!state.turnActions.drawn)return fail(
+   "Je ne retrouve pas la pioche de maintien et la pioche normale de ce tour sur le plateau. Vérifie les effets en attente.",
+   "I cannot verify both the Hold draw and the normal draw this turn. Check the pending effects.");
+  return {recognized:true,commands:[],
+   summary:"Les deux pioches sont enregistrées, celle de "+source.name+" au maintien et celle du tour.",
+   summaryEN:"Both draws are recorded, from "+source.name+" holding and from the normal draw step."};
+ }
+ const correctedChannel=text.match(/^((?:je )?(?:canalise|channel))\s+.+?\s+(?:euh\s+)?(?:non|pardon)\s+(.+)$/);
+ const namedChannel=(correctedChannel?correctedChannel[1]+" "+correctedChannel[2]:text)
+  .match(/\b(?:canalise|channel)\s+(.+)$/);
+ if(namedChannel){
+  const group=new RegExp("^(?:(?:les|mes|my|the) )?(?:"+number+" (?:runes? )?)?(?:d'|de )?([a-z]+)$");
+  const selected=namedChannel[1].split(/\s+(?:et|and)\s+/).map(part=>part.match(group));
+  if(selected.every(match=>match&&Object.hasOwn(domainNames,match[2]))){
+   const counts=selected.map(match=>match[1]?num(match[1]):1);
+   const total=counts.reduce((sum,count)=>sum+count,0);
+   if(counts.some(count=>count<1)||total>3)return fail(
+    "Indique un nombre de runes canalisées entre un et trois.","Name between one and three channeled runes.");
+   return identifyChanneledRunes(state,selected.flatMap((match,i)=>Array(counts[i]).fill(domainNames[match[2]])));
+  }
+  const tokens=namedChannel[1].split(" ");
+  if(tokens.every(token=>Object.hasOwn(domainNames,token)))
+   return identifyChanneledRunes(state,tokens.map(token=>domainNames[token]));
+ }
  const channel=text.match(new RegExp("\\b(?:pioche|canalise|channel|draw|prends|take)\\s+(?:(?:mes|my|the|les|des|de)\\s+)?"+number+"\\s+runes?\\b"))||
   text.match(new RegExp("\\b(?:canalise|channel)\\s+"+number+"\\b"));
  const draw=text.match(new RegExp("\\b(?:pioche|draw|prends|take)\\s+(?:(?:mes|my|the|les|des|de)\\s+)?"+number+"\\s+(?:cartes?|cards?)\\b"))||
   (/\b(?:pioche|draw)\s+(?:ma|une|la|my|one|a|the)\s+(?:carte|card)\b/.test(text)?["","1"]:null);
  const spend=text.match(new RegExp("\\b(?:exhaust|epuise|tap|spend|utilise|use)\\s+(?:(?:mes|my|les)\\s+)?"+number+"(?:\\s+runes?)?\\b"))||
   text.match(new RegExp("\\b(?:pour|for|avec|with|contre|cout|coute|payer|pay)\\s+"+number+"\\s+runes?\\b"));
- const play=text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{2,96}?)\s+(?:dans|sur|in|onto|on|to)\s+(?:(?:ma|mon|my|the|la|le)\s+)?(base|champ(?: de bataille)?|battlefield|terrain|field)\b/)||
-   text.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{3,90}?)(?=\s+(?:pour|for|avec|with|contre|cout|coute|payer|pay)\s+(?:\d+|un|une|one|two|deux|trois|three|four|quatre)\s+runes?\b|\s+(?:et\s+je|and\s+i|puis\s+je|then\s+i)\b|$)/);
- const endTurn=/\b(?:termine|finis|passe|end|finish|pass)\s+(?:(?:mon|my|le|the)\s+)?(?:tour|turn)\b|\b(?:mon|my)\s+(?:tour|turn)\s+(?:(?:is|est)\s+)?(?:fini|termine|over)\b/.test(text);
- const recognized=Boolean(channel||draw||spend||play||endTurn);
+ const play=playText.match(/\b(?:joue|pose|place|invoque|play|summon|mets)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+|l')?([a-z0-9' -]{2,96}?)\s+(?:dans|sur|in|onto|on|to)\s+(?:(?:ma|mon|my|the|la|le)\s+)?(base|champ(?: de bataille)?|battlefield|terrain|field)\b/)||
+   playText.match(new RegExp("\\b(?:joue|pose|place|invoque|play|summon|mets)\\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\\s+|l')?([a-z0-9' -]{3,90}?)(?=\\s+(?:pour|for|avec|with|contre|cout|coute|payer|pay)\\s+(?:"+numberToken+")\\s+runes?\\b|\\s+(?:et\\s+je|and\\s+i|puis\\s+je|then\\s+i)\\b|$)"));
+ const endTurn=/\b(?:termine|finis|passe|end|finish|pass)\s+(?:(?:mon|my|le|the)\s+)?(?:tour|turn)\b|\b(?:mon|my)\s+(?:tour|turn)\s+(?:(?:is|est)\s+)?(?:fini|termine|over)\b/.test(text)||
+   state.phase==="Main"&&!state.pendingCombat&&!state.spellChain&&/^(?:je passe|i pass)$/.test(text);
+ const recognized=Boolean(channel||draw||spend||play||endTurn||chosen);
  if(!recognized)return {commands:[],recognized:false};
  if(state.active!=="human")return fail("Ce n'est pas ton tour : attends que l'IA termine le sien.",
   "It isn't your turn yet. Wait for the AI to finish.");
@@ -134,7 +562,7 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    }
   }
   if(draw){
-   if(!preview.turnActions?.channeled)return fail("Commence par canaliser les runes de ton tour.",
+   if(!preview.turnActions?.channeled&&preview.players.human.runeCount>0)return fail("Commence par canaliser les runes de ton tour.",
     "Channel your runes before drawing.");
    const count=num(draw[1]);
    if(preview.turnActions?.drawn===count){
@@ -148,41 +576,27 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    add({type:"draw",player:"human",count:1});
    }
   }
-  if(play){
-   if(play[2]&&play[2]!=="base")return fail("Le déplacement direct vers un champ de bataille nécessite une vérification des règles. Précise l'action exacte.",
+  if(play||chosen){
+   if(play?.[2]&&play[2]!=="base")return fail("Le déplacement direct vers un champ de bataille nécessite une vérification des règles. Précise l'action exacte.",
     "Playing directly onto a battlefield needs rules verification. Clarify the exact action.");
-   const card=findAnnouncedCard(catalog,play[1]);
+   const champion=chosen?preview.cards.find(c=>c.owner==="human"&&c.zone==="champion"):null;
+   if(chosen&&!champion)return fail("Ton champion choisi n'est plus dans sa zone.","Your chosen champion is no longer in its zone.");
+   const card=champion||findAnnouncedCard(catalog,play[1]);
    if(!card)return unknownCard(catalog,play[1]);
-   if(!/unit|unite|unité/i.test(card.type||""))
-    return fail("Cette carte n'est pas une unité jouable en base. Vérifions sa zone et son effet.",
-     "This card is not a regular unit playable into your base. Check its zone and effect.");
-   if(preview.players.human.handCount<=0)
+   if(!/^(unit|gear)$/i.test(card.type||""))
+    return fail("Indique la cible du sort dans ton annonce.","Specify the unit targeted by the spell.");
+   if(!chosen&&preview.players.human.handCount<=0)
     return fail("Le compte de ta main est à zéro : vérifie-le avant de jouer une carte.",
       "Your hand count is zero. Update it before playing a card.");
-   if(!preview.turnActions?.channeled||!preview.turnActions?.drawn)
+   if(preview.phase!=="Main"&&(!preview.turnActions?.channeled||!preview.turnActions?.drawn))
     return fail("Le début de tour n'est pas encore résolu sur le plateau.",
       "The normal start of turn has not been completed on the board.");
    if(card.energy==null||card.energy===""||!Number.isFinite(Number(card.energy))||Number(card.energy)<0)
     return fail("Le coût de "+card.name+" est indisponible : paiement non vérifiable.",
       "The cost of "+card.name+" is missing; payment cannot be verified.");
-   const energy=Number(card.energy),ready=preview.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&!c.exhausted).length;
-   const spent=spend?num(spend[1]):energy;
-   // Energy is printed on the card: infer payment without making the player
-   // announce a number. A spoken number must still be checked against the card.
-   if(Number(card.power||0)>0)return fail(
-    "Cette carte exige aussi du Power de domaine : confirme les runes à recycler avant de la jouer.",
-    "This card also requires domain Power: confirm which runes to recycle before playing.");
-   if(ready<energy)return fail(
-     "Tu ne peux pas encore jouer "+card.name+" : cette carte coûte "+energy+
-     " énergies, mais tu n'as que "+ready+" runes prêtes. Aucune carte n'a été posée.",
-     "You cannot play "+card.name+" yet: it costs "+energy+
-     " energy, but you only have "+ready+" ready rune(s). No card was played.");
-    if(!Number.isInteger(spent)||spent!==energy)
-     return fail("Pour jouer "+card.name+", il faut épuiser exactement "+energy+" runes, et non "+spent+".",
-      "Playing "+card.name+" requires exactly "+energy+" runes, not "+spent+".");
-    if(spent>0)add({type:"exhaust-runes",player:"human",count:spent});
-   add({type:"phase",phase:"Main"});
-   add({type:"add",player:"human",card,zone:"base",fromHand:true});
+   const cost=spend?{...payment,exhausted:payment?.exhausted??num(spend[1])}:payment;
+   if(preview.phase!=="Main")add({type:"phase",phase:"Main"});
+   add({type:"play-physical",...(champion?{uid:champion.uid}:{card}),...(cost&&{payment:cost})});
   }else if(spend){
    const count=num(spend[1]),ready=preview.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&!c.exhausted).length;
    if(!Number.isInteger(count)||count<1||count>ready)
@@ -191,8 +605,8 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
    add({type:"exhaust-runes",player:"human",count});
   }
   if(endTurn){
-   add({type:"phase",phase:"Ending"});
-   add({type:"next-turn"});
+   if(preview.phase!=="Ending")add({type:"phase",phase:"Ending"});
+   if(!preview.pendingEffects?.length&&!preview.spellChain)add({type:"next-turn"});
   }
   return {commands,recognized:true,summary:commands.length?preview.message:""};
  }catch(error){return fail("Action non appliquée : "+String(error.message||error),

@@ -5,6 +5,26 @@ Compagnon gratuit pour jouer à **Riftbound avec tes cartes physiques** face à 
 **Site :** https://nitarii.github.io/Riftbound/  
 **Windows :** [Télécharger Riftbound Companion v0.42](https://github.com/Nitarii/Riftbound/releases/download/companion-latest/RiftboundCompanion-v0.42.exe)
 
+## Aperçu 0.43 — Duels et voix locale
+
+L’aperçu Windows est destiné aux essais et s’installe dans un dossier séparé. La version publique ci-dessus n’est pas remplacée par cet aperçu.
+
+- **Jouer sur davantage de PC.** Le gestionnaire propose Qwen3.5 9B, Qwen3 4B, la bascule Vulkan vers CPU et un mode sans modèle de langage. Le dernier mode reste capable de jouer et de traiter les annonces reconnues ; les réponses libres requièrent Qwen. Le micro Whisper Small peut être installé seul. Windows x64 est la cible du binaire ; la compatibilité GPU dépend du pilote. La prévisualisation n’a pas été exécutée sur un autre PC ni sous Windows ARM.
+- **Partie.** Une conquête attend la fin de la confrontation. La chaîne affiche les sorts joués, leurs cibles et leur priorité. Le moteur traite notamment Discipline, Ruthless Strike, Ki Barrier et Resonating Strike, et valide énergie, recyclage et défausse avant d’appliquer une action. Le plateau peut annuler la dernière transaction locale de la session.
+- **Voix.** Les annonces au micro passent par Whisper Small, sans service de transcription externe. Pour les réponses parlées, utiliser une voix installée et locale de Windows ou ajouter [Piper SIWIS](#ajouter-une-voix-fran%C3%A7aise-piper-facultative). La voix de réponse est indépendante du modèle de reconnaissance.
+- **Agent en ligne.** Depuis l’accueil du compagnon Windows, le bouton d’accès distant ouvre un lien HTTPS temporaire et prépare le prompt à coller dans une conversation privée avec l’agent. L’agent reprend le plateau en cours. Il peut lire les annonces, jouer et répondre par la console web ou l’API. Le compagnon indique quels messages ont déjà été appliqués au plateau. Si l’ouverture du tunnel échoue, le compagnon réactive l’adversaire local qui jouait auparavant.
+- **Caché et Flux.** « Je cache une carte au Grove avec une rune Order » laisse l’identité de la carte physique secrète. À partir du tour suivant, l’aperçu sait jouer Disciple of Shen et Resonating Strike depuis cette zone. « Je joue Lacerate par Flux sur Mournful Witness » utilise la carte de ta défausse et son coût alternatif. L’ordre d’attribution des dégâts peut aussi être annoncé en donnant le nom des unités adverses dans l’ordre voulu.
+
+Le [rapport de validation](docs/validation-preview-043.md) détaille les cas testés, les performances et les mécaniques qui nécessitent encore un arbitrage.
+
+### Ajouter une voix française Piper (facultative)
+
+1. Installer [Python 3.12 x64](https://www.python.org/downloads/windows/) avec son lanceur Windows. Cette dépendance ne concerne que Piper.
+2. Depuis les sources du compagnon, lancer le script en indiquant le **dossier d’installation du compagnon** : `powershell -File scripts/install-piper.ps1 -InstallRoot "D:\Jeux\Riftbound Preview"`
+3. Ouvrir le compagnon, activer la lecture des réponses vocales et écouter une réponse. Le gestionnaire signale la présence de SIWIS. Si Piper est absent ou indisponible, le navigateur cherche une voix de la même langue déclarée locale. Sinon le texte reste affiché.
+
+[Piper 1.8](https://github.com/OHF-Voice/piper1-gpl/releases/tag/v1.8.0) et le [modèle SIWIS épinglé et sa fiche](https://huggingface.co/rhasspy/piper-voices/blob/cf910fb/fr/fr_FR/siwis/medium/MODEL_CARD) sont téléchargés séparément à la demande. La voix ne nécessite aucun compte ni service en ligne après installation. Elle traite les réponses françaises ; les réponses anglaises utilisent la voix locale du système.
+
 ## v0.42 — Règles du jeu RUP5 FR dans l'IA
 
 - Référence reconstruite à partir du livre français des règles de base RUP5 (**156 pages, édition 09/10/2026**). L'index contient plus de 50 résumés originaux avec les numéros de règles et leurs pages, sans republier le texte intégral du PDF protégé.

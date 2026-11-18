@@ -378,6 +378,9 @@ body.home-visible .header-actions > :not(.header-home):not(.header-manager){disp
 .chat-bubble.from-ai{align-self:flex-start;background:#273f34;border-color:#56806b;border-bottom-left-radius:3px}
 .chat-bubble small{font-size:10px;color:#b8c9c6}
 .chat-bubble p{font-size:12px;line-height:1.55;margin:0;color:#e6e9e0;white-space:pre-wrap}
+.chat-view{display:flex;align-items:center;align-self:flex-start;gap:8px;margin-top:5px;text-align:left}
+.chat-view img{width:30px;height:auto;border-radius:3px}
+.chain-card{max-width:100%;text-align:left}
 .chat-panel .chat-label{margin:3px 0 0;font-size:11px;color:#e2ce9d}
 .chat-panel #notes{resize:vertical;min-height:70px;max-height:170px;border-radius:9px;padding:12px;
  border:1px solid #57727b;line-height:1.55;background:#0b1924}
@@ -1951,6 +1954,13 @@ body:not(.home-visible) #game-app.history-collapsed{
 #pending-effect-panel strong{color:#f2d78e;font-size:14px}
 #pending-effect-panel p{margin:5px 0;color:#f2eee4;font-size:13px;line-height:1.5;white-space:pre-wrap}
 #pending-effect-panel small{color:#b5c7cf;font-size:11px;line-height:1.4}
+#pending-effect-runes[hidden]{display:none}
+#pending-bird-choice[hidden],#pending-target-choice[hidden],#pending-effect-decline[hidden]{display:none!important}
+#pending-effect-runes{min-inline-size:0;margin:8px 0 0;padding:6px 8px;border:1px solid #6b7980;border-radius:6px}
+#pending-effect-runes legend{font-size:12px}
+#pending-effect-rune-options{display:flex;flex-wrap:wrap;gap:4px 12px}
+#pending-effect-rune-options label{flex-direction:row;align-items:center;gap:5px;min-height:30px;margin:0;font-size:12px}
+#pending-effect-rune-options input[type="checkbox"]{flex:none;width:auto;margin:0;padding:0}
 #pending-effect-panel button{min-height:42px;max-width:100%;white-space:normal}
 
 /* Completed match: keep scores visible without leaving the playmat. */

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
 const card=(name,type="Unit",extra={})=>({name,type,might:2,energy:0,power:0,...extra});
 function board(){
  let s=createState();
@@ -20,7 +21,7 @@ test("normal Move requires controlling turn, ready unit and current Main Phase",
  const uid=s.cards.find(x=>x.name==="Scout").uid;
  s=applyCommand(s,{type:"move",uid,zone:"battlefield",battlefield:0});
  assert.equal(s.cards.find(x=>x.uid===uid).exhausted,true);
- assert.throws(()=>applyCommand(s,{type:"move",uid,zone:"base"}),/épuisée/);
+ assert.throws(()=>applyCommand(passShowdown(s),{type:"move",uid,zone:"base"}),/épuisée/);
  let t=board();t=add(t,"Other");const id=t.cards.find(x=>x.name==="Other").uid;
  t=applyCommand(t,{type:"phase",phase:"Ending"});
  assert.throws(()=>applyCommand(t,{type:"move",uid:id,zone:"battlefield",battlefield:0}),/Main Phase/);
@@ -35,5 +36,5 @@ test("a battlefield-to-battlefield standard move requires Ganking and exhausts t
  s=applyCommand(s,{type:"move",uid:b,zone:"battlefield",battlefield:1});
  assert.equal(s.cards.find(x=>x.uid===b).exhausted,true);
  assert.equal(s.cards.find(x=>x.uid===b).battlefield,1);
- assert.throws(()=>applyCommand(s,{type:"move",uid:b,zone:"base"}),/épuisée/);
+ assert.throws(()=>applyCommand(passShowdown(s),{type:"move",uid:b,zone:"base"}),/épuisée/);
 });

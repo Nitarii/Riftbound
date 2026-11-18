@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards} from "../catalog.mjs";
-import {compileCardAbilities} from "../effect-engine.mjs";
+import {compileCardAbilities,spellRule} from "../effect-engine.mjs";
 import {mandatoryPlayEffects} from "../play-effects.mjs";
 
 const args=process.argv.slice(2);
@@ -26,9 +26,12 @@ async function load(){
 }
 const cards=await load();
 const types={},issues={},features={},unresolved=[];
-let withText=0,parsed=0,zeroEffect=0,unhandled=0,unknownCosts=0;
+let withText=0,parsed=0,zeroEffect=0,unhandled=0,unknownCosts=0,compiledSpells=0,verifiedSpells=0;
 for(const card of cards){
  const type=card.type||"Other";types[type]=(types[type]||0)+1;
+ const spell=spellRule(card);
+ if(spell?.compiled)compiledSpells++;
+ else if(spell)verifiedSpells++;
  if(!card.text?.trim()){zeroEffect++;continue;}
  withText++;
  const result=compileCardAbilities(card);
@@ -52,7 +55,7 @@ const result={
  caveat:"Syntax coverage only: no completeness or official rules-conformance guarantee",
  total:cards.length,withText,zeroEffect,parsedTextOnly:parsed,
  unresolvedCards:unhandled,parsedFraction:withText?+(parsed/withText).toFixed(4):0,
- unknownCosts,types,recognizedOperations:features,issueCounts:issues,
+ unknownCosts,types,compiledSpells,verifiedSpells,recognizedOperations:features,issueCounts:issues,
  unresolvedExamples:unresolved
 };
 if(args.includes("--json"))console.log(JSON.stringify(result,null,2));
@@ -61,6 +64,7 @@ else{
  console.log("Cards",cards.length,"with text",withText,"parsed without flagged text",parsed,
   "unresolved",unhandled,"coverage ratio",result.parsedFraction);
  console.log("Card categories:",JSON.stringify(types));
+ console.log("Cast rules from printed text",compiledSpells,"and explicit handlers",verifiedSpells);
  console.log("Recognized ops:",JSON.stringify(features));
  console.log("Unresolved reasons:",JSON.stringify(issues));
  console.log("Examples:",JSON.stringify(unresolved.slice(0,15),null,2));

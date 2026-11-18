@@ -46,6 +46,34 @@ test("the outbound context never exposes physical player's hidden cards, or deck
  assert.ok(!text.includes("Human secret card"));
  assert.ok(!text.includes("decks"));
 });
+test("direct questions about combat totals use the reducer both before and after the damage step",async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-combat-reply-"));
+ let state=startState();
+ const apply=command=>{state=applyCommand(state,command);};
+ apply({type:"phase",phase:"Main"});
+ apply({type:"add",player:"human",zone:"base",card:{name:"Attacker",type:"Unit",might:9}});
+ apply({type:"add",player:"ai",zone:"battlefield",battlefield:0,card:{name:"Defender",type:"Unit",might:1}});
+ apply({type:"combat-attack",player:"human",battlefield:0,uids:[state.cards.find(c=>c.name==="Attacker").uid]});
+ let done,modelCalls=0;
+ try{
+  const ai=createIntegratedAI({userData:dir,getState:()=>state,getCatalog:async()=>[],
+   getMessages:()=>({session:"combat",messages:[]}),sendMessage:text=>done(text),
+   applyBatch:()=>assert.fail("A combat question tried to change the board"),
+   fetchImpl:async()=>{modelCalls++;return {ok:false,status:503};}
+  });
+  ai.configure({provider:"free",model:"qwen3.5:9b-q4km"});
+  const ask=message=>Promise.race([new Promise(resolve=>{
+   done=resolve;ai.onHumanMessage(message);
+  }),new Promise((_,reject)=>setTimeout(()=>reject(Error("No combat reply")),1000).unref())]);
+  const revision=state.revision;
+  assert.match(await ask("Quelle est la force provisoire en attaque puis en défense ?"),/9.*1.*avant les réactions/);
+  assert.equal(state.revision,revision);
+  apply({type:"combat-pass",player:"human"});
+  apply({type:"combat-pass",player:"ai"});
+  assert.match(await ask("Quels étaient les totaux d’attaque et de défense au dernier combat"),/dernier combat.*9.*1/);
+  assert.equal(modelCalls,0);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
 test("the opponent cannot reset games, invent AI cards or manipulate a hidden hand",()=>{
  const state=startState();
  assert.throws(()=>validateAgentCommands([{type:"reset"}],state,"Je joue"),/Commande non autorisée/);

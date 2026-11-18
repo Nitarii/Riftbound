@@ -204,7 +204,9 @@ main>footer{order:8}
    </div>
   </div>
   <p id="ai-runtime" role="status" aria-live="polite">Les modèles restent stockés dans le dossier du compagnon.</p>
-  <div class="actions"><button class="primary" id="ai-install">Installer / activer IA et micro</button></div>
+  <div class="actions"><button class="primary" id="ai-install">Installer / activer IA et micro</button>
+   <button id="ai-rules-only">Jouer sans modèle de langage</button>
+   <button id="speech-install-only">Installer le micro seul</button></div>
   <div id="ai-info" class="notice" role="status"></div><progress hidden id="ai-progress" max="100"></progress>
   <div id="speech-info" class="notice" role="status"></div><progress hidden id="speech-progress" max="100"></progress>
  </section>
@@ -264,7 +266,7 @@ let token=params.get("access")||"";
 if(token)try{sessionStorage.setItem(key,token)}catch{}
 if(!token)try{token=sessionStorage.getItem(key)||""}catch{}
 history.replaceState(null,"",location.pathname);
-let root="",availableVersion="",busy=false,managerStatus=null,stopping=false,refreshing=false;
+let root="",availableVersion="",busy=false,managerStatus=null,stopping=false,refreshing=false,lastProcesses=null;
 let latestProcesses=null,awaitingUpdateRestart=false,aiProfileTouched=false;
 let activitySignature="",activityAdvance=0;
 const api=async(url,method="GET",data)=>{
@@ -301,6 +303,7 @@ function showActivity({kind,phase="",percent=0,bytes=0,detail="",terminal=false}
 }
 function showStatus(id,text){$(id).textContent=text||""}
 function renderProcesses(data){
+ lastProcesses=data;
  latestProcesses=data;
  const q=data.qwen||{},w=data.whisper||{},t=data.tunnel||{};
  function badge(id,word,state){
@@ -483,9 +486,13 @@ async function refresh(){
   (ai.notice?" · "+ai.notice:""));
  showStatus("ai-info","IA · "+(ai.message||"En attente")+(ai.error?" · "+ai.error:""));
  progress("ai-progress",ai);
- showStatus("speech-info","Micro · "+(speech.message||"En attente")+(speech.error?" · "+speech.error:""));
+ showStatus("speech-info","Micro · "+(speech.message||"En attente")+(speech.error?" · "+speech.error:"")+
+  (speech.synthesis?.installed?" · Réponses vocales françaises : Piper SIWIS":" · Réponses vocales : voix locales de Windows"));
  progress("speech-progress",speech);
  $("ai-install").disabled=!manager.canLaunch||modelsBusy||(profileReady&&speechReady);
+ $("ai-rules-only").disabled=!manager.canLaunch||modelsBusy||ai.rulesOnly;
+ $("ai-rules-only").textContent=ai.rulesOnly?"✓ Moteur de jeu sans Qwen":"Jouer sans modèle de langage";
+ $("speech-install-only").disabled=!manager.canLaunch||modelsBusy||speechReady;
  $("ai-install").textContent=modelsBusy?"Installation / chargement…":profileReady&&speechReady?"✓ IA et micro prêts":
   aiReady&&requestedModel!==ai.selectedModel?"Changer de modèle IA":
   aiReady?"Activer le micro ou changer d'accélérateur":
@@ -568,6 +575,17 @@ $("ai-install").onclick=()=>execute(async()=>{
  const r=await api("/api/ai/free/install","POST",{model,backend,confirmFolder:root});
  aiProfileTouched=false;
  report(r.message||"Installation IA et micro lancée.");
+});
+$("ai-rules-only").onclick=()=>execute(async()=>{
+ await api("/api/ai/rules/activate","POST",{});
+ report("Moteur de jeu activé. La saisie écrite et les actions reconnues restent utilisables.");
+});
+$("speech-install-only").onclick=()=>execute(async()=>{
+ if(!confirm("Installer Whisper Small uniquement dans :\n"+root))return;
+ if(lastProcesses?.whisper?.installed&&!lastProcesses.whisper.enabled)
+  await api("/api/manager/processes/whisper/enable","POST",{});
+ else await api("/api/speech/install","POST",{confirmFolder:root});
+ report("Préparation du micro local lancée.");
 });
 async function stopProcess(target){
  const result=await api("/api/manager/processes/stop","POST",{target});

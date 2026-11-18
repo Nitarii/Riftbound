@@ -10,6 +10,7 @@ import {spawn} from "node:child_process";
 import {stopOwnedProcess} from "./process-lifecycle.mjs";
 import * as sea from "node:sea";
 import {brotliDecompressSync} from "node:zlib";
+import {CURRENT_VERSION} from "./release-policy.mjs";
 
 const LIVE_MS=4*60*60*1000;
 const MAX_JSON=100000;
@@ -104,14 +105,14 @@ export function createRemoteAccess({
    if(req.method==="GET"&&name==="/openapi.json"){
     send(res,200,{
      openapi:"3.0.3",
-     info:{title:"Riftbound Physical Game Agent API",version:"0.10.0",
-      description:"Requires a bearer token. This tracks a physical game, not a full rules engine."},
+     info:{title:"Riftbound Physical Game Agent API",version:CURRENT_VERSION,
+      description:"Play a physical duel using a temporary bearer token and validated game commands."},
      security:[{sessionToken:[]}],
      components:{securitySchemes:{sessionToken:{type:"http",scheme:"bearer"}}},
      paths:{
       "/api/guide":{get:{summary:"Read supported game commands"}},
       "/api/state":{get:{summary:"Read shared board and card state"}},
-      "/api/messages":{get:{summary:"Poll announcements from the physical player. Use after=lastId."},
+      "/api/messages":{get:{summary:"Poll resolved announcements. Use after=lastId and read each announcement’s table.status."},
        post:{summary:"Send an AI reply to the player's chat box",requestBody:{
         content:{"application/json":{schema:{type:"object",properties:{text:{type:"string"}}}}}}}},
       "/api/decks":{get:{summary:"Available prebuilt AI decks"}},
@@ -134,9 +135,16 @@ export function createRemoteAccess({
     send(res,200,{state});return;
    }
    if(req.method==="GET"&&name==="/api/guide"){
-    send(res,200,{...getGuide(),
+    const {endpoints={},commands={},allCommandTypes=[],...guide}=getGuide();
+    const remoteEndpoints=Object.fromEntries(Object.entries(endpoints).filter(([endpoint])=>
+     /^(?:GET|POST) \/api\/(?:guide|state|catalog|decks|messages|command)(?:\?|$)/.test(endpoint)));
+    remoteEndpoints["POST /api/messages"]="Reply to the physical player with JSON {text}.";
+    const remoteCommands=Object.fromEntries(Object.entries(commands).filter(([key])=>
+     !["reset","setup-human|setup-ai","undo","rewind-combat","cancel-follow-up"].includes(key)));
+    send(res,200,{...guide,endpoints:remoteEndpoints,commands:remoteCommands,
+      allCommandTypes:allCommandTypes.filter(type=>!["reset","setup-human","undo","rewind-combat","cancel-follow-up"].includes(type)),
       remote:true,
-      note:"Use this temporary HTTPS URL with Bearer token, never localhost. Poll GET /api/messages?after=ID for human actions. Respond via POST /api/messages and move cards with POST /api/command. No local admin or tunnel controls exposed."});return;
+      note:"Poll /api/messages?after=ID with the temporary token. Do not repeat announcements that are applied or unchanged. A delegated announcement is available to interpret. Treat clarification or rejection as a request to coordinate with the player. Use state.revision as ifRevision for commands and check the receipt."});return;
    }
    if(req.method==="GET"&&name==="/api/decks"){
     send(res,200,{decks:getDecks()});return;
@@ -157,11 +165,11 @@ export function createRemoteAccess({
     }
     // In a physical game the agent must never reset the player's session or
     // rewrite the player's private setup through remote access.
-    if(["reset","setup-human"].includes(input.type)){
+    if(["reset","setup-human","undo","rewind-combat","cancel-follow-up"].includes(input.type)){
       send(res,403,{error:"Cette action appartient au joueur local"});return;
     }
-    const state=await performCommand(input);
-    send(res,200,{ok:true,state});return;
+    const result=await performCommand(input);
+    send(res,200,{ok:true,...(result?.receipt?result:{state:result})});return;
    }
    send(res,404,{error:"Route distante indisponible"});return;
   }catch(e){send(res,400,{error:e.message||"Erreur de commande"});}

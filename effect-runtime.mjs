@@ -3,12 +3,20 @@
 // This is not the complete Riot chain/priority/continuous-effect rules engine.
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
-import {drawMainCards} from "./draw-rules.mjs";
-import {effectiveMight} from "./combat-engine.mjs";
+import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
+import {effectiveMight,OPPOSITE} from "./combat-engine.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
 const ownerName=p=>p==="ai"?"IA":"Joueur";
+export function unitBeforeDeath(state,card){
+ const combat=state.pendingCombat;
+ const role=combat?.kind==="combat"&&card.zone==="battlefield"&&combat.battlefield===card.battlefield?
+  (combat.attacker===card.owner?"attack":"defend"):"none";
+ return {...card,wasMighty:effectiveMight(card,role,state)>=5,
+  withAlly:state.cards.some(other=>other.uid!==card.uid&&unit(other)&&!other.faceDown&&
+  other.owner===card.owner&&activeZone(card.zone)&&other.zone===card.zone&&other.battlefield===card.battlefield)};
+}
 // Most triggered abilities happen every time their condition occurs. Only
 // text explicitly saying once (or N times) per turn is limited.
 const isTracked=ability=>Number.isInteger(ability.perTurnLimit)&&ability.perTurnLimit>0;
@@ -16,6 +24,7 @@ function eligibleSources(state,event){
  const {trigger,actor,source,field}=event;
  if(["play","move","die","attack","defend","discard"].includes(trigger))return source?[source]:[];
  let cards=state.cards.filter(c=>c.owner===actor&&activeZone(c.zone));
+ if(trigger==="opponent-play")cards=cards.filter(c=>c.zone==="battlefield"&&!c.faceDown);
  if(["hold","conquer"].includes(trigger))
   cards=cards.filter(c=>c.zone==="battlefield"&&c.battlefield===field);
  if(["ally-play","draw"].includes(trigger)&&source)
@@ -40,11 +49,17 @@ function makePending(state,source,ability,actor,reason){
   reason:String(reason||"Choix ou capacité non automatisée").slice(0,250)
  });
 }
-function selectTarget(state,kind,source,actor){
- const pool=state.cards.filter(c=>unit(c)&&["base","battlefield"].includes(c.zone));
+function canChooseUnit(card,step,actor,source){
+ if(!card||!unit(card)||!["base","battlefield"].includes(card.zone)||card.faceDown||
+    step.atBattlefield&&card.zone!=="battlefield"||step.another&&card.uid===source.uid||
+    card.owner!==actor&&card.counters?.tempShroud)return false;
+ const {kind}=step;
  const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(kind);
  const friendly=kind==="buff-friendly";
- let eligible=pool.filter(c=>enemy?c.owner!==actor:friendly?c.owner===actor:true);
+ return enemy?card.owner!==actor:friendly?card.owner===actor:true;
+}
+function selectTarget(pool,kind,actor){
+ let eligible=pool;
  // For flexible choices prefer helpful actions over harming our own units.
  if(["damage-enemy","stun-unit","kill-unit"].includes(kind)){
   const hostile=eligible.filter(c=>c.owner!==actor);
@@ -73,32 +88,42 @@ function buildSteps(state,source,ability,actor,choices){
     ["discard","exhaust-runes","exhaust-self"].includes(x.kind)))
   return {instructions:[],declined:true};
  const required=ability.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
+ const handSize=state.players[actor].handCount;
  const selected=previous.length?previous:
-  required?chooseRequiredDiscards(state,source.uid,required):[];
- if(selected===null||selected.length!==required||new Set(selected).size!==selected.length)
+  required&&actor==="ai"?chooseRequiredDiscards(state,source.uid,Math.min(required,handSize)):[];
+ if(selected===null||new Set(selected).size!==selected.length)
   return {reason:"Choisis le nombre exact de cartes distinctes à défausser."};
  let discarded=0;
  const reservedDeflect=new Set();
  for(const step of ability.steps){
   let detail={...step};
   if(step.kind==="discard"){
-   if(actor!=="ai")return {reason:"Le joueur physique doit choisir et défausser ses cartes cachées."};
-   const uids=selected.slice(discarded,discarded+step.count);
-   if(!uids||uids.length!==step.count||new Set(uids).size!==uids.length)
+   if(actor!=="ai"&&handSize>0)return {reason:"Le joueur physique doit choisir et défausser ses cartes cachées.",
+    choice:ability.steps.length===2&&ability.steps[1].kind==="draw"&&step.count===1?
+      {kind:"discard-draw",draw:ability.steps[1].count}:null};
+   const count=Math.min(step.count,Math.max(0,handSize-discarded));
+   const uids=selected.slice(discarded,discarded+count);
+   if(!uids||uids.length!==count||new Set(uids).size!==uids.length)
     return {reason:"Cartes à défausser insuffisantes ou choix de main incomplet."};
    if(!uids.every(uid=>state.cards.some(c=>c.uid===uid&&c.owner===actor&&
     c.zone==="hand"&&c.uid!==source.uid)))
     return {reason:"Défausse invalide : carte absente de la main de l'IA."};
-   detail.uids=uids;discarded+=step.count;
+   detail.uids=uids;discarded+=count;
+  }
+  if(step.kind==="ready-friendly"){
+   const pool=state.cards.filter(c=>unit(c)&&c.owner===actor&&c.uid!==source.uid&&
+     c.exhausted&&["base","battlefield"].includes(c.zone));
+   if(!pool.length)continue;
+   if(actor==="human"&&pool.length!==1)return {reason:"Choisis quelle autre unité redresser."};
+   detail.targetUid=pool.sort((a,b)=>Number(b.might||0)-Number(a.might||0))[0].uid;
   }
   if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
        "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
-   const chosen=choices?.targetUid?state.cards.find(c=>c.uid===choices.targetUid):null;
-   const target=chosen||(actor==="ai"?selectTarget(state,step.kind,source,actor):null);
-   const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(step.kind);
-   const friendly=step.kind==="buff-friendly";
-   if(!target||!unit(target)||!["base","battlefield"].includes(target.zone)||
-      (enemy&&target.owner===actor)||(friendly&&target.owner!==actor))
+   const pool=state.cards.filter(card=>canChooseUnit(card,step,actor,source));
+   if(!pool.length&&!choices?.targetUid)continue;
+   const target=choices?.targetUid?pool.find(c=>c.uid===choices.targetUid):
+    actor==="ai"?selectTarget(pool,step.kind,actor):null;
+   if(!target)
     return {reason:"Choisis une unité valide pour cet effet."};
    if(target.owner!==actor&&/\bdeflect\b/i.test(target.text||"")){
     if(actor!=="ai")
@@ -122,7 +147,8 @@ function buildSteps(state,source,ability,actor,choices){
   return {reason:"Le nombre de cartes défaussées ne correspond pas au texte."};
  return {instructions};
 }
-function applySteps(state,source,steps,actor,place,deckCard){
+function applySteps(state,source,steps,actor,runtime,trigger){
+ const {place,deckCard}=runtime;
  const logs=[];
  for(const step of steps){
   const n=step.count;
@@ -143,7 +169,21 @@ function applySteps(state,source,steps,actor,place,deckCard){
     state.players[actor].handCount--;
     names.push(card.name);
    }
-   logs.push("défausse "+names.join(", "));
+   if(names.length)logs.push("défausse "+names.join(", "));
+  }else if(step.kind==="burn"){
+   logs.push(burnMainCards(state,actor,n,source,{place}));
+  }else if(step.kind==="score"){
+   state.players[actor].score+=n;
+   logs.push("+"+n+" PV");
+  }else if(step.kind==="ready-friendly"){
+   const target=state.cards.find(c=>c.uid===step.targetUid);
+   target.exhausted=false;
+   logs.push("redresse "+target.name);
+  }else if(step.kind==="shadow-clone"){
+   const token=place(state,actor,{code:"TOKEN-SHADOW-CLONE",name:"Shadow Clone",type:"Unit",
+    might:0,energy:0,power:0,tags:["Token"]},"base");
+   token.exhausted=true;
+   logs.push("crée Shadow Clone en base");
   }else if(step.kind==="predict"){
    const top=state.decks?.ai?.main?.[0];
    if(actor==="ai"&&top){
@@ -175,8 +215,16 @@ function applySteps(state,source,steps,actor,place,deckCard){
     (step.kind==="channel-exhausted"?" épuisées":""));
   }else if(step.kind==="draw"){
    const result=drawMainCards(state,actor,n,{place,deckCard});
+   if(trigger==="hold"&&actor===state.active&&result.actual)
+    (state.turnActions.holdDraws??=[]).push({name:source.name,count:result.actual});
    logs.push("pioche "+result.actual+" carte(s)"+
     (result.burnOuts?" (Burn Out ×"+result.burnOuts+")":""));
+  }else if(step.kind==="ready-runes-ending"){
+   if(state.phase==="Ending")continue;
+   state.delayedEnding??=[];
+   const id="ending-"+(state.effectSerial||0)+"-"+state.delayedEnding.length;
+   state.delayedEnding.push({id,player:actor,cardName:source.name,count:n});
+   logs.push("jusqu’à "+n+" rune(s) à redresser à la fin de ce tour");
   }else if(step.kind==="ready-runes"||step.kind==="exhaust-runes"){
    const exhaust=step.kind==="exhaust-runes";
    const cards=state.cards.filter(c=>c.owner===actor&&c.zone==="runes"&&
@@ -206,11 +254,11 @@ function applySteps(state,source,steps,actor,place,deckCard){
    logs.push(c.name+" est étourdie");
   }else if(step.kind==="kill-unit"||step.kind==="kill-enemy"){
    const c=state.cards.find(c=>c.uid===step.targetUid);
-   const lastKnown={...c};
+   const lastKnown=unitBeforeDeath(state,c);
    c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
    logs.push(c.name+" est détruite");
    const triggered=processCardEvent(state,{trigger:"die",actor:c.owner,source:lastKnown},
-    {place,deckCard});
+    runtime);
    if(triggered.length)logs.push(...triggered);
   }else if(step.kind==="create-units"){
    const destination=step.destination==="here"&&
@@ -235,11 +283,11 @@ function applySteps(state,source,steps,actor,place,deckCard){
    const might=effectiveMight(c,"none",state);
    if(might===null)throw Error("Might inconnue : dégâts non résolus.");
    if(c.damage>=might){
-    const lastKnown={...c};
+    const lastKnown=unitBeforeDeath(state,c);
     c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
     const triggered=processCardEvent(state,{
      trigger:"die",actor:lastKnown.owner,source:lastKnown
-    },{place,deckCard});
+    },runtime);
     logs.push(n+" dégâts à "+c.name+" (unité vaincue)");
     if(triggered.length)logs.push(...triggered);
    }else logs.push(n+" dégâts à "+c.name);
@@ -247,7 +295,8 @@ function applySteps(state,source,steps,actor,place,deckCard){
  }
  return logs;
 }
-export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
+export function processCardEvent(state,event,runtime={}){
+ const {place,deckCard=card=>card,stageCardAbility}=runtime;
  const {trigger,actor}=event;
  if(!["human","ai"].includes(actor)||!trigger)throw Error("Événement de capacité invalide.");
  state.effectWork=(Number(state.effectWork)||0)+1;
@@ -267,6 +316,14 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.toBattlefield&&source.zone!=="battlefield")continue;
+   if(ability.minimumExcess!=null&&(event.excessDamage??0)<ability.minimumExcess)continue;
+   if(ability.condition==="did-not-die-alone"&&!source.withAlly)continue;
+   if(ability.condition==="was-mighty"&&!source.wasMighty)continue;
+   if(ability.condition==="empowered"&&!source.counters?.empowered)continue;
+   if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
+      c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
+      c.uid!==source.uid).length!==1)continue;
    if(ability.condition==="legion"&&
       !(Number(state.turnActions?.played?.[actor])>0))continue;
    if(trigger==="ally-play"&&ability.playedType&&
@@ -285,11 +342,26 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
      compiled.unsupported.find(x=>x.text===ability.text)?.reason);
     continue;
    }
+   const token=ability.steps.length===1&&ability.steps[0];
+   if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main","gain-xp","buff-here","ready-gear",
+      "return-field-unit","schedule-enemy-move","expire-temporary","stun-played-unit"].includes(token.kind)||
+      token.kind==="draw"&&["did-not-die-alone","was-mighty"].includes(ability.condition)||
+      token.kind==="create-units"&&(token.destination==="base"||token.temporary))){
+    const notice=stageCardAbility(source,ability,token,event);
+    if(notice)summaries.push(notice);
+    continue;
+   }
    const plan=buildSteps(state,source,ability,actor,event.choices||{});
-   if(plan.reason){makePending(state,source,ability,actor,plan.reason);continue;}
-   const logs=applySteps(state,source,plan.instructions,actor,place,deckCard);
+   if(plan.reason){
+    makePending(state,source,ability,actor,plan.reason);
+    if(plan.choice)state.pendingEffects.at(-1).choice=plan.choice;
+    continue;
+   }
+   const logs=applySteps(state,source,plan.instructions,actor,{...runtime,place,deckCard},trigger);
    if(logs.length)summaries.push(ownerName(actor)+" · "+source.name+" : "+logs.join(", "));
   }
  }
+ if(trigger==="play"&&event.source&&unit(event.source))
+  summaries.push(...processCardEvent(state,{trigger:"opponent-play",actor:OPPOSITE[actor],source:event.source},runtime));
  return summaries;
 }

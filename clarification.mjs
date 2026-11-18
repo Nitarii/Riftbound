@@ -1,6 +1,6 @@
 // Short-lived card clarification for physical announcements.
 // Never treats an unconfirmed fuzzy match as permission to move a real card.
-import {findAnnouncedCard} from "./player-actions.mjs";
+import {findAnnouncedCard,planChampionPlacement} from "./player-actions.mjs";
 const norm=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
  .toLowerCase().replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ");
 const tokens=value=>norm(value).split(" ").filter(word=>word.length>=3);
@@ -30,7 +30,7 @@ export function makeCardClarification({announcement,query,revision,catalog,now=D
   suggestions:suggestCardNames(catalog,query).map(card=>({code:card.code,name:card.name}))};
 }
 export function isPendingValid(pending,state,now=Date.now()){
- return Boolean(pending?.kind==="card"&&pending.revision===state.revision&&
+ return Boolean(["card","champion-placement"].includes(pending?.kind)&&pending.revision===state.revision&&
   now-pending.createdAt>=0&&now-pending.createdAt<=5*60*1000);
 }
 function acceptedCard(catalog,pending,spoken){
@@ -59,7 +59,7 @@ function request(pending,english=false){
  return (english?"I couldn't identify « ":"Je n'ai pas identifié « ")+pending.query+" »."+hint+confirmation;
 }
 export function resolveCardClarification(pending,message,catalog,state,{now=Date.now(),english=false}={}){
- if(!isPendingValid(pending,state,now))return {status:"stale"};
+ if(pending?.kind!=="card"||!isPendingValid(pending,state,now))return {status:"stale"};
  const spoken=String(message||"").trim();
  const normal=norm(spoken);
  if(!spoken)return {status:"waiting",message:request(pending,english)};
@@ -81,4 +81,20 @@ export function resolveCardClarification(pending,message,catalog,state,{now=Date
   return {status:"waiting",message:request(pending,english)};
  }
  return {status:"new"};
+}
+export function resolveAnnouncementClarification(pending,message,catalog,state,options={}){
+ if(pending?.kind!=="champion-placement")return resolveCardClarification(pending,message,catalog,state,options);
+ const {english=false,now=Date.now()}=options;
+ const spoken=String(message||"").trim();
+ const normal=norm(spoken);
+ if(/[?]/.test(spoken)||/^(?:combien|pourquoi|comment|est ce que|how|what|why)\b/.test(normal))
+  return {status:"question"};
+ if(answerNo.test(normal))return {status:"cancel",message:english?"Champion play cancelled.":"Jeu du champion annulé."};
+ const plan=planChampionPlacement(spoken,state,pending);
+ if(!plan)return {status:"new"};
+ if(!isPendingValid(pending,state,now))return {status:"expired",message:english?
+  "The placement request expired or the board changed. Announce the champion again.":
+  "Le choix de placement a expiré ou le plateau a changé. Annonce à nouveau le champion."};
+ if(plan.error)return {status:"waiting",message:english?plan.errorEN:plan.error};
+ return {status:"confirmed",plan};
 }
