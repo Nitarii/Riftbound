@@ -3,6 +3,16 @@ import assert from "node:assert/strict";
 import {applyCommand,createState} from "../core.mjs";
 import {publicTableReply} from "../public-table.mjs";
 
+test("a physical choice during resolution is described without reopening reaction priority",()=>{
+ const state=createState();state.started=true;
+ state.spellChain={items:[{uid:"ability",ability:"card-text",cardName:"Zaun Warrens",owner:"human",cursor:0}],priority:"ai"};
+ state.pendingEffects=[{trigger:"card-text-discard",player:"human",chainUid:"ability"}];
+ const french=publicTableReply("Montre le plateau",state).text;
+ assert.match(french,/résolution en cours, choix en attente/);
+ assert.doesNotMatch(french,/priorité IA/);
+ assert.match(publicTableReply("Show board state",state,{english:true}).text,/resolving, waiting for a choice/);
+});
+
 test("R05 displays the public spell and its planned damage without listing either hand",()=>{
  const state=createState();
  state.cards.push(

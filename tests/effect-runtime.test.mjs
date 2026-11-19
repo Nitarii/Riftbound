@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
-import {passShowdown} from "./showdown-helper.mjs";
+import {passShowdown,resolveTop} from "./showdown-helper.mjs";
 import {advanceMandatoryTurn} from "../turn-upkeep.mjs";
 import {planPlayerSequence} from "../player-sequence.mjs";
 import {planAutonomousAITurn,planAIChainAction} from "../ai-turn.mjs";
@@ -31,6 +31,8 @@ test("any unit with a printed draw effect uses the real AI deck and hand",()=>{
  s=add(s,card("Archivist","Unit",{energy:1,text:"When you play me, draw 2."}));
  const before=s.players.ai.handCount,deck=s.players.ai.deckCount;
  s=play(s,"Archivist");
+ assert.equal(s.players.ai.deckCount,deck);
+ s=resolveTop(s);
  assert.equal(s.players.ai.handCount,before+1);
  assert.equal(s.players.ai.deckCount,deck-2);
  assert.equal(s.pendingEffects.length,0);
@@ -42,6 +44,8 @@ test("ordinary gear remains ready in base and executes its card text",()=>{
  s=play(s,"Rune Lantern");
  assert.equal(s.cards.find(c=>c.name==="Rune Lantern").zone,"base");
  assert.equal(s.cards.find(c=>c.name==="Rune Lantern").exhausted,false);
+ assert.equal(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length,1);
+ s=resolveTop(s);
  assert.equal(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length,0);
 });
 test("ordinary spell opens reactions before resolving printed instructions and going to trash",()=>{
@@ -349,10 +353,13 @@ test("Beginning and Ending triggered abilities execute for cards already in play
  s=add(s,card("End Scribe","Unit",{text:"At the end of your turn, ready 1 friendly rune."}),"base");
  s=applyCommand(s,{type:"exhaust-runes",player:"ai",count:1});
  s=applyCommand(s,{type:"phase",phase:"Ending"});
+ s=resolveTop(s);
  assert.equal(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length,0);
  s=applyCommand(s,{type:"next-turn"});
  const deck=s.players.ai.deckCount;
  s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.players.ai.deckCount,deck);
+ s=resolveTop(s);
  assert.equal(s.players.ai.deckCount,deck-1);
  assert.equal(s.pendingEffects.length,0);
 });
@@ -366,6 +373,8 @@ test("on-conquer ability on the unit is applied after a genuine score",()=>{
  assert.equal(s.players.ai.deckCount,before);
  s=passShowdown(s);
  assert.equal(s.players.ai.score,1);
+ assert.equal(s.players.ai.deckCount,before);
+ s=resolveTop(s);
  assert.equal(s.players.ai.deckCount,before-1);
 });
 test("unknown mandatory abilities are queued rather than being skipped, and require confirmation",()=>{
@@ -422,6 +431,8 @@ test("a continuous ally play trigger on a different in-play card is recognized",
  s=add(s,card("New Ally","Unit",{energy:1}));
  const before=s.players.ai.deckCount;
  s=play(s,"New Ally");
+ assert.equal(s.players.ai.deckCount,before);
+ s=resolveTop(s);
  assert.equal(s.players.ai.deckCount,before-1);
  assert.match(s.message,/Watcher/);
 });
@@ -436,6 +447,9 @@ test("card effects fire on real attack and defense, not only on play",()=>{
  const attacker=s.cards.find(c=>c.name==="Attacking Scout");
  s=applyCommand(s,{type:"combat-attack",player:"ai",uids:[attacker.uid],battlefield:0});
  assert.ok(s.pendingCombat);
+ assert.equal(s.players.ai.deckCount,beforeAI);
+ assert.equal(s.players.human.handCount,beforeHuman);
+ s=resolveTop(resolveTop(s));
  assert.equal(s.players.ai.deckCount,beforeAI-1);
  assert.equal(s.players.human.handCount,beforeHuman+1);
 });

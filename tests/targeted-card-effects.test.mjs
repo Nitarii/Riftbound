@@ -33,6 +33,8 @@ test("generic card text stuns enemy using Solari Shieldbearer printed ability",(
  const read=compileCardAbilities(s.cards.find(x=>x.name==="Solari Shieldbearer"));
  assert.deepEqual(read.abilities[0].steps,[{kind:"stun-unit",count:1}]);
  s=play(s,"Solari Shieldbearer");
+ assert.equal(Boolean(s.cards.find(x=>x.name==="Defender").stunned),false);
+ s=passChain(s);
  assert.equal(s.cards.find(x=>x.name==="Defender").stunned,true);
  assert.equal(s.pendingEffects.length,0);
 });
@@ -44,6 +46,7 @@ test("Legion generic targeting grants the Might buff only when already activated
   text:"[Legion] — When you play me, give a unit +2 {might} this turn. (Get the effect if you've played another card this turn.)"
  }));
  s=play(s,"Dangerous Duo");
+ s=passChain(s);
  assert.equal(s.cards.find(x=>x.name==="Friendly Holder").counters.tempMight,2);
  assert.equal(s.pendingEffects.length,0);
 });
@@ -88,10 +91,12 @@ test("Deflect targeting pays a real Power rune and never chooses a protected uni
  }));
  const prior=s.cards.filter(x=>x.owner==="ai"&&x.zone==="runes").length;
  s=play(s,"Solari Shieldbearer");
+ assert.equal(s.cards.filter(x=>x.owner==="ai"&&x.zone==="runes").length,prior-1);
+ assert.match(s.message,/Deflect/);
+ s=passChain(s);
  assert.equal(s.cards.find(x=>x.name==="Kato the Arm").stunned,true);
  assert.equal(s.pendingEffects.length,0);
  assert.equal(s.cards.filter(x=>x.owner==="ai"&&x.zone==="runes").length,prior-1);
- assert.ok(s.message.includes("Deflect"));
 });
 
 const byName=(s,name)=>s.cards.find(card=>card.name===name);
@@ -266,7 +271,7 @@ test("Wuju Apprentice draws at Level 6 only when that level was active when play
  }
 });
 
-test("Level-dependent discard is paid only above the XP threshold",()=>{
+test("Level-dependent discard resolves only above the XP threshold",()=>{
  for(const xp of [0,6]){
   let s=setup();s.players.ai.xp=xp;
   s=add(s,c("Reserve"));
@@ -275,6 +280,8 @@ test("Level-dependent discard is paid only above the XP threshold",()=>{
   const command={type:"play-paid",uid:byName(s,"Learning Unit").uid,zone:"base"};
   if(xp===6)command.discardUids=[reserve];
   s=applyCommand(s,command);
+  assert.equal(byName(s,"Reserve").zone,"hand");
+  if(xp===6)s=passChain(s);
   assert.equal(byName(s,"Reserve").zone,xp===6?"trash":"hand");
  }
 });

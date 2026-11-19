@@ -103,7 +103,8 @@ function game(seed,mode,metrics){
   }
   if(effect?.trigger==="ability-target"){
    const targets=s.cards.filter(card=>effect.targetUids.includes(card.uid));
-   const target=targets.find(card=>effect.item.ability==="ready-gear"?card.exhausted:card.owner==="ai");
+   const preferred=targets.find(card=>effect.item.ability==="ready-gear"?card.exhausted:card.owner==="ai");
+   const target=preferred??(!effect.optional?targets[0]:null);
    apply({type:"effect-confirm",confirm:true,id:effect.id,decline:!target,targetUid:target?.uid});continue;
   }
   if(effect?.trigger==="gear-detach"){
@@ -117,8 +118,11 @@ function game(seed,mode,metrics){
     .slice(0,effect.count).map(c=>c.uid);
    apply({type:"effect-confirm",confirm:true,id:effect.id,uids});continue;
   }
-  if(effect?.choice?.kind==="discard-draw"&&hand.length){
+  if((effect?.choice?.kind==="discard-draw"||effect?.trigger==="card-text-discard")&&hand.length){
    apply({type:"effect-confirm",confirm:true,id:effect.id,card:hand.shift()});continue;
+  }
+  if(effect?.trigger==="card-text-predict"){
+   apply({type:"effect-confirm",confirm:true,id:effect.id,recycle:false});continue;
   }
   if(effect?.trigger==="burn"&&effect.player==="human"&&cursor+effect.burnCount<=follow.length){
    apply({type:"effect-confirm",confirm:true,id:effect.id,cards:follow.slice(cursor,cursor+effect.burnCount)});

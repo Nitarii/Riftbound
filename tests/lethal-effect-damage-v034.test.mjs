@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
+import {resolveTop} from "./showdown-helper.mjs";
 
 const card=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:2,...extra});
 function setup(){
@@ -32,6 +33,8 @@ test("lethal printed damage fires Deathknell and spawns tokens",()=>{
   might:2,text:"[Deathknell] — Play two 1 {might} Recruit unit tokens into your base. (When I die, get the effect.)"
  }));
  s=playDamage(s);
+ assert.equal(s.cards.find(c=>c.name==="Last Recruit").zone,"base");
+ s=resolveTop(s);
  assert.equal(s.cards.find(c=>c.name==="Last Recruit").zone,"trash");
  assert.equal(s.spellChain.items[0].ability,"create-units");
  s=applyCommand(applyCommand(s,{type:"chain-pass",player:"human"}),{type:"chain-pass",player:"ai"});
@@ -46,6 +49,8 @@ test("nonlethal card-effect damage does not fire Deathknell",()=>{
   might:4,text:"[Deathknell] — Play two 1 {might} Recruit unit tokens into your base. (When I die, get the effect.)"
  }));
  s=playDamage(s);
+ assert.equal(s.cards.find(c=>c.name==="Tough Recruit").damage,0);
+ s=resolveTop(s);
  assert.equal(s.cards.find(c=>c.name==="Tough Recruit").zone,"base");
  assert.equal(s.cards.find(c=>c.name==="Tough Recruit").damage,2);
  assert.equal(s.cards.filter(c=>c.name==="Recruit").length,0);

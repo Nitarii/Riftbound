@@ -7,7 +7,7 @@ import {battlefieldController} from "../battlefield-rules.mjs";
 import {effectiveMight,previewCombat} from "../combat-engine.mjs";
 import {advanceMandatoryTurn} from "../turn-upkeep.mjs";
 import {resolveAnnouncementClarification} from "../clarification.mjs";
-import {passShowdown} from "./showdown-helper.mjs";
+import {passShowdown,resolveTop} from "./showdown-helper.mjs";
 
 const card=(name,code,type="Unit",energy=0,might=2,extra={})=>({name,code,type,energy,might,...extra});
 const witness=card("Mournful Witness","VEN-028","Unit",2,2);
@@ -157,6 +157,8 @@ test("R12 Zaun's conquest records only the public discard and its draw once",()=
  s=passShowdown(s);
  const {deckCount,handCount,score}=s.players.human;
  assert.equal(score,1);
+ assert.equal(s.pendingEffects.length,0);
+ s=resolveTop(s);
  assert.equal(s.pendingEffects[0].cardName,"Zaun Warrens");
  const voice="Je défausse Pakaa Protector et je pioche.";
  const plan=planPlayerSequence(voice,s,[pakaa]);
@@ -488,6 +490,8 @@ test("Targon's Peak chooses at Ending, keeps a reaction window and advances exac
  s=passShowdown(applyCommand(s,{type:"move",uid:get(s,witness.name).uid,zone:"battlefield",battlefield:0}));
  assert.equal(s.players.human.score,1);
  assert.equal(s.pendingEffects.length,0);
+ assert.equal(s.spellChain.items.at(-1).ability,"card-text");
+ s=resolveTop(s);
  assert.equal(s.spellChain,null);
  assert.equal(s.delayedEnding.length,1);
  assert.deepEqual(s.cards.filter(c=>c.zone==="runes"&&c.exhausted).map(c=>c.uid),[calm.uid,order.uid,untouched.uid]);
@@ -528,6 +532,7 @@ test("Targon's Peak accepts zero runes and does not queue a missed Ending trigge
  s=add(s,"human",witness);
  s=applyCommand(s,{type:"move",uid:get(s,witness.name).uid,zone:"battlefield",battlefield:0});
  s=passShowdown(s);
+ s=resolveTop(s);
  s=applyCommand(s,{type:"next-turn"});
  assert.equal(s.phase,"Ending");
  assert.deepEqual(planPlayerSequence("Aucune rune.",s).commands[0].uids,[]);
@@ -539,6 +544,7 @@ test("Targon's Peak accepts zero runes and does not queue a missed Ending trigge
   champion:card("Shen Chosen","champion"),battlefield:targon});
  ending=applyCommand(ending,{type:"phase",phase:"Ending"});
  ending=add(ending,"human",witness,"battlefield",0);
+ ending=resolveTop(ending);
  assert.equal(ending.players.human.score,1);
  assert.equal(ending.delayedEnding,undefined);
  assert.deepEqual(ending.pendingEffects,[]);
@@ -553,6 +559,8 @@ test("Undercover Agent discards the one AI card available, then draws both cards
  s=add(s,"ai",agent,"battlefield",0);
  s=applyCommand(s,{type:"damage",uid:get(s,agent.name).uid,value:2});
  assert.deepEqual(s.pendingEffects,[]);
+ assert.equal(s.cards.find(c=>c.uid===last.uid).zone,"hand");
+ s=resolveTop(s);
  assert.equal(s.cards.find(c=>c.uid===last.uid).zone,"trash");
  assert.equal(s.players.ai.handCount,2);
 });
@@ -651,6 +659,8 @@ test("Shen hold ability counts only units and the hold draw does not replace the
  const announce="J’ai Hold avec Shen, je pioche pour Shen et pour mon tour.";
  assert.ok(planPlayerSequence(announce,t,catalog).error);
  t=advanceMandatoryTurn(applyCommand(add(s,"human",sacred,"battlefield",1),{type:"next-turn"}));
+ assert.equal(t.players.human.handCount,before);
+ t=advanceMandatoryTurn(resolveTop(t));
  assert.equal(t.players.human.handCount,before+2);
  assert.equal(t.turnActions.drawn,1);
  assert.equal(t.pendingEffects.length,0);

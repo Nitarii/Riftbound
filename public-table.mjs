@@ -9,6 +9,11 @@ export const publicCardVisible=card=>Boolean(card?.name&&!card.faceDown&&publicZ
 const bilingual=(english,fr,en)=>english?en:fr;
 const sideName=(side,english)=>side==="ai"?bilingual(english,"IA","AI"):bilingual(english,"Joueur","Player");
 const shortName=card=>card.name.slice(0,44);
+export function chainIsResolving(state){
+ const top=state.spellChain?.items.at(-1);
+ return Boolean(top&&state.pendingEffects?.some(effect=>
+  (effect.chainUid??effect.resumeCardText??effect.sourceUid)===top.uid));
+}
 
 export function publicChainDetail(state,card,{english=false}={}){
  const item=state.spellChain?.items.find(value=>!value.ability&&value.uid===card.uid);
@@ -40,8 +45,10 @@ function summarizeBoard(state,visible,english){
   }else lines.push(field+" · "+bilingual(english,"Confrontation de conquête en cours.","Conquest showdown in progress."));
   if(fight.focus)lines.push(bilingual(english,"Focalisation "+side(fight.focus)+".","Focus "+side(fight.focus)+"."));
  }
- if(state.spellChain)lines.push(bilingual(english,"Chaîne en cours · priorité "+side(state.spellChain.priority)+".",
-  "Chain in progress · priority "+side(state.spellChain.priority)+"."));
+ if(state.spellChain)lines.push(chainIsResolving(state)?bilingual(english,
+  "Chaîne · résolution en cours, choix en attente.","Chain · resolving, waiting for a choice."):
+  bilingual(english,"Chaîne en cours · priorité "+side(state.spellChain.priority)+".",
+   "Chain in progress · priority "+side(state.spellChain.priority)+"."));
  for(const owner of ["human","ai"]){
   const totals=new Map();
   for(const rune of visible.filter(card=>card.owner===owner&&card.zone==="runes"&&!card.exhausted)){

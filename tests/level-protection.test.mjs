@@ -101,12 +101,14 @@ test("generic targeted abilities pay numeric Deflect using reserve Power and Gol
  s=add(s,stun,"ai","hand");s.powerPool.ai=1;
  const runes=s.players.ai.runeCount;
  s=play(s,"Solari Shieldbearer",{targetUid:byName(s,"Protected").uid});
+ assert.equal(Boolean(byName(s,"Protected").stunned),false);
+ assert.match(s.message,/Deflect : 2 Power payé/);
+ s=passChain(s);
  assert.equal(byName(s,"Protected").stunned,true);
  assert.equal(s.pendingEffects.length,0);
  assert.equal(s.players.ai.runeCount,runes);
  assert.equal(s.powerPool.ai,0);
  assert.equal(byName(s,"Gold"),undefined);
- assert.match(s.message,/Deflect : 2 Power payé/);
 });
 
 test("generic targeting leaves an unaffordable effect pending and consumes no partial payment",()=>{
@@ -126,6 +128,7 @@ test("automatic targeting chooses an affordable enemy instead of stalling on hig
  s=add(s,card("Legal Enemy","Unit",{might:4}),"human");
  s=add(s,stun,"ai","hand");
  s=play(s,"Solari Shieldbearer");
+ s=passChain(s);
  assert.equal(s.pendingEffects.length,0);
  assert.equal(byName(s,"Legal Enemy").stunned,true);
  assert.equal(Boolean(byName(s,"Unaffordable").stunned),false);

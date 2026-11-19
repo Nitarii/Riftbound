@@ -371,6 +371,11 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  }
  const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
+ if(waiting?.player==="human"&&waiting.trigger==="card-text-predict"){
+  const recycle=/^(?:je (?:la )?recycle|recycle(?: it)?|oui|yes)$/.test(text);
+  const keep=/^(?:je (?:la )?(?:garde|conserve)|keep(?: it)?|non|no)$/.test(text);
+  if(recycle||keep)return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,recycle}],recognized:true};
+ }
  if(waiting?.player==="human"&&["ability-target","gear-detach"].includes(waiting.trigger)){
   const detach=waiting.trigger==="gear-detach";
   const decline=/^(?:je decline|je refuse|i decline|non|no|je (?:le )?garde attache|keep it attached)$/.test(text);
@@ -461,7 +466,7 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   }
  }
  if(declaredDiscard&&waiting?.player==="human"&&
-    (waiting.choice?.kind==="discard-draw"||waiting.trigger==="spell-discard")){
+    (waiting.choice?.kind==="discard-draw"||["spell-discard","card-text-discard"].includes(waiting.trigger))){
   const card=findAnnouncedCard(catalog,declaredDiscard[1]);
   if(!card)return unknownCard(catalog,declaredDiscard[1]);
   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,card}],recognized:true};

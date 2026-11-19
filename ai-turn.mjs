@@ -360,7 +360,8 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
      return {card:c,accelerate,payment:accelerate?extra:normal,
        effect:mandatoryPlayEffects(c,{playedBefore:view.turnActions?.played?.ai||0,xp:view.players.ai.xp??0})};
     })
-    .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,x.effect.discard)}))
+    .map(x=>({...x,discardUids:chooseRequiredDiscards(view,x.card.uid,Math.min(x.effect.discard,
+     own(view,"hand").filter(card=>card.uid!==x.card.uid).length))}))
     .filter(x=>!x.payment.error&&x.discardUids!==null)
     .flatMap(x=>{
      const cmd={type:"play-paid",uid:x.card.uid,zone:"base",discardUids:x.discardUids,accelerate:x.accelerate};
@@ -394,7 +395,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
     payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s)"+
     (payment.goldUids.length?" / "+payment.goldUids.length+" Gold dépensé(s)":"")+
     (payment.poolPower?" / "+payment.poolPower+" Power de la réserve":"")+")"+
-    (discarded.length?", puis défaussé "+discarded.join(", ")+" pour son effet":""));
+    (discarded.length?", défausse à résoudre après les réactions":""));
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
    if(interrupted())break;

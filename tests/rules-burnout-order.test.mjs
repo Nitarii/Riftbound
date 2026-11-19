@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
+import {resolveTop} from "./showdown-helper.mjs";
 const c=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:2,...extra});
 function setup(){
  let s=createState();
@@ -57,6 +58,9 @@ test("Beginning abilities are resolved BEFORE Hold scoring",()=>{
  const before=s.players.ai.score;
  s=applyCommand(s,{type:"next-turn"});
  s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.cards.find(x=>x.name==="Human Defender").zone,"battlefield");
+ assert.equal(s.players.ai.score,before);
+ s=resolveTop(s);
  assert.equal(s.cards.find(x=>x.name==="Human Defender").zone,"trash");
  assert.equal(s.players.ai.score,before+1);
 });

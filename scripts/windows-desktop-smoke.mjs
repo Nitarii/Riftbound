@@ -228,6 +228,13 @@ try{
  await call(page,"/api/messages",{text:"Je termine mon tour.",requestId:"desktop-smoke-turn"});
  const after=await waitFor(async()=>{
   const state=(await call(page,"/api/state")).body.state;
+  // Act as the physical player passing each newly opened reaction window.
+  // The AI may no longer resolve its ordinary play triggers immediately.
+  if(state.spellChain?.priority==="human"&&!state.pendingEffects.length){
+   const passed=await call(page,"/api/command",{type:"chain-pass",player:"human",ifRevision:state.revision});
+   assert.equal(passed.status,200,JSON.stringify(passed.body));
+   return false;
+  }
   return state.turn>opening.turn&&state.active==="human"&&state;
  });
  await page.locator("#language-select").selectOption("en");

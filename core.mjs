@@ -2,7 +2,7 @@
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
 import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
-import {processCardEvent,unitBeforeDeath} from "./effect-runtime.mjs";
+import {processCardEvent,unitBeforeDeath,prepareCardText,payCardText,resolveCardText} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
@@ -101,7 +101,7 @@ export function applyCommand(old, command) {
     /^unit$/i.test(v.type||""));
   const stagedAbilities=[];
   let stagedAbilitySerial=0;
-  const runtime={place,deckCard,pay,random:()=>nextRandom(s),stageCardAbility};
+  const runtime={place,deckCard,pay,validateCard,random:()=>nextRandom(s),stageCardAbility};
   const movementTriggers=[];
   const onBoard=v=>v&&["base","battlefield"].includes(v.zone);
   const canMove=(card,actor)=>card.counters?.tempNoMoveBy!==actor;
@@ -265,6 +265,10 @@ export function applyCommand(old, command) {
     catch{return null;}
   }
   function stageWithTarget(item,target){
+    if(item.ability==="card-text"){
+      item.choices.targets??={};item.choices.targets[item.targetStep]=target.uid;
+      return finalizeCardText(item);
+    }
     const cost=triggeredTargetCost(item,target);
     if(!cost)throw Error("La cible n’est plus valide pour cette capacité.");
     const payment=cost.extraPower?payLabel(pay(item.owner,cost)):"";
@@ -319,6 +323,8 @@ export function applyCommand(old, command) {
      ...(step.kind==="create-units"&&{tokenName:step.tokenName,tokenMight:step.tokenMight,
       destination:step.destination,ready:step.ready,temporary:step.temporary}),
      ...(step.kind==="stun-played-unit"&&{targetUid:event.source?.uid,blockedPlayer:event.source?.owner})};
+    if(step.kind==="card-text")return finalizeCardText({...item,source:{...source},
+     spec:ability,trigger:event.trigger,choices:{...event.choices}});
     if(Object.hasOwn(targetRule,step.kind))return offerTriggeredTarget(item);
     if(step.energy&&planRunePayment(s,owner,{name:source.name,energy:step.energy}).error)
       return source.name+" · énergie insuffisante pour la capacité facultative";
@@ -332,6 +338,32 @@ export function applyCommand(old, command) {
     const cost=step.energy?payLabel(pay(owner,{name:source.name,energy:step.energy})):"";
     stagedAbilities.push(item);
     return source.name+" · capacité sur la chaîne"+cost;
+  }
+  function finalizeCardText(item){
+    const plan=prepareCardText(s,item.source,item.spec,item.owner,item.choices);
+    if(plan.cancelled)return item.cardName+" · capacité retirée : "+plan.reason;
+    if(plan.declined)return item.cardName+" · capacité facultative déclinée";
+    if(plan.reason){
+      const choice=plan.choice;
+      if(choice?.kind==="target")item.targetStep=choice.step;
+      s.pendingEffects.push({id:item.uid,trigger:choice?.kind==="target"?"ability-target":
+       choice?.kind==="optional"?"token-cost":"card-text-issue",player:item.owner,
+       sourceUid:item.sourceUid,optional:Boolean(item.spec.optional),item,
+       ...(choice?.kind==="target"&&{targetUids:choice.targetUids}),
+       cardName:item.cardName,text:choice?plan.reason:item.spec.text,reason:plan.reason});
+      return item.cardName+" attend un choix pour sa capacité";
+    }
+    const paid=payCardText(plan.instructions,item.owner,item.source,runtime);
+    item.preferredDiscards=item.choices.discardUids??[];
+    item.instructions=plan.instructions;
+    const targets=[...new Set(item.instructions.map(step=>step.targetUid).filter(Boolean))];
+    if(targets.length===1){
+      item.targetUid=targets[0];
+      item.damage=item.instructions.filter(step=>step.kind==="damage-enemy").reduce((n,step)=>n+step.count,0);
+    }
+    delete item.spec;delete item.choices;delete item.targetStep;
+    stagedAbilities.push(item);
+    return [item.cardName+" · capacité sur la chaîne",...paid].join(" · ");
   }
   function flushStagedAbilities(){
     for(const trigger of stagedAbilities.splice(0))appendChainItem(trigger,{triggered:true});
@@ -561,9 +593,12 @@ export function applyCommand(old, command) {
     if(item.flow)logs.push(source.name+" banni après son lancement par Flux");
     return source.name+" résolu"+(logs.length?" · "+logs.join(" · "):"");
   }
-  function resolveChainTop(physicalCard,birdField,detach){
+  function resolveChainTop(physicalCard,birdField,detach,choice={}){
     const chain=s.spellChain,item=chain.items.at(-1);
-    const resolved=spellResolution(item,physicalCard,birdField,detach);
+    const result=item.ability==="card-text"?resolveCardText(s,item,runtime,{...choice,card:physicalCard}):null;
+    const resolved=result?[item.cardName+" · capacité "+(result.paused?"en résolution":"résolue"),...result.logs].join(" · "):
+     spellResolution(item,physicalCard,birdField,detach);
+    if(result?.paused)return resolved;
     chain.items.pop();
     for(const trigger of movementTriggers.splice(0))appendChainItem(trigger,{triggered:true});
     if(chain.items.length){
@@ -813,7 +848,10 @@ export function applyCommand(old, command) {
     checkOwner(p);s.active=p;s.firstPlayer=p;s.turnActions=newTurnActions();s.scoredFields={human:[],ai:[]};s.phase="Awaken";s.turn=1;s.started=true;
     summary="Début de partie. Premier joueur : "+(p==="ai"?"IA":"joueur");
   } else if(type==="next-turn") {
-    summary=s.started&&s.phase!=="Ending"&&s.delayedEnding?.length?enterEnding():advanceToNextTurn();
+    if(s.started&&s.phase!=="Ending"){
+      s.finishAfterDelayedEnding=true;
+      summary=enterEnding();
+    }else summary=advanceToNextTurn();
   } else if(type==="phase") {
     const phase=string(c.phase,30);
     if(!PHASES.includes(phase))throw Error("Phase inconnue");
@@ -1070,10 +1108,10 @@ export function applyCommand(old, command) {
      throw Error(v.name+" : condition ou coût supplémentaire non vérifiable. La carte reste en main.");
     const onPlay=mandatoryPlayEffects(v,{playedBefore:s.turnActions.played.ai,xp:s.players.ai.xp??0});
     const discardUids=Array.isArray(c.discardUids)?c.discardUids:[];
-    // Preflight card text before paying the runes. For unfamiliar abilities
-    // the card is playable, but its trigger becomes an unresolved chain item.
-    if(discardUids.length!==onPlay.discard||new Set(discardUids).size!==discardUids.length)
-     throw Error(v.name+" : défausse obligatoire de "+onPlay.discard+" carte(s) non choisie.");
+    // Legacy discard UIDs are preferences, not a play cost. Revalidate the
+    // current hand when the ability resolves after responses.
+    if(discardUids.length>onPlay.discard||new Set(discardUids).size!==discardUids.length)
+     throw Error(v.name+" : choix de défausse invalide pour cette capacité.");
     const discardCards=discardUids.map(uid=>getCard(s,string(uid,80)));
     if(discardCards.some(x=>x.owner!=="ai"||x.zone!=="hand"||x.uid===v.uid))
      throw Error("La défausse obligatoire doit venir de la main de l'IA.");
@@ -1105,7 +1143,6 @@ export function applyCommand(old, command) {
      paid.domains.join("/")+")"+
      (paid.goldUids.length?" · "+paid.goldUids.length+" Gold dépensé(s)":"")+
      (paid.poolPower?" · "+paid.poolPower+" Power de la réserve":"")+(accelerate?" · Accelerate payé":"")+
-     (discardCards.length?" · effet : défaussé "+discardCards.map(x=>x.name).join(", "):"")+
      (triggered.length?" · "+triggered.join(" · "):"")+
      (s.pendingEffects.length?" · Effet en attente : "+s.pendingEffects[0].cardName:"");
   } else if(type==="effect-confirm") {
@@ -1113,15 +1150,16 @@ export function applyCommand(old, command) {
     if(!pending)throw Error("Aucun effet de carte en attente.");
     if(!c.confirm||c.id!==pending.id)
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
-    const chainChoice=["spell-discard","pakaa-reveal","bird-placement","gear-detach"].includes(pending.trigger);
+    const chainChoice=["spell-discard","pakaa-reveal","bird-placement","gear-detach","card-text-discard","card-text-predict"].includes(pending.trigger);
     if(chainChoice){
       if(s.spellChain?.items.at(-1)?.uid!==(pending.chainUid??pending.sourceUid))
         throw Error("L’effet en attente sur la chaîne a changé.");
       if(pending.trigger==="bird-placement"&&c.battlefield!==null&&!Number.isInteger(c.battlefield))
         throw Error("Précise la base ou un champ pour le jeton Bird.");
       s.pendingEffects.shift();
-      summary=resolveChainTop(c.card,c.battlefield,pending.trigger==="gear-detach"&&!c.decline);
+      summary=resolveChainTop(c.card,c.battlefield,pending.trigger==="gear-detach"&&!c.decline,{recycle:c.recycle});
     }else if(pending.trigger==="ability-target"){
+      if(c.decline&&!pending.optional)throw Error("Cette capacité est obligatoire : choisis une cible valide.");
       if(c.decline)summary=pending.cardName+" · capacité déclinée";
       else{
         if(!pending.targetUids.includes(c.targetUid))throw Error("Choisis l’une des cibles proposées.");
@@ -1130,9 +1168,14 @@ export function applyCommand(old, command) {
     }else if(pending.trigger==="token-cost"){
       if(c.decline)summary=pending.cardName+" · capacité déclinée";
       else{
-        const cost=pending.energy?payLabel(pay(pending.player,{name:pending.cardName,energy:pending.energy})):"";
-        stagedAbilities.push(pending.item);
-        summary=pending.cardName+" · capacité sur la chaîne"+cost;
+        if(pending.item.ability==="card-text"){
+          pending.item.choices.accepted=true;
+          summary=finalizeCardText(pending.item);
+        }else{
+          const cost=pending.energy?payLabel(pay(pending.player,{name:pending.cardName,energy:pending.energy})):"";
+          stagedAbilities.push(pending.item);
+          summary=pending.cardName+" · capacité sur la chaîne"+cost;
+        }
       }
     }else if(pending.trigger==="ending-ready-runes"){
       const uids=c.uids;
@@ -1173,6 +1216,8 @@ export function applyCommand(old, command) {
       s.pendingEffects.shift();
       if(!summary)summary=pending.trigger==="hidden-reveal"?"Carte cachée révélée : "+getCard(s,pending.sourceUid).name:
        "Effet résolu physiquement : "+pending.cardName+" — "+pending.text;
+      if(pending.resumeCardText&&!s.pendingEffects.length&&s.spellChain?.items.at(-1)?.uid===pending.resumeCardText)
+        summary+=" · "+resolveChainTop();
     }
     const holds=finishBeginningScoring();
     if(holds.length)summary+=" · "+holds.join(" · ");

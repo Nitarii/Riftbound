@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
 import {compileCardAbilities} from "../effect-engine.mjs";
+import {resolveTop} from "./showdown-helper.mjs";
 
 const card=(name,type="Unit",extra={})=>({
  name,type,energy:0,power:0,might:2,...extra
@@ -38,6 +39,8 @@ test("printed Deathknell triggers on death and channels exhausted runes",()=>{
  const oldDeck=s.decks.ai.main.length,oldRunes=s.cards.filter(c=>c.zone==="runes"&&c.owner==="ai").length;
  s=applyCommand(s,{type:"damage",uid,value:1});
  assert.equal(s.cards.find(c=>c.uid===uid).zone,"trash");
+ assert.equal(s.decks.ai.main.length,oldDeck);
+ s=resolveTop(s);
  assert.equal(s.decks.ai.main.length,oldDeck-1);
  const runeCards=s.cards.filter(c=>c.zone==="runes"&&c.owner==="ai");
  assert.equal(runeCards.length,oldRunes+2);
@@ -58,6 +61,8 @@ test("Legion play effect is inactive as first card, active after another differe
  const before=s.players.ai.handCount;
  const discarded=s.cards.find(c=>c.name==="Disposable"&&c.zone==="hand").uid;
  s=play(s,"Scrapyard Champion",{discardUids:[discarded]});
+ assert.equal(s.cards.find(c=>c.uid===discarded).zone,"hand");
+ s=resolveTop(s);
  assert.equal(s.pendingEffects.length,0);
  assert.equal(s.cards.find(c=>c.uid===discarded).zone,"trash");
  assert.equal(s.players.ai.handCount,before-1);
@@ -69,7 +74,9 @@ test("identical ally-play trigger fires for each separate unit, not once per tur
  s=add(s,card("Recruit B","Unit"));
  const before=s.decks.ai.main.length;
  s=play(s,"Recruit A");
+ s=resolveTop(s);
  s=play(s,"Recruit B");
+ s=resolveTop(s);
  assert.equal(s.decks.ai.main.length,before-2);
  assert.equal(s.pendingEffects.length,0);
 });
@@ -147,6 +154,8 @@ test("Vision lets AI inspect its own deck without asking for a revealed opponent
  }));
  const before=s.decks.ai.main.length;
  s=play(s,"Gemcraft Seer");
+ assert.equal(s.pendingEffects.length,0);
+ s=resolveTop(s);
  assert.equal(s.decks.ai.main.length,before);
  assert.equal(s.pendingEffects.length,0);
  assert.match(s.message,/Vision/);
