@@ -60,7 +60,9 @@ async function connect(){
   const startup=await fs.readFile(startupLog,"utf8").catch(()=>null);
   throw Error(startup||"WebView2 did not start. Host exit code: "+host.exitCode,{cause:error});
  }
- const browser=await chromium.connectOverCDP(debugURL);
+ // The discovery endpoint can answer just before WebView2 accepts a CDP
+ // session, particularly when reopening the installed app on a CI runner.
+ const browser=await waitFor(()=>chromium.connectOverCDP(debugURL,{timeout:2000}),15000);
  const page=await waitFor(()=>browser.contexts().flatMap(context=>context.pages()).find(p=>p.url().startsWith("http://127.0.0.1:")));
  await page.locator(".desktop-app #home-create-game").waitFor();
  try{
@@ -237,6 +239,12 @@ try{
  await killed;
  await Promise.all(pids.map(engineStopped));
  await browser.close().catch(()=>{});
+ // Do not let discovery from the previous WebView2 process satisfy the next
+ // launch's readiness check while its debugger is still shutting down.
+ await waitFor(async()=>{
+  try{return !(await fetch(debugURL+"/json/version",{signal:AbortSignal.timeout(500)})).ok;}
+  catch{return true;}
+ });
 
  host=start();
  ({browser,page}=await connect());
