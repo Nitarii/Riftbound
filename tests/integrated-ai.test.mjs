@@ -31,6 +31,48 @@ function startState(){
  return state;
 }
 
+test("online takeover can suspend the local player without replacing its persisted model settings",()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-takeover-"));
+ try{
+  const create=()=>createIntegratedAI({userData:folder});
+  const local=create();
+  local.configure({provider:"free",model:"qwen3.5:9b-q4km",enabled:true});
+  assert.equal(local.disable({persist:false}).enabled,false);
+  assert.equal(create().status().enabled,true);
+  assert.equal(create().status().model,"qwen3.5:9b-q4km");
+  local.enable();
+  assert.equal(local.status().enabled,true);
+ }finally{fs.rmSync(folder,{recursive:true,force:true});}
+});
+
+test("returning to local play retries an interrupted turn at the same revision",{timeout:2000},async()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-resume-local-"));
+ let state=applyCommand(startState(),{type:"next-turn"});
+ let tries=0,firstStarted,retryStarted,interrupt;
+ const started=new Promise(resolve=>{firstStarted=resolve;});
+ const retried=new Promise(resolve=>{retryStarted=resolve;});
+ const inFlight=new Promise((_,reject)=>{interrupt=reject;});
+ try{
+  const local=createIntegratedAI({userData:folder,getState:()=>state,getMessages:()=>({session:"same-table"}),
+   sendMessage:()=>{},applyBatch:async(commands,revision)=>{
+    assert.equal(revision,state.revision);
+    if(++tries===1){firstStarted();return inFlight;}
+    state=commands.reduce(applyCommand,state);
+    retryStarted();
+   }});
+  local.configure({provider:"free",rulesOnly:true,enabled:true});
+  const revision=state.revision;
+  local.advanceTurnIfAI();
+  await started;
+  local.disable({persist:false});
+  local.enable();
+  local.advanceTurnIfAI();
+  interrupt(Error("Turn interrupted by takeover"));
+  await retried;
+  assert.ok(state.revision>revision);
+ }finally{fs.rmSync(folder,{recursive:true,force:true});}
+});
+
 test("language model cannot invent AI points or play cards without paying",()=>{
  const state=startState();
  const uid=state.cards.find(c=>c.owner==="ai"&&c.zone==="hand").uid;
@@ -45,6 +87,34 @@ test("the outbound context never exposes physical player's hidden cards, or deck
  assert.ok(text.includes("AI hidden"));
  assert.ok(!text.includes("Human secret card"));
  assert.ok(!text.includes("decks"));
+});
+test("direct questions about combat totals use the reducer both before and after the damage step",async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"riftbound-combat-reply-"));
+ let state=startState();
+ const apply=command=>{state=applyCommand(state,command);};
+ apply({type:"phase",phase:"Main"});
+ apply({type:"add",player:"human",zone:"base",card:{name:"Attacker",type:"Unit",might:9}});
+ apply({type:"add",player:"ai",zone:"battlefield",battlefield:0,card:{name:"Defender",type:"Unit",might:1}});
+ apply({type:"combat-attack",player:"human",battlefield:0,uids:[state.cards.find(c=>c.name==="Attacker").uid]});
+ let done,modelCalls=0;
+ try{
+  const ai=createIntegratedAI({userData:dir,getState:()=>state,getCatalog:async()=>[],
+   getMessages:()=>({session:"combat",messages:[]}),sendMessage:text=>done(text),
+   applyBatch:()=>assert.fail("A combat question tried to change the board"),
+   fetchImpl:async()=>{modelCalls++;return {ok:false,status:503};}
+  });
+  ai.configure({provider:"free",model:"qwen3.5:9b-q4km"});
+  const ask=message=>Promise.race([new Promise(resolve=>{
+   done=resolve;ai.onHumanMessage(message);
+  }),new Promise((_,reject)=>setTimeout(()=>reject(Error("No combat reply")),1000).unref())]);
+  const revision=state.revision;
+  assert.match(await ask("Quelle est la force provisoire en attaque puis en défense ?"),/9.*1.*avant les réactions/);
+  assert.equal(state.revision,revision);
+  apply({type:"combat-pass",player:"human"});
+  apply({type:"combat-pass",player:"ai"});
+  assert.match(await ask("Quels étaient les totaux d’attaque et de défense au dernier combat"),/dernier combat.*9.*1/);
+  assert.equal(modelCalls,0);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 test("the opponent cannot reset games, invent AI cards or manipulate a hidden hand",()=>{
  const state=startState();

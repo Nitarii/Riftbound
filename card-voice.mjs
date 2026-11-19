@@ -49,7 +49,11 @@ function spokenScore(query,name){
  return Math.max(raw,sound*.99,tokenFit*.98);
 }
 export function rankSpokenCards(catalog,phrase,{limit=5}={}){
- const query=folded(phrase).replace(/^(?:(?:un|une|ma|mon|mes|my|the|le|la|a|an)\s+|l')+/,"");
+ const spoken=folded(phrase).replace(/^(?:(?:un|une|ma|mon|mes|my|the|le|la|a|an)\s+|l')+/,"");
+ const observed={"mountful winters":"mournful witness","mountful witness":"mournful witness",
+  "key barriere":"ki barrier","zone warrens":"zaun warrens",
+  "grove of the gold widow":"grove of the god willow","ravenbloom perfect prefect":"ravenbloom prefect"};
+ const query=Object.hasOwn(observed,spoken)?observed[spoken]:spoken;
  if(compact(query).length<4||compact(query).length>90)return [];
  const named=new Map();
  for(const card of catalog||[]){
@@ -84,7 +88,7 @@ export function matchSpokenCard(catalog,phrase){
 
 export function correctSpokenCardPhrase(catalog,text,{expectCardName=false}={}){
  const raw=String(text||"").trim();
- const match=raw.match(/\b(?:je\s+(?:joue|pose|place|mets)|j'\s*(?:joue|pose)|i\s+(?:play|place)|play)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+)?(.+?)(?=\s+(?:pour|for|avec|with|contre|cout|payer|pay)\s+\d+\s+runes?\b|[.!?]*$)/i);
+ const match=raw.match(/\b(?:je\s+(?:joue|pose|place|mets)|j'\s*(?:joue|pose)|i\s+(?:play|place)|play)\s+(?:(?:un|une|le|la|mon|ma|my|a|an|the)\s+)?(.+?)(?=\s+(?:pour|for|avec|with|contre|cout|payer|pay)\s+(?:\d+|[a-z]+)\s+runes?\b|[.!?]*$)/i);
  const title=match?.[1]?.replace(/[.!?]+$/g,"").trim()||
   (expectCardName?raw.replace(/[.!?]+$/g,"").trim():"");
  if(!title)return {text:raw,corrected:false};

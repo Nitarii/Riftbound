@@ -32,7 +32,7 @@ test("real punctuation at the end of Whisper's card name does not swallow an ann
  let s=prepare();
  const plan=planHumanAnnouncement("Je joue Disciple of Shen.",s,cards);
  assert.equal(plan.error,undefined,plan.error);
- assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Disciple of Shen"),
+ assert.ok(plan.commands.some(c=>c.type==="play-physical"&&c.card.name==="Disciple of Shen"),
   "Announced card must be added to the base, not sent to the JSON model");
  for(const command of plan.commands)s=applyCommand(s,command);
  assert.ok(s.cards.some(c=>c.owner==="human"&&c.zone==="base"&&c.name==="Disciple of Shen"));
@@ -54,6 +54,14 @@ test("ambiguous names are suggested rather than auto-played",()=>{
  const result=matchSpokenCard(ambiguous,"loyl poro");
  assert.equal(result.card,null);
  assert.ok(result.candidates.length>0);
+});
+test("mixed-language Whisper punctuation and a spoken rune cost preserve the card name",()=>{
+ const raw="Je joue Discipleau, Shen pour De Rune.";
+ const corrected=correctSpokenCardPhrase(cards,raw);
+ assert.equal(corrected.rawText,raw);
+ assert.equal(corrected.text,"Je joue Disciple of Shen pour De Rune.");
+ const plan=planHumanAnnouncement(corrected.text,prepare(),cards);
+ assert.ok(plan.commands.some(command=>command.type==="play-physical"&&command.card.name==="Disciple of Shen"));
 });
 test("local Qwen responses with explanatory wrappers still parse the actual JSON only",()=>{
  assert.deepEqual(extractJSON('<think>Let me reason</think>\n{"reply":"Bien reçu","commands":[]}'),

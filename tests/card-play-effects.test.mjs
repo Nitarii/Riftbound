@@ -4,6 +4,7 @@ import {createState,applyCommand} from "../core.mjs";
 import {mandatoryPlayEffects,chooseRequiredDiscards} from "../play-effects.mjs";
 import {planAutonomousAITurn} from "../ai-turn.mjs";
 import {effectiveMight} from "../combat-engine.mjs";
+import {resolveTop} from "./showdown-helper.mjs";
 const card=(name,type="Unit",extra={})=>({name,type,energy:0,power:0,might:1,...extra});
 const chem=card("Chemtech Enforcer","Unit",{energy:2,might:2,text:"[Assault 2] (+2 while I'm an attacker.)\nWhen you play me, discard 1."});
 function setup(){
@@ -21,21 +22,22 @@ function setup(){
  s=applyCommand(s,{type:"add",player:"ai",zone:"hand",card:card("Spare unit","Unit",{energy:5,might:1})});
  return s;
 }
-test("Chemtech Enforcer requires an exact one-card discard on play",()=>{
+test("Chemtech Enforcer discards one card after reactions to its play trigger",()=>{
  assert.deepEqual(mandatoryPlayEffects(chem),{supported:true,discard:1,reason:""});
  const state=setup();
  const uid=state.cards.find(c=>c.name==="Chemtech Enforcer").uid;
  const spare=state.cards.find(c=>c.name==="Spare unit").uid;
- assert.throws(()=>applyCommand(state,{type:"play-paid",uid,zone:"base"}),/défausse obligatoire/);
- const played=applyCommand(state,{type:"play-paid",uid,zone:"base",discardUids:[spare]});
+ let played=applyCommand(state,{type:"play-paid",uid,zone:"base",discardUids:[spare]});
+ assert.equal(played.cards.find(c=>c.uid===spare).zone,"hand");
+ played=resolveTop(played);
  assert.equal(played.cards.find(c=>c.uid===uid).zone,"base");
  assert.equal(played.cards.find(c=>c.uid===spare).zone,"trash");
  assert.equal(played.cards.filter(c=>c.owner==="ai"&&c.zone==="runes"&&c.exhausted).length,2);
- assert.match(played.message,/effet : défaussé Spare unit/);
+ assert.match(played.message,/défausse Spare unit/);
  assert.equal(played.players.ai.handCount,state.players.ai.handCount-2);
  assert.equal(state.cards.find(c=>c.uid===spare).zone,"hand","original state remains unchanged");
 });
-test("autonomous AI selects a discard from its own remaining hand in the same atomic command",()=>{
+test("autonomous AI stops for reactions before executing its planned discard",()=>{
  const state=setup(),plan=planAutonomousAITurn(state);
  assert.equal(plan.error,undefined,plan.error);
  const play=plan.commands.find(x=>x.type==="play-paid"&&
@@ -45,8 +47,11 @@ test("autonomous AI selects a discard from its own remaining hand in the same at
  assert.equal(state.cards.find(c=>c.uid===play.discardUids[0]).name,"Spare unit");
  let actual=state;
  for(const command of plan.commands)actual=applyCommand(actual,command);
+ assert.equal(actual.cards.find(c=>c.uid===play.discardUids[0]).zone,"hand");
+ assert.ok(actual.spellChain);
+ actual=resolveTop(actual);
  assert.equal(actual.cards.find(c=>c.uid===play.discardUids[0]).zone,"trash");
- assert.match(plan.enacted.join(" "),/défaussé Spare unit/);
+ assert.match(plan.enacted.join(" "),/défausse à résoudre après les réactions/);
 });
 test("unhandled on-play effects fail closed; AI never plays the card by ignoring them",()=>{
  const unknown=card("Mystery","Unit",{energy:1,text:"When you play me, deal 3 damage to an enemy."});
@@ -67,13 +72,16 @@ test("discard UID must belong to AI hand and cannot discard another player's hid
  const sameUid=[uid];
  assert.throws(()=>applyCommand(state,{type:"play-paid",uid,discardUids:sameUid}),/main de l'IA/);
 });
-test("no spare hand card means the AI refuses the mandatory-discard unit",()=>{
+test("the AI can play a discard-trigger unit with no remaining hand cards",()=>{
  let state=setup();
  state.cards=state.cards.filter(c=>c.name!=="Spare unit");
  state.players.ai.handCount--;
  const plan=planAutonomousAITurn(state);
  assert.equal(plan.commands.some(x=>x.type==="play-paid"&&
-  state.cards.find(c=>c.uid===x.uid)?.name==="Chemtech Enforcer"),false);
+  state.cards.find(c=>c.uid===x.uid)?.name==="Chemtech Enforcer"),true);
+ const resolved=resolveTop(plan.commands.reduce(applyCommand,state));
+ assert.equal(resolved.players.ai.handCount,0);
+ assert.equal(resolved.pendingEffects.length,0);
 });
 
 test("bracketed Assault 2 gives Chemtech Enforcer +2 Might when attacking only",()=>{

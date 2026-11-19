@@ -7,10 +7,15 @@ import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
-import {previewCombat} from "./combat-engine.mjs";
+import {previewCombat,effectiveMight} from "./combat-engine.mjs";
+import {shenLegend,goldToken} from "./verified-cards.mjs";
+import {publicCardVisible,publicChainDetail,chainIsResolving} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
+const desktop=globalThis.riftboundDesktop;
+const nativeMessage=message=>window.chrome.webview.postMessage(message);
+if(desktop)document.body.classList.add("desktop-app");
 const i18n={
  "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
  "Gestionnaire":"Manager","Ouvrir le gestionnaire":"Open manager",
@@ -40,10 +45,21 @@ const i18n={
  "Instructions pour n'importe quel agent":"Instructions for any agent",
  "Activer le plein écran":"Enter fullscreen","Désactiver":"Disable",
  "Envoyer mon message":"Send my message","Passer mon tour":"End turn",
- "Configurer":"Configure","Réduire le panneau historique":"Collapse history"
+ "Configurer":"Configure","Réduire le panneau historique":"Collapse history",
+ "⚙ Gestionnaire":"⚙ Manager","Ton deck physique":"Your physical deck",
+ "1 · Ta légende":"Legend","2 · Ton champion choisi":"Chosen champion","3 · Ton champ de bataille":"Battlefield",
+ "Adversaire IA":"AI opponent","Deck de l'IA":"Opponent deck","Qui commence ?":"First player",
+ "Moi":"Me","L'IA":"AI","▶ Commencer la partie":"▶ Start game","▶ Reprendre la partie":"▶ Resume game",
+ "Choisis une légende…":"Choose a legend…","Choisis d'abord ta légende…":"Choose a legend first…",
+ "Choisis un terrain…":"Choose a battlefield…","Plateau":"Board","Discussion IA":"AI chat",
+ "RUNES ACTIVES":"ACTIVE RUNES","MAIN IA":"AI HAND","DEFAUSSE":"DISCARD","Tour suivant →":"End turn →",
+ "Plus":"More","↶ Annuler":"↶ Undo","Outils avancés":"Advanced tools","Mode vocal éteint.":"Voice off",
+ "Connecter un agent externe":"Connect an online agent",
+ "Micro":"Mic","Ex. : Je joue Disciple of Shen.":"E.g. I play Disciple of Shen."
 };
 let uiLanguage="fr";
 try{uiLanguage=localStorage.getItem("riftbound-language")==="en"?"en":"fr";}catch{}
+if(desktop)uiLanguage=desktop.language;
 const originalText=new WeakMap(),originalAttributes=new WeakMap();
 function applyUILanguage(){
  document.documentElement.lang=uiLanguage;
@@ -76,7 +92,8 @@ function applyUILanguage(){
 
 // Declare the loopback destination so Chrome/Edge can request the right permission.
 // Browsers that do not implement the option simply ignore it.
-const localFetchOptions=url=>/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(url)
+const localFetchOptions=url=>!desktop&&new URL(url,location.href).origin!==location.origin&&
+ /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(url)
  ? {targetAddressSpace:"loopback"} : {};
 const storage="riftbound-companion-state-v1";
 const onboardingStorage="riftbound-onboarding-v1";
@@ -90,6 +107,7 @@ let undo=[],catalog=[],selected=null,relay=null,sse=null,lastSync=0;
 let companionGate=null,companionGateBusy=false;
 const isLoopbackRelay=url=>/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(url||"");
 function openCompanionManager(){
+ if(desktop){nativeMessage({type:"manager"});return true;}
  if(relay?.token&&isLoopbackRelay(relay.url)){
   // A real user gesture opens the authenticated loopback manager.
   // Fragment credentials never reach the web server or external websites.
@@ -113,10 +131,11 @@ for(const id of ["manager-open","manager-open-play","version-open-manager"]){
  $(id)?.addEventListener("click",openCompanionManager);
 }
 $("version-download").href=DOWNLOAD_URL;
-const save=()=>{try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
+const save=()=>{if(!state.decks)return;try{localStorage.setItem(storage,JSON.stringify(state))}catch{}};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Thumbnail requests reduce bandwidth; full-resolution art remains available in the detail view.
 function imageForDisplay(url,large=false){
+ if(desktop)return "";
  if(!url||typeof url!=="string")return "";
  try{
   const u=new URL(url);
@@ -135,12 +154,19 @@ function notify(message,bad=false){
  const home=$("home-feedback");
  if(home){home.textContent=message;home.classList.toggle("error",bad);}
 }
+function displayedMight(card,role){
+ if(!card.uid||!["base","battlefield"].includes(card.zone))return card.might;
+ const fight=state.pendingCombat;
+ role??=fight?.kind==="combat"&&card.zone==="battlefield"&&fight.battlefield===card.battlefield?
+  (fight.attacker===card.owner?"attack":"defend"):"none";
+ return effectiveMight(card,role,state);
+}
 function cardHTML(c,show=true,large=false){
  if(!c)return '<div class="empty-card">—</div>';
  const faceDown=Boolean(c.faceDown),turned=Boolean(c.exhausted);
  const title=faceDown?(uiLanguage==="en"?"Hidden card":"Carte cachée"):esc(c.name);
- const art=!faceDown&&c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
-   '<div class="empty-card">'+title+'</div>';
+ const art=!faceDown&&c.image&&!desktop?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
+   '<div class="empty-card">'+title+(desktop&&!faceDown&&Number.isFinite(displayedMight(c))?'<small>'+displayedMight(c)+'</small>':"")+'</div>';
  const label=show&&!faceDown?'<div class="card-label">'+title+'</div>':'';
  const status=faceDown?' data-card-state="hidden" aria-label="'+title+'"':
   turned?' data-card-state="exhausted" aria-label="'+title+' — exhausted"':
@@ -149,11 +175,13 @@ function cardHTML(c,show=true,large=false){
    (turned?"exhausted ":"")+(faceDown?"face-down":"")+'" title="'+title+'" data-uid="'+esc(c.uid||"")+'" data-card-type="'+esc((c.type||"").toLowerCase())+'" data-stunned="'+Boolean(c.stunned||c.counters?.stunned)+'"'+status+'>'+
    '<div class="card-art">'+(faceDown?'<div class="card-back">R</div>':art)+'</div>'+label+
    (c.damage?'<b class="damage">−'+c.damage+'</b>':'')+
-   Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+esc(k)+': '+esc(v)+'</b>').join("")+
+   Object.entries(c.counters||{}).filter(([,n])=>n).map(([k,v])=>'<b class="counter">'+
+    (k==="tempTank"?'Tank':esc(k)+': '+esc(v))+'</b>').join("")+
    '</div>';
  return tile;
 }
 function adjustRuneCards(){
+ if(desktop)return;
  for(const p of ["human","ai"]){
   const holder=$(p+"-runes"),panel=holder?.closest(".panel");
   if(!panel)continue;
@@ -171,31 +199,80 @@ window.addEventListener("resize",()=>requestAnimationFrame(adjustRuneCards),{pas
 function renderCombatPanel(){
  const panel=$("combat-panel"),battle=state.pendingCombat,attackBtn=$("combat-attack-button");
  if(!panel)return;
+ const chain=state.spellChain;
+ panel.dataset.state=chain||battle?"resolving":"available";
+ if(chain){
+  panel.hidden=false;attackBtn.hidden=true;
+  $("combat-choices").hidden=true;
+  $("combat-pass-button").hidden=chain.priority!=="human"||Boolean(state.pendingEffects?.length);
+  $("combat-effects-button").hidden=true;
+  $("combat-order-button").hidden=true;
+  $("combat-title").textContent=uiLanguage==="en"?"CHAIN":"CHAÎNE";
+  $("combat-details").textContent=chainIsResolving(state)?(uiLanguage==="en"?
+   "Resolving: answer the pending choice.":"Résolution en cours : réponds au choix demandé."):chain.priority==="human"?
+   "À toi : joue une Réaction ou passe la priorité.":"Priorité à l’IA.";
+  if(state.queuedAttack){
+   const field=state.battlefields[state.queuedAttack.battlefield]?.card?.name;
+   if(field)$("combat-details").textContent+=" · Attaque prévue sur "+field+" après la chaîne.";
+  }
+  $("combat-preview").replaceChildren(...[...chain.items].reverse().map(item=>{
+   const spell=state.cards.find(c=>c.uid===(item.sourceUid??item.uid)&&publicCardVisible(c));
+   const info=document.createElement(spell?"button":"div");
+   const target=state.cards.find(c=>c.uid===item.targetUid);
+   if(item.ability==="ready-runes-ending"){
+    info.textContent=item.cardName+" · "+item.runeUids.length+" rune(s) à redresser";
+    return info;
+   }
+   if(["create-gold","create-bird","create-units"].includes(item.ability)){
+    const name=item.tokenName||(item.ability==="create-gold"?"Gold":"Bird");
+    info.textContent=item.cardName+" · "+item.count+" "+name;
+    return info;
+   }
+   info.textContent=item.ability==="pakaa-reveal"?item.cardName+" · révélation du dessus du deck":
+    (spell?.name||item.cardName||"Sort")+(item.targetUid?" → "+(target?.name||"cible absente"):"")+
+    (item.ability==="shen-tank"?" · Tank":item.damage?" · "+item.damage+" dégâts":"");
+   if(spell){
+    info.type="button";
+    info.className="chain-card";
+    info.onclick=()=>showReadOnlyCard(spell,publicChainDetail(state,spell,{english:uiLanguage==="en"}));
+   }
+   return info;
+  }));
+  return;
+ }
  const canAttack=state.started&&state.active==="human"&&state.phase==="Main"&&
   state.cards.some(c=>c.owner==="human"&&c.zone==="base"&&
    /^unit$/i.test(c.type||"")&&!c.exhausted);
  panel.hidden=!battle&&!canAttack;
  attackBtn.hidden=!!battle;attackBtn.disabled=!canAttack;
- $("combat-pass-button").hidden=!battle||battle.passes?.human;
+ $("combat-pass-button").hidden=!battle||battle.passes?.human||(battle.focus??"human")!=="human"||!!state.pendingEffects?.length;
  $("combat-effects-button").hidden=!battle||!battle.warnings?.length||battle.confirmedEffects;
- $("combat-order-button").hidden=!battle;
+ $("combat-order-button").hidden=!battle||battle.kind==="conquest";
  if(!battle){
   $("combat-title").textContent=uiLanguage==="en"?"BATTLEFIELDS":"CHAMPS DE BATAILLE";
   $("combat-details").textContent=uiLanguage==="en"?
    "Select ready units to launch a simultaneous attack.":"Déclare un assaut avec plusieurs unités prêtes en une seule action.";
   $("combat-preview").textContent="";
+  attackBtn.textContent=uiLanguage==="en"?"⚔ Attack":"⚔ Attaquer";
   return;
  }
  $("combat-choices").hidden=true;
  $("combat-title").textContent="⚔ "+(state.battlefields[battle.battlefield]?.card?.name||"Combat");
+ if(battle.kind==="conquest"){
+  $("combat-preview").textContent="";
+  $("combat-details").textContent="Confrontation sans combat. "+
+   ((battle.focus??"human")==="human"?"Focalisation au joueur. ":"Focalisation à l’IA. ")+
+   "Le contrôle et les points seront confirmés à la clôture.";
+  return;
+ }
  let result;
  try{result=previewCombat(state,battle.battlefield,battle.attacker,battle.orders);}
  catch(e){result={ready:false,error:e.message};}
  $("combat-preview").textContent=result.ready?
   result.attackingMight+" Might ATK / "+result.defendingMight+" Might DEF":
   result.error||"Dégâts à vérifier";
- const waiting=battle.passes?.human?
-  "Réaction du joueur passée. ":"Réactions possibles : annonce un effet, puis passe. ";
+ const waiting=(battle.focus??"human")==="human"?
+  "À toi : annonce une réaction ou passe. ":"Focalisation à l’IA. ";
  const risk=(battle.warnings||[]).length?
    "Vérification avant résolution : "+battle.warnings.join(" · "):
    "Attribution des dégâts simultanée, Tank et Backline respectés.";
@@ -220,7 +297,7 @@ function selectCombatTargets(){
   const label=document.createElement("label");label.className="combat-unit-choice";
   const checkbox=document.createElement("input");checkbox.type="checkbox";
   checkbox.value=unit.uid;checkbox.checked=units.length===1;
-  label.append(checkbox,document.createTextNode(unit.name+" ("+(unit.might??"?")+" Might)"));
+  label.append(checkbox,document.createTextNode(unit.name+" ("+(displayedMight(unit,"attack")??"?")+" Might)"));
   container.append(label);
  }
  const confirm=document.createElement("button");confirm.type="button";confirm.className="primary";
@@ -234,7 +311,7 @@ function selectCombatTargets(){
  container.append(confirm);container.hidden=false;
 }
 $("combat-attack-button").onclick=selectCombatTargets;
-$("combat-pass-button").onclick=()=>dispatch({type:"combat-pass",player:"human"});
+$("combat-pass-button").onclick=()=>dispatch({type:state.spellChain?"chain-pass":"combat-pass",player:"human"});
 $("combat-effects-button").onclick=()=>{
  if(!state.pendingCombat)return;
  const warnings=state.pendingCombat.warnings||[];
@@ -253,7 +330,7 @@ $("combat-order-button").onclick=()=>{
  const select=document.createElement("select");
  for(const enemy of enemies){
   const option=document.createElement("option");option.value=enemy.uid;
-  option.textContent=enemy.name+" ("+(enemy.might??"?")+" Might)";
+  option.textContent=enemy.name+" ("+(displayedMight(enemy)??"?")+" Might)";
   select.append(option);
  }
  const confirm=document.createElement("button");confirm.type="button";
@@ -270,20 +347,110 @@ function renderPendingEffects(){
  if(!panel)return;
  panel.hidden=!pending;
  $("next-turn").disabled=Boolean(pending)||Boolean(state.finished);
+ const runeField=$("pending-effect-runes"),runeOptions=$("pending-effect-rune-options");
+ const chooseRunes=pending?.trigger==="ending-ready-runes";
+ const chooseBird=pending?.trigger==="bird-placement",chooseCost=pending?.trigger==="token-cost";
+ const chooseTarget=pending?.trigger==="ability-target",chooseDetach=pending?.trigger==="gear-detach";
+ const choosePredict=pending?.trigger==="card-text-predict";
+ $("pending-bird-choice").hidden=!chooseBird;
+ $("pending-target-choice").hidden=!chooseTarget;
+ $("pending-effect-decline").hidden=!(chooseCost||chooseTarget&&pending.optional||chooseDetach||choosePredict);
+ $("pending-effect-decline").textContent=choosePredict?"Recycler":chooseDetach?"Garder attaché":"Décliner";
+ if(chooseTarget){
+  const list=$("pending-target"),selected=list.dataset.effectId===pending.id?list.value:"";
+  const options=pending.targetUids.flatMap(uid=>{
+   const card=state.cards.find(card=>card.uid===uid&&!card.faceDown&&["base","battlefield"].includes(card.zone));
+   if(!card)return [];
+   const location=card.zone==="base"?"Base":state.battlefields[card.battlefield]?.card?.name;
+   return [new Option(card.name+" · "+location+" · "+(card.owner==="human"?"Joueur":"IA"),uid)];
+  });
+  list.replaceChildren(...options);
+  list.dataset.effectId=pending.id;
+  if(options.some(option=>option.value===selected))list.value=selected;
+ }
+ if(chooseBird){
+  const list=$("pending-bird-field"),selected=list.dataset.effectId===pending.id?list.value:"base";
+  const options=[new Option("Base","base"),...state.battlefields.flatMap((b,i)=>
+   b.card&&battlefieldController(state,i)===pending.player?[new Option(b.card.name,String(i))]:[])];
+  list.replaceChildren(...options);
+  list.dataset.effectId=pending.id;
+  list.value=options.some(o=>o.value===selected)?selected:"base";
+ }
+ runeField.hidden=!chooseRunes;
+ if(chooseRunes){
+  const previous=runeOptions.dataset.effectId===pending.id?
+   new Set([...runeOptions.querySelectorAll("input:checked")].map(input=>input.value)):new Set();
+  const runes=state.cards.filter(r=>r.owner===pending.player&&r.zone==="runes");
+  runeOptions.dataset.effectId=pending.id;
+  runeOptions.replaceChildren(...runes.map((rune,index)=>{
+   const label=document.createElement("label"),input=document.createElement("input");
+   input.type="checkbox";input.value=rune.uid;input.checked=previous.has(rune.uid);
+   input.onchange=()=>{
+    if(runeOptions.querySelectorAll("input:checked").length>pending.count){
+     input.checked=false;
+     notify("Choisis au maximum "+pending.count+" runes.",true);
+    }
+   };
+   label.append(input,rune.name+" "+(index+1)+(rune.exhausted?" · épuisée":" · prête"));
+   return label;
+  }));
+ }else if(runeOptions.dataset.effectId){
+  delete runeOptions.dataset.effectId;
+  runeOptions.replaceChildren();
+ }
  if(!pending)return;
  $("pending-effect-card").textContent=pending.cardName+
   " · "+(pending.player==="ai"?"Effet de l'IA":"Effet du joueur")+
   (state.pendingEffects.length>1?" ("+state.pendingEffects.length+" en attente)":"");
  $("pending-effect-description").textContent=pending.text;
- $("pending-effect-reason").textContent=pending.reason+
-  " · Applique l'effet réel et les choix nécessaires avant de confirmer.";
+ const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","burn":"Je révèle","spell-discard":"Je défausse","card-text-discard":"Je défausse"}[pending.trigger];
+ $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":chooseBird?"Jouer Bird":
+  chooseTarget?"Valider la cible":chooseDetach?"Détacher":
+  choosePredict?"Conserver":chooseCost?(pending.energy?"Payer et activer":"Activer"):announce?"Indiquer la carte":"Confirmer l’effet";
+ $("pending-effect-reason").textContent=pending.reason+(chooseRunes?" Tu peux n’en choisir aucune.":announce?
+  " · Annonce « "+announce+" » suivi du nom de la carte.":chooseBird||chooseCost||chooseTarget||chooseDetach||choosePredict?"":
+  " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
+ if(pending.trigger==="card-text-predict"){
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,recycle:false});return;
+ }
+ if(["ability-target","gear-detach"].includes(pending.trigger)){
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,
+   ...(pending.trigger==="ability-target"&&{targetUid:$("pending-target").value})});
+  return;
+ }
+ if(pending.trigger==="token-cost"||pending.trigger==="bird-placement"){
+  const field=$("pending-bird-field").value;
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,
+   ...(pending.trigger==="bird-placement"&&{battlefield:field==="base"?null:Number(field)})});
+  return;
+ }
+ if(pending.trigger==="ending-ready-runes"){
+  const uids=[...$("pending-effect-rune-options").querySelectorAll("input:checked")].map(input=>input.value);
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,uids});
+  return;
+ }
+ const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","burn":"Je révèle","spell-discard":"Je défausse","card-text-discard":"Je défausse"}[pending.trigger];
+ if(announce){
+  selectWorkspacePanel("chat");
+  $("notes").value=announce+" ";
+  $("notes").focus();
+  return;
+ }
  const confirmed=confirm("As-tu réellement résolu l'effet de "+pending.cardName+
   " ?\\n"+pending.text+"\\n\\nConfirmer ne simule aucun effet : le plateau attend ta résolution physique.");
  if(confirmed)dispatch({type:"effect-confirm",id:pending.id,confirm:true});
+};
+$("pending-effect-decline").onclick=()=>{
+ const pending=state.pendingEffects?.[0];
+ if(pending?.trigger==="card-text-predict"){
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,recycle:true});return;
+ }
+ if(["token-cost","ability-target","gear-detach"].includes(pending?.trigger))
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,decline:true});
 };
 let previousCardLocations=new Map();
 function render(){
@@ -298,12 +465,18 @@ function render(){
   $("phases").innerHTML=PHASES.map(p=>'<button class="phase '+(state.phase===p?"current":"")+'" data-phase="'+p+'">'+p+'</button>').join("");
   for(const p of ["human","ai"]){
     const player=state.players[p];
-    $(p+"-score").textContent=player.score+" PV";
-    $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main");
+    $(p+"-score").textContent=player.score+(uiLanguage==="en"?" VP":" PV");
+    const power=state.powerPool?.[p]||0;
+    $(p+"-meta").textContent=player.handCount+(uiLanguage==="en"?" in hand":" en main")+
+     (player.xp?" · "+player.xp+" XP":"")+
+     (power?" · "+power+(uiLanguage==="en"?" Power in pool":" Power en réserve"):"");
     const piles=$(p+"-decks");
     if(piles)piles.innerHTML='<button class="pile" data-pile-owner="'+p+'" data-pile-action="draw" '+((p!==state.active||state.turnActions?.drawn||player.deckCount===0)?"disabled ":"")+'title="Draw / Piocher"><span class="pile-back">R</span><span class="pile-label">DECK · '+(player.deckCount??"?")+'</span></button>'+
       '<button class="pile rune-pile" data-pile-owner="'+p+'" data-pile-action="channel" '+((p!==state.active||state.turnActions?.channeled||player.runeCount===0)?"disabled ":"")+'title="Channel / Canaliser"><span class="pile-back">◇</span><span class="pile-label">RUNES · '+player.runeCount+'</span></button>';
-    for(const z of ["legend","champion"]){$(p+"-"+z).innerHTML=cardHTML(state.cards.find(c=>c.owner===p&&c.zone===z)||player[z]);}
+    for(const z of ["legend","champion"]){
+     const inZone=state.cards.find(c=>c.owner===p&&c.zone===z);
+     $(p+"-"+z).innerHTML=cardHTML(inZone||(z==="champion"&&state.started?null:player[z]));
+    }
     const cards=z=>state.cards.filter(c=>c.owner===p&&c.zone===z);
     $(p+"-hand").innerHTML=p==="human"?
       Array.from({length:Math.min(12,Math.max(0,player.handCount))},(_,i)=>
@@ -325,7 +498,8 @@ function render(){
      holder.textContent=controller==="human"?"● JOUEUR":controller==="ai"?"● IA":contested?"● CONTESTÉ":"";
     }
     $("bf-image-"+i).innerHTML=cardHTML(b.card);
-    $("units-"+i).innerHTML=state.cards.filter(c=>c.zone==="battlefield"&&c.battlefield===i).map(c=>cardHTML(c)).join("");
+    $("units-"+i).innerHTML=state.cards.filter(c=>["battlefield","hidden","hidden-reveal"].includes(c.zone)&&
+     c.battlefield===i).map(c=>cardHTML(c)).join("");
   });
   renderCombatPanel();
   renderPendingEffects();
@@ -360,11 +534,12 @@ async function dispatch(command){
   }
   try{
     if(relay){
-      const res=await fetch(relay.url+"/api/command",{...localFetchOptions(relay.url),method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(command)});
+      const envelope={...command,ifRevision:state.revision,commandId:crypto.randomUUID()};
+      const res=await fetch(relay.url+"/api/command",{...localFetchOptions(relay.url),method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+relay.token},body:JSON.stringify(envelope)});
       const reply=await res.json();if(!res.ok)throw Error(reply.error||"Erreur du relais");
-      state=reply.state;lastSync=state.revision;render();
+      if(reply.state.revision>=state.revision){state=reply.state;lastSync=state.revision;render();}
     }else{undo.push(structuredClone(state));undo=undo.slice(-50);state=applyCommand(state,command);render();}
-    if(command.type==="reset"||command.type==="start")resetChatView();
+    if(["reset","start","new-duel"].includes(command.type))resetChatView();
     notify(state.message);
     return true;
   }catch(e){notify(e.message,true);return false;}
@@ -384,17 +559,21 @@ function selectCard(c){
   $("detail-state").textContent=c.exhausted?"Épuisée · aperçu redressé":"";
   $("detail-image").innerHTML=cardHTML({...c,exhausted:false},true,true);$("card-dialog").showModal();
 }
+function showReadOnlyCard(card,context=""){
+ selectCard(card);
+ selected=null;
+ $("detail-state").textContent=context;
+ $("detail-add").parentElement.hidden=true;
+ $("card-dialog").querySelector(".dialog-edit-fields").hidden=true;
+ $("card-dialog").classList.add("battlefield-readonly");
+}
 function showBattlefieldDetails(index){
  const raw=state.battlefields?.[index]?.card;
  if(!raw)return notify("Aucun champ de bataille sélectionné.",true);
  const match=catalog.find(c=>c.code&&c.code===raw.code)||
   catalog.find(c=>c.name?.toLowerCase()===raw.name?.toLowerCase()&&c.type?.toLowerCase().includes("battlefield"));
  const card={...raw,...match,text:match?.text||raw.text||""};
- selectCard(card);
- selected=null;
- $("detail-add").parentElement.hidden=true;
- $("card-dialog").querySelector(".dialog-edit-fields").hidden=true;
- $("card-dialog").classList.add("battlefield-readonly");
+ showReadOnlyCard(card);
  $("detail-text").textContent=card.text||"Texte de l'effet non disponible dans ce catalogue. Actualise les cartes.";
 }
 document.addEventListener("keydown",e=>{
@@ -409,6 +588,11 @@ document.addEventListener("click",e=>{
   const tile=e.target.closest(".card-tile");
   if(tile?.dataset.uid){
     const c=state.cards.find(c=>c.uid===tile.dataset.uid);
+    if(c?.faceDown&&c.zone==="hidden"&&c.owner==="human"){
+     notify("Pour jouer cette carte, annonce « Je révèle [nom] à "+state.battlefields[c.battlefield]?.card?.name+" ».");
+     return;
+    }
+    if(c?.faceDown&&["hidden","hidden-reveal"].includes(c.zone))return;
     if(c&&!(c.zone==="hand"&&c.owner==="ai")){showInstance(c);return;}
   }
   const result=e.target.closest("[data-code]");
@@ -424,6 +608,35 @@ function showInstance(c) {
   $("detail-bf").value=String(c.battlefield||0);$("detail-add").textContent="Déplacer";
   let bar=$("detail-card-actions");if(!bar){bar=document.createElement("div");bar.id="detail-card-actions";bar.className="line";$("detail-add").parentElement.after(bar);}
   bar.innerHTML='<button data-action="exhaust">Épuiser</button><button data-action="ready">Redresser</button><button data-action="damage">+1 dégât</button><button data-action="heal">Soigner 1</button><button data-action="stun">Étourdir</button><button data-action="remove">Retirer</button>';
+  const fight=state.pendingCombat;
+  const hasFocus=fight?fight.focus==="human"&&!fight.passes.human:state.active==="human";
+  if(c.owner==="human"&&c.zone==="base"&&goldToken(c)&&!c.exhausted&&!state.finished&&!state.pendingEffects?.length&&
+     (state.spellChain?state.spellChain.priority==="human":state.phase==="Main"&&hasFocus)){
+   const spend=document.createElement("button");
+   spend.type="button";spend.className="primary";spend.textContent=uiLanguage==="en"?"Spend Gold":"Dépenser Gold";
+   spend.onclick=()=>{
+    $("card-dialog").close();
+    dispatch({type:"activate",player:"human",uid:c.uid});
+   };
+   bar.prepend(spend);
+  }
+  if(c.owner==="human"&&c.zone==="legend"&&shenLegend(c)&&!c.exhausted&&state.phase==="Main"&&
+     !state.finished&&!state.spellChain&&!state.pendingEffects?.length&&hasFocus){
+   const allies=state.cards.filter(unit=>unit.owner==="human"&&["base","battlefield"].includes(unit.zone)&&
+    /^unit$/i.test(unit.type)&&!unit.faceDown);
+   if(allies.length){
+    const label=document.createElement("label"),list=document.createElement("select"),activate=document.createElement("button");
+    label.append("Unité qui reçoit Tank",list);
+    for(const ally of allies)list.add(new Option(ally.name+" · "+(ally.zone==="base"?"Base":
+     state.battlefields[ally.battlefield]?.card?.name||"Champ de bataille"),ally.uid));
+    activate.type="button";activate.className="primary";activate.textContent="Activer Shen";
+    activate.onclick=()=>{
+     $("card-dialog").close();
+     dispatch({type:"activate",player:"human",uid:c.uid,targetUid:list.value});
+    };
+    bar.prepend(label,activate);
+   }
+  }
   $("card-dialog").showModal();
 }
 $("detail-close").onclick=()=>$("card-dialog").close();
@@ -575,6 +788,32 @@ function renderChat({newMessages=false}={}){
   meta.textContent=(m.role==="ai"?(uiLanguage==="en"?"AI opponent":"Adversaire IA"):(uiLanguage==="en"?"You":"Toi"))+
    " · "+new Date(m.at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const text=document.createElement("p");text.textContent=m.text;node.append(meta,text);list.append(node);
+  if(m.role==="ai"&&m.view?.kind==="board"){
+   const board=document.createElement("button");
+   board.type="button";board.className="chat-view";
+   board.textContent=uiLanguage==="en"?"Open board":"Voir le plateau";
+   board.onclick=()=>selectWorkspacePanel("board");
+   node.append(board);
+  }
+  if(m.role==="ai"&&m.view?.kind==="card"&&typeof m.view.uid==="string"){
+   const link=document.createElement("button");
+   link.type="button";link.className="chat-view";
+   const card=state.cards.find(c=>c.uid===m.view.uid&&publicCardVisible(c));
+   if(card?.image){
+    const thumb=document.createElement("img");
+    thumb.alt="";thumb.loading="lazy";thumb.src=imageForDisplay(card.image);
+    link.append(thumb);
+   }
+   link.append(card?.name||(uiLanguage==="en"?"View card":"Voir la carte"));
+   link.onclick=async()=>{
+    const current=relay;
+    if(current&&!await syncRelaySnapshot(current))return notify("Impossible de vérifier la carte sur le plateau.",true);
+    const faceUp=state.cards.find(c=>c.uid===m.view.uid&&publicCardVisible(c));
+    if(!faceUp)return notify("Cette carte n’est plus visible sur le plateau.",true);
+    showReadOnlyCard(faceUp,publicChainDetail(state,faceUp,{english:uiLanguage==="en"}));
+   };
+   node.append(link);
+  }
  }
  list.append(typing);
  renderChatStatus();
@@ -630,12 +869,14 @@ async function sendChatMessage(message){
  const text=String(message||"").trim();
  if(!text)return false;
  if(!relay){notify("Connecte d'abord le serveur pour transmettre ton message à l'IA.",true);return false;}
+ const session=relay,requestId=crypto.randomUUID();
  try{
-  const response=await fetch(relay.url+"/api/messages",{
-    ...localFetchOptions(relay.url),method:"POST",
-    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"application/json"},
-    body:JSON.stringify({text})
+  const post=()=>fetch(session.url+"/api/messages",{
+    ...localFetchOptions(session.url),method:"POST",
+    headers:{"Authorization":"Bearer "+session.token,"Content-Type":"application/json"},
+    body:JSON.stringify({text,requestId})
   });
+  const response=await post().catch(error=>{if(relay!==session)throw error;return post();});
   const data=await response.json();
   if(!response.ok)throw Error(data.error||"Message refusé");
   pendingChatResponse=Boolean(integratedAIStatus?.enabled||remoteSession?.url);
@@ -755,7 +996,8 @@ function displayHeard(text,complete=false){
 function voiceUI(info){
  const active=Boolean(info.enabled);
  voiceButton.setAttribute("aria-pressed",String(active));
- voiceButton.textContent=active?"■ Couper le micro":"🎙 Mode vocal";
+ voiceButton.textContent=desktop?(active?(uiLanguage==="en"?"■ Stop mic":"■ Couper le micro"):
+  (uiLanguage==="en"?"Mic":"Micro")):active?"■ Couper le micro":"🎙 Mode vocal";
  voiceButton.title=active?"Désactiver la conversation mains libres":"Activer l'écoute continue et l'envoi automatique";
  voiceIndicator.dataset.voiceState=info.phase;
  voiceStatus.textContent=info.detail||(active?"Microphone actif. Parle naturellement.":"Mode vocal éteint.");
@@ -776,6 +1018,27 @@ function showVoiceDraft(transcript){
 voiceController=createLocalVoiceConversation({
  onState:voiceUI,onPreview:showVoiceDraft,
  onTranscript:handleVoiceTranscript,
+ playLocalVoice:async(text,signal)=>{
+  if(!relay)return false;
+  const active=AbortSignal.any([signal,AbortSignal.timeout(45000)]);
+  const response=await fetch(relay.url+"/api/speech/synthesis",{
+   ...localFetchOptions(relay.url),method:"POST",signal:active,
+   headers:{Authorization:"Bearer "+relay.token,"Content-Type":"application/json"},
+   body:JSON.stringify({text})
+  });
+  if(!response.ok)return false;
+  const src=URL.createObjectURL(await response.blob());
+  const audio=new Audio(src);
+  try{
+   await new Promise((resolve,reject)=>{
+    audio.onended=resolve;audio.onerror=reject;
+    if(active.aborted){reject(active.reason);return;}
+    active.addEventListener("abort",()=>{audio.pause();reject(active.reason);},{once:true});
+    audio.play().catch(reject);
+   });
+   return true;
+  }finally{audio.pause();URL.revokeObjectURL(src);}
+ },
  sendAudio:async blob=>{
   if(!relay)throw Error("Relais local déconnecté.");
   const response=await fetch(relay.url+"/api/speech/transcribe",{
@@ -872,9 +1135,11 @@ setInterval(async()=>{
 $("language-select").value=uiLanguage;
 $("language-select").addEventListener("change",event=>{
  uiLanguage=event.target.value==="en"?"en":"fr";
+ if(desktop)nativeMessage({type:"language",language:uiLanguage});
  try{localStorage.setItem("riftbound-language",uiLanguage);}catch{}
  voiceController.setLanguage(uiLanguage);
  render();renderChat();
+ if(desktop){renderDeckChoices();renderWelcome();applyUILanguage();}
 });
 
 document.addEventListener("visibilitychange",()=>voiceController.setHidden(document.hidden));
@@ -1108,7 +1373,11 @@ async function checkRemoteSession(){
   const wasActive=Boolean(remoteSession?.url);
   remoteSession=data.active?data:null;
   updateRemoteUI();
-  if(wasActive&&!data.active)notify("L'accès distant IA est terminé.");
+  if(wasActive&&!data.active){
+   clearManualPrompt();
+   aiQuery();
+   notify("L'accès distant IA est terminé.");
+  }
  }catch{/* Local module offline; reconnect normally. */}
 }
 function clearManualPrompt(){
@@ -1157,15 +1426,16 @@ function agentPromptText(includeAccess=true){
     "Aucune console distante n'est activée. Ne prétends pas être connecté.",
   "Si tu as un navigateur interactif, ouvre la console agent pour consulter le plateau et commander les cartes.",
   "API : GET /api/guide, GET /api/state, GET /api/messages?after=0, POST /api/messages {text}, GET /api/catalog?q=..., GET /api/decks, POST /api/command.",
-  "La chatbox du joueur envoie ses textes et transcriptions vocales dans GET /api/messages. Relis-la régulièrement en augmentant after avec le dernier id.",
-  "Réponds au joueur par POST /api/messages avec le JSON {\"text\":\"Ta réponse\"}, puis utilise POST /api/command pour afficher les déplacements et autres changements réels.",
+  "Les messages du joueur comprennent le résultat table.status. applied ou unchanged signifie que le plateau est déjà à jour. delegated signifie que le compagnon te laisse interpréter l’annonce. En cas de clarification ou de rejet, lis le message et coordonne-toi avec le joueur.",
+  "Relis régulièrement GET /api/messages en passant le dernier lastId dans after. Réponds au joueur via POST /api/messages avec {\"text\":\"Ta réponse\"}.",
+  "Pour jouer, utilise les commandes documentées dans /api/guide. Ajoute ifRevision avec la dernière révision lue et vérifie le reçu et l’état retournés.",
   "Le bouton « Passer mon tour » fait avancer le plateau et envoie une annonce dans les messages.",
   "Documentation standard de l'API pour les agents compatibles : "+(connected?base+"/openapi.json":"URL distante indisponible"),
   connected?"Authentification de CETTE session : Authorization: Bearer "+remoteSession.agentToken:
     "Aucun jeton temporaire disponible. Propose des commandes JSON au joueur si tu n'as pas d'accès direct.",
   "Si tu es autorisé et capable d'envoyer des requêtes HTTP, commence par GET /api/guide puis GET /api/state. Utilise la console web sinon.",
   "Si l'IA n'est pas configurée, choisis un deck : POST /api/command {\"type\":\"select-precon\",\"id\":\"random\"}.",
-  "À chaque changement, annonce les cartes réellement jouées, leurs effets vérifiés, puis envoie les commandes de placement correspondantes.",
+  "Utilise play-paid pour les unités et équipements, cast pour les sorts, et combat-attack pour les assauts. Passe avec chain-pass ou combat-pass selon la fenêtre. Annonce au joueur les effets et cartes qui apparaissent dans l’état renvoyé.",
   "Ne confonds pas ce compagnon de suivi avec un arbitre automatique complet des règles.",
   "Si ton environnement n'a ni navigateur agent ni outil HTTP, dis-le clairement et donne des commandes à copier manuellement.",
   "N'expose pas ces informations en public et ne les publie pas sur GitHub."
@@ -1232,6 +1502,7 @@ $("home-start-remote").onclick=async()=>{
   if(!session?.url||!session?.agentToken)throw Error("L'accès distant n'est pas prêt.");
   remoteSession=session;remoteStarting=false;
   updateRemoteUI();
+  aiQuery();
   await copyAgentPrompt(true,clipboard);
  }catch(e){
   if(clipboard)clipboard.resolve(new Blob(["L'accès distant n'a pas pu être activé. Aucun jeton n'a été créé."],{type:"text/plain"}));
@@ -1247,6 +1518,7 @@ $("home-stop-remote").onclick=async()=>{
   remoteSession=null;onboarding.prompt=false;saveOnboarding();
   clearManualPrompt();
   updateRemoteUI();renderWelcome();
+  aiQuery();
   notify("✓ Accès à l'IA coupé immédiatement.");
  }catch(e){notify(e.message,true);}
 };
@@ -1323,7 +1595,10 @@ $("manual-apply").onclick=async()=>{
  notify(applied+" commande(s) de l'IA appliquée(s).");
 };
 
-$("undo").onclick=()=>{if(relay){notify("Annulation seulement en mode navigateur.",true);return;}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
+$("undo").onclick=()=>{if(relay){
+ if(confirm("Annuler la dernière transaction du plateau ? Remets aussi les cartes physiques dans leur état précédent. Les cartes déjà révélées restent connues."))void dispatch({type:"undo"});
+ return;
+}if(undo.length){state=undo.pop();render();notify("Dernière action annulée.");}};
 $("reset").onclick=async()=>{
  if(!confirm("Effacer la partie en cours ?"))return;
  if(await dispatch({type:"reset"})){resetChatView();showHome();}
@@ -1351,7 +1626,7 @@ document.addEventListener("error",e=>{
  img.alt=img.alt+" (image indisponible)";
 },true);
 $("card-search").oninput=renderCatalog;$("card-type").onchange=renderCatalog;
-$("refresh-cards").onclick=async()=>{try{catalog=await loadCatalog(true);renderCatalog();notify("Catalogue actualisé")}catch(e){notify(e.message,true)}};
+$("refresh-cards").onclick=async()=>{try{catalog=await loadAppCatalog(true);renderCatalog();notify("Catalogue actualisé")}catch(e){notify(e.message,true)}};
 $("import-cards").onchange=async e=>{try{catalog=importCatalog(JSON.parse(await e.target.files[0].text()));renderCatalog();notify(catalog.length+" cartes chargées.");}catch(err){notify(err.message,true)}e.target.value="";};
 const signalStatus=t=>{$("connection").textContent=t;};
 let sseRetry=null;
@@ -1360,17 +1635,23 @@ function disconnect(){
  if(sse)sse.close();
  if(sseRetry)clearTimeout(sseRetry);
  sse=null;sseRetry=null;relay=null;signalStatus("● Mode navigateur");
+ if(!state.decks){
+  try{state=JSON.parse(localStorage.getItem(storage))||createState();}catch{state=createState();}
+  render();
+ }
  remoteSession=null;integratedAIStatus=null;freeAIInfo=null;clearManualPrompt();updateRemoteUI();renderFreeAI();
  resetChatView();aiDisplay("Serveur déconnecté.");notify("Relais déconnecté.");renderWelcome();
 }
 async function syncRelaySnapshot(session){
- if(relay!==session)return;
+ if(relay!==session)return false;
  try{
   const res=await fetch(session.url+"/api/state",{...localFetchOptions(session.url),headers:{Authorization:"Bearer "+session.token}});
-  if(!res.ok)return;
+  if(!res.ok)return false;
   const fresh=(await res.json()).state;
+  if(!fresh||relay!==session)return false;
   if(fresh&&fresh.revision>=lastSync){state=fresh;lastSync=fresh.revision;render();}
- }catch{}
+  return true;
+ }catch{return false;}
 }
 async function attachLiveEvents(session){
  if(relay!==session)return;
@@ -1469,14 +1750,18 @@ async function connectRelay(){
   const res=await fetch(url+"/api/state",{...localFetchOptions(url),headers:{Authorization:"Bearer "+token}});
   if(!res.ok)throw Error("Accès refusé au relais");
   state=(await res.json()).state;lastSync=state.revision;relay={url,token};undo=[];render();
-  if(local)await refreshCompanionGate(relay);
+  if(local&&!desktop)await refreshCompanionGate(relay);
   resetChatView();syncChat();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
   notify(companionGate?
    "Mise à jour ou vérification nécessaire. Utilise le gestionnaire.":"Relais synchronisé. Ne publie jamais ton jeton.",
    Boolean(companionGate));renderWelcome();
-  queueMicrotask(()=>{checkRemoteSession();aiQuery();pollFreeAI();refreshSpeech();refreshKnowledgeStatus();});
+  queueMicrotask(()=>{
+   checkRemoteSession();
+   if(!desktop){pollFreeAI();refreshKnowledgeStatus();}
+   aiQuery();refreshSpeech();
+  });
   return true;
  }catch(e){disconnect();notify(e.message,true);return false;}
 }
@@ -1507,6 +1792,14 @@ function setWizardStep(index){
 }
 function renderWelcome(){
  if(!$("welcome-progress"))return;
+ if(desktop){
+  for(const section of document.querySelectorAll(".welcome-step"))section.hidden=section.dataset.wizardStep!=="3";
+  $("home-resume").hidden=!state.started;
+  $("home-resume").textContent="▶ Reprendre la partie";
+  $("home-create-game").disabled=!relay||!catalog.length;
+  applyUILanguage();
+  return;
+ }
  const gate=$("companion-version-gate");
  gate.hidden=!companionGate;
  if(companionGate){
@@ -1753,7 +2046,7 @@ function renderDeckChoices(){
  }
  for(const id of ids){
   const el=$(id),previous=el.value;
-  el.innerHTML='<option value="random">🎲 Aléatoire parmi les '+PRECONS.length+' decks</option>';
+  el.innerHTML='<option value="random">'+(uiLanguage==="en"?"Random opponent":"Deck aléatoire")+'</option>';
   for(const [group,decks] of groups){
    const optgroup=document.createElement("optgroup");optgroup.label=group;
    for(const deck of decks){const option=document.createElement("option");option.value=deck.id;option.textContent=deck.label.split(" · ")[0]+" · "+deck.label.match(/\(([^)]+)\)/)?.[1];optgroup.append(option);}
@@ -1817,6 +2110,14 @@ $("home-create-game").onclick=async()=>{
   const legend=homeCard("home-human-legend","legend");
   const champion=homeCard("home-human-champion","champion");
   const battlefield=homeCard("home-human-battlefield","battlefield");
+  if(desktop){
+   const replace=uiLanguage==="en"?"Replace the saved game?":"Remplacer la partie en cours ?";
+   if(state.started&&!confirm(replace))return;
+   button.disabled=true;
+   if(await dispatch({type:"new-duel",legend:legend.code,champion:champion.code,
+    battlefield:battlefield.code,deck:$("home-ai-deck").value,player:$("home-first-player").value}))showGame();
+   return;
+  }
   const deck=resolvePrecon(catalog,$("home-ai-deck").value);
   if(state.started&&!confirm("Remplacer la partie en cours par une nouvelle partie ?"))return;
   button.disabled=true;button.textContent="Création en cours…";
@@ -1834,7 +2135,7 @@ $("home-create-game").onclick=async()=>{
    notify("Partie prête : "+deck.label+".");
    showGame();
  }catch(e){notify(e.message,true);}
-  finally{button.disabled=false;button.textContent="▶ Commencer la partie";}
+  finally{button.disabled=false;button.textContent="▶ Commencer la partie";applyUILanguage();}
 };
 // The Windows single-file app opens this page with a one-time login token
 // in the URL fragment (never sent to the server), which is consumed immediately.
@@ -1842,7 +2143,8 @@ async function autoBootstrapCompanion(){
  if(!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(location.origin))return;
  const key="riftbound-local-connection-v1";
  let localToken="";
- if(location.hash.startsWith("#companion=")){
+ if(desktop)localToken=desktop.token;
+ else if(location.hash.startsWith("#companion=")){
    try{localToken=decodeURIComponent(location.hash.slice("#companion=".length));}catch{}
    history.replaceState(null,"",location.pathname+location.search);
    if(localToken)try{sessionStorage.setItem(key,localToken);}catch{}
@@ -1861,7 +2163,7 @@ async function autoBootstrapCompanion(){
    onboarding.preview=false;
    wizardStep=companionGate?1:3;onboarding.wizardStep=wizardStep;
    saveOnboarding();renderWelcome();
-   if(!companionGate)notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
+   if(!companionGate&&!desktop)notify("Application Windows connectée automatiquement. Configure maintenant ta partie.");
  }else{
    try{sessionStorage.removeItem(key);}catch{}
    notify("Connexion automatique impossible. Relance le compagnon Windows.",true);
@@ -1997,16 +2299,39 @@ async function watchForLocalCompanion(){
  },2400);
 }
 
+if(desktop){
+ $("welcome-heading").textContent="Riftbound Companion";
+ const remoteOptions=document.querySelector(".remote-access-alternative");
+ remoteOptions.querySelector("summary").textContent="Connecter un agent externe";
+ document.querySelector('[data-wizard-step="3"] .welcome-step-body').append(remoteOptions);
+ $("home-feedback").textContent="";
+ $("manager-open").title="Ouvrir le gestionnaire";
+ $("voice-note").textContent="Micro";
+ $("notes").placeholder="Ex. : Je joue Disciple of Shen.";
+ for(const side of ["human","ai"]){
+  const score=$(side+"-score");
+  score.before($(side+"-meta"));
+ }
+}
 render();
 renderChat();
 renderWelcome();
 renderDeckChoices();
 updateRemoteUI();
 setInterval(()=>{if(relay?.token&&remoteSession)checkRemoteSession();},15000);
-setInterval(()=>{if(relay&&isLoopbackRelay(relay.url))refreshCompanionGate(relay);},6500);
+const loadAppCatalog=async(force=false)=>{
+ if(!desktop)return loadCatalog(force);
+ const result=await fetch("/api/catalog?limit=25000",{headers:{Authorization:"Bearer "+desktop.token}});
+ if(!result.ok)throw Error("Catalogue local indisponible.");
+ return (await result.json()).cards;
+};
+if(!desktop){
+ setInterval(()=>{if(relay&&isLoopbackRelay(relay.url))refreshCompanionGate(relay);},6500);
+ watchForLocalCompanion();
+}
 autoBootstrapCompanion();
-watchForLocalCompanion();
-loadCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();}).catch(e=>{
+loadAppCatalog().then(cards=>{catalog=cards;renderCatalog();fillHomeCardSuggestions();renderWelcome();}).catch(e=>{
  $("catalog-status").textContent=e.message;
  $("home-catalog-count").textContent="Impossible de charger les cartes : "+e.message;
+ if(desktop)notify("Impossible de charger les cartes locales. "+e.message,true);
 });

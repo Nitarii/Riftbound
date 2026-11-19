@@ -13,23 +13,35 @@ import {createState,applyCommand,COMMANDS} from "./core.mjs";
 import {inspectCards,migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards,searchCards} from "./catalog.mjs";
 import {PRECONS,resolvePrecon} from "./precons.mjs";
+import {isBattlefield,isChosenChampion,isLegend} from "./picker.mjs";
 import {createRemoteAccess,verifyEmbeddedTunnel} from "./remote.mjs";
 import {createConversation} from "./conversation.mjs";
 import {createIntegratedAI} from "./integrated-ai.mjs";
-import {planHumanAnnouncement,detectMessageLanguage} from "./player-actions.mjs";
+import {detectMessageLanguage,planNamedChampionAnnouncement} from "./player-actions.mjs";
 import {planPlayerSequence} from "./player-sequence.mjs";
 import {correctSpokenCardPhrase} from "./card-voice.mjs";
 import {advanceMandatoryTurn} from "./turn-upkeep.mjs";
-import {makeCardClarification,resolveCardClarification} from "./clarification.mjs";
+import {captureCombatOpening,matchesCombatOpening,requestsCombatRewind,rewindCombat} from "./combat-rewind.mjs";
+import {makeCardClarification,resolveAnnouncementClarification} from "./clarification.mjs";
 import {createFreeLocalAI,LOCAL_AI_MODEL} from "./free-ai.mjs";
 import {createLocalWhisper,WHISPER_MODEL} from "./whisper-local.mjs";
+import {createLocalPiper} from "./piper-local.mjs";
 import {createPortableManager,CURRENT_VERSION} from "./portable-manager.mjs";
 import {createProcessDashboard} from "./process-dashboard.mjs";
 import {initializePortableInstall,portableEnvironment,moveLegacyFiles,legacyDataFolder} from "./portable.mjs";
 import {publicReference,RULES_SOURCES} from "./game-knowledge.mjs";
 import {runUpdateHelper} from "./update-helper.mjs";
 import {runUninstallHelper} from "./uninstall-helper.mjs";
-if(process.argv.includes("--riftbound-update-helper")){
+import {publicTableReply} from "./public-table.mjs";
+if(process.argv.includes("--verify-bundle")){
+ try{
+  const result=verifyEmbeddedTunnel();
+  console.log("Embedded cloudflared verified:",result.sha256,result.bytes,"bytes");
+ }catch(e){
+  console.error("Embedded cloudflared verification failed:",e.message);
+  process.exitCode=1;
+ }
+}else if(process.argv.includes("--riftbound-update-helper")){
  // Run the downloaded EXE as a dedicated updater WITHOUT opening the board,
  // creating a second HTTP server, or prompting for another installation path.
  runUpdateHelper().then(result=>{process.exitCode=result.ok?0:1;},
@@ -42,15 +54,26 @@ if(process.argv.includes("--riftbound-update-helper")){
 }else{
 const packaged=sea.isSea();
 const root=packaged?path.dirname(process.execPath):path.dirname(fileURLToPath(import.meta.url));
-const installation=initializePortableInstall({packaged,exePath:process.execPath,sourceRoot:root});
+const desktop=process.argv.includes("--desktop");
+const appVersion=desktop&&typeof RIFTBOUND_DESKTOP_VERSION!=="undefined"?RIFTBOUND_DESKTOP_VERSION:CURRENT_VERSION;
+if(typeof RIFTBOUND_DESKTOP_BUNDLE!=="undefined"&&RIFTBOUND_DESKTOP_BUNDLE&&!desktop)
+ throw Error("Launch Riftbound Companion from its Windows shortcut.");
+if(desktop&&(!process.env.RIFTBOUND_DATA_DIR||!process.env.RIFTBOUND_TOKEN||
+ !process.env.RIFTBOUND_DESKTOP_READY))throw Error("Launch Riftbound Companion from its Windows shortcut.");
+const installation=desktop
+ ?{root:path.resolve(process.env.RIFTBOUND_DATA_DIR),launched:false,portable:false}
+ :initializePortableInstall({packaged,exePath:process.execPath,sourceRoot:root});
 if(installation.launched)process.exit(0);
 const userData=installation.root;
+if(desktop)Object.assign(process.env,portableEnvironment(userData));
 const portable=Boolean(installation.portable&&!installation.verify);
 if(portable){
  Object.assign(process.env,portableEnvironment(userData));
  // Existing v0.19 users: move only recognized companion files from old AppData
  // to the explicitly selected location, without overriding newer files.
- try{moveLegacyFiles(legacyDataFolder(),userData);}catch(error){
+ try{if(process.env.RIFTBOUND_PORTABLE_TEST!=="1"&&process.env.RIFTBOUND_TEST_NO_MIGRATION!=="1")
+  moveLegacyFiles(legacyDataFolder(),userData);
+ }catch(error){
   console.warn("Anciennes données non migrées :",error.message);
  }
 }
@@ -58,6 +81,7 @@ const port=Number(process.env.PORT||8787);
 const host="127.0.0.1";
 const token=process.env.RIFTBOUND_TOKEN||crypto.randomBytes(24).toString("hex");
 const stateFile=path.join(userData,".riftbound-local-state.json");
+const combatCheckpointFile=path.join(userData,".riftbound-combat-checkpoint.json");
 const conversation=createConversation({file:path.join(userData,".riftbound-conversation.json")});
 const allowedOrigin=(process.env.RIFTBOUND_ORIGIN||"https://nitarii.github.io").replace(/\/$/,"");
 const clients=new Set(),tickets=new Map();
@@ -67,11 +91,15 @@ const isAllowedLocalOrigin=origin=>/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
 
 const catalogFile=path.join(userData,".riftbound-catalog-cache.json");
 let catalogCache=null,catalogTime=0,catalogPending=null;
+const desktopCatalog=desktop?decodeCards(JSON.parse(fs.readFileSync(
+ process.env.RIFTBOUND_DESKTOP_CATALOG||path.join(root,"cards.json"),"utf8"))):null;
+if(desktopCatalog&&desktopCatalog.length<500)throw Error("The installed card catalog is incomplete.");
+try{
+ const saved=JSON.parse(fs.readFileSync(catalogFile,"utf8"));
+ if(Array.isArray(saved?.cards)&&saved.cards.length>500){catalogCache=saved.cards;catalogTime=saved.updatedAt||0;}
+}catch{}
 async function loadServerCatalog(force=false) {
-  if(!catalogCache)try{
-    const saved=JSON.parse(fs.readFileSync(catalogFile,"utf8"));
-    if(Array.isArray(saved?.cards)&&saved.cards.length>500){catalogCache=saved.cards;catalogTime=saved.updatedAt||0;}
-  }catch{}
+  if(desktop)return desktopCatalog;
   if(!force&&catalogCache&&Date.now()-catalogTime<24*3600*1000)return catalogCache;
   if(catalogPending)return catalogPending;
   catalogPending=(async()=>{
@@ -103,13 +131,17 @@ for(const filename of [stateFile,backupStateFile]){
   if(validSavedState(candidate)){state=migrateLegacyPassivePendingEffects(candidate);primaryStateHealthy=filename===stateFile;break;}
  }catch{}
 }
-function save(){
- const temp=stateFile+"."+crypto.randomBytes(6).toString("hex")+".tmp";
+let savedCombatOpenings=[];
+try{
+ const saved=JSON.parse(fs.readFileSync(combatCheckpointFile,"utf8"));
+ if(Array.isArray(saved))savedCombatOpenings=saved.slice(0,2);
+}catch{}
+function saveAtomic(file,value,{backup=false}={}){
+ const temp=file+"."+crypto.randomBytes(6).toString("hex")+".tmp";
  try{
-  fs.writeFileSync(temp,JSON.stringify(state),{flag:"wx",mode:0o600});
-  if(primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
-  fs.renameSync(temp,stateFile);
-  primaryStateHealthy=true;
+  fs.writeFileSync(temp,JSON.stringify(value),{flag:"wx",mode:0o600});
+  if(backup&&primaryStateHealthy&&fs.existsSync(stateFile))try{fs.copyFileSync(stateFile,backupStateFile);}catch{}
+  fs.renameSync(temp,file);
  }finally{try{fs.rmSync(temp,{force:true});}catch{}}
 }
 function json(res,status,obj,req){
@@ -118,7 +150,7 @@ function json(res,status,obj,req){
 }
 function headers(res,req){
   const origin=req.headers.origin;
-  if(origin&&(isTrustedSiteOrigin(origin)||isAllowedLocalOrigin(origin))){
+  if(!desktop&&origin&&(isTrustedSiteOrigin(origin)||isAllowedLocalOrigin(origin))){
     res.setHeader("Access-Control-Allow-Origin",origin);
     res.setHeader("Vary","Origin");
     res.setHeader("Access-Control-Allow-Headers","Authorization,Content-Type,X-Riftbound-Pair");
@@ -135,8 +167,20 @@ function authorized(req){
   return a.length===b.length&&crypto.timingSafeEqual(a,b);
 }
 function msg(res,status,text,req){json(res,status,{error:text},req);}
+function sharedState(view=state,{agent=false}={}){
+ const {rng,cardSerial,decks,combatRewindId,pendingFollowUp,...publicView}=view;
+ const queued=pendingFollowUp?.action;
+ const cards=view.cards.flatMap(c=>{
+  if(c.zone==="deck"||c.zone==="rune-deck"||c.owner==="human"&&c.zone==="hand")return [];
+  if(c.owner==="ai"&&c.zone==="hand"&&!agent||c.faceDown&&(!agent||c.owner==="human"))
+   return [{uid:c.uid,owner:c.owner,zone:c.zone,battlefield:c.battlefield,faceDown:true}];
+  return [c];
+ });
+ return {...publicView,cards,
+  ...(queued?{queuedAttack:{battlefield:queued.battlefield,uids:queued.uids}}:{})};
+}
 function broadcast(){
-  const payload="data: "+JSON.stringify({state})+"\n\n";
+ const payload="data: "+JSON.stringify({state:sharedState()})+"\n\n";
   for(const c of clients){try{c.write(payload);}catch{clients.delete(c);}}
 }
 function body(req){
@@ -148,7 +192,7 @@ function body(req){
   });
 }
 const guide={
- name:"Riftbound Table Companion",version:CURRENT_VERSION,
+ name:"Riftbound Table Companion",version:appVersion,
  officialRules:RULES_SOURCES,
  warning:"A human-supervised physical tabletop companion. This is not a competitive rules engine or an autonomous validated game simulator. Verify all rules and card effects against Riot's official documentation.",
  connect:"Provide Authorization: Bearer <TOKEN>. Never place the TOKEN in GitHub commits, prompts shared publicly, or publicly accessible URLs.",
@@ -156,7 +200,7 @@ const guide={
  "GET /api/catalog?q=...&type=...&limit=100":"Search or read cards (up to 2000), authenticated",
  "GET /api/decks":"Printed preconstructed deck recipes, authenticated",
   "GET /api/effects/audit":"Whole-catalog effect coverage and unresolved card abilities, authenticated",
- "GET /api/messages?after=0":"Read physical player announcements and agent replies; poll every 2 seconds",
+ "GET /api/messages?after=0":"Poll announcements and replies. In remote mode, table.status and table.revision report local handling.",
  "POST /api/messages":"Human chat message; JSON {text}, authenticated",
  "GET /api/ai/status":"Integrated model status, no credentials returned, LOCAL only",
  "GET /api/ai/reference?q=...":"Riot rule references, site operating guide and matching card effects, LOCAL only",
@@ -164,13 +208,25 @@ const guide={
  "POST /api/ai/disable":"Stop generating model responses; LOCAL only",
  "GET /api/ai/free/status":"Free local CPU model installation progress; LOCAL only",
  "POST /api/ai/free/install":"One-click local Qwen3 4B + Whisper Small installer; LOCAL only",
- "POST /api/command":"One JSON command, authenticated","POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
+ "POST /api/command":"One JSON command with optional ifRevision and commandId. Returns a state and receipt.",
+ "POST /api/events-ticket":"Short-lived one-use event ticket, authenticated",
  "GET /api/events?ticket=...":"SSE updates for an authorized browser session"},
  commands:{
  "select-precon":{type:"select-precon",id:"random",note:"Valid ids are in GET /api/decks. The server separates chosen champion before drawing."},
  "setup-human|setup-ai":{legend:{name:"Shen, Eye of Twilight",type:"Legend"},champion:{name:"Shen",type:"Unit"},battlefield:{name:"Grove of the God-Willow",type:"Battlefield"},main:"required array for setup-ai",runes:"required array for setup-ai"},
  start:{type:"start",player:"human"},
  "next-turn":{type:"next-turn"},
+ "play-paid":{type:"play-paid",uid:"AI hand or champion UID",battlefield:"optional controlled battlefield index"},
+ cast:{type:"cast",player:"ai",uid:"AI spell UID",targetUid:"unit UID when the spell requires a target",flow:"true for a supported spell in your trash",
+  hidden:"true for a supported spell in your hidden zone"},
+ activate:{type:"activate",player:"ai",uid:"ready Shen legend or Gold token UID",targetUid:"friendly unit UID for Shen"},
+ hide:{type:"hide",player:"ai",uid:"AI card with Hidden",battlefield:0,runeUid:"optional rune UID to recycle"},
+ "play-hidden":{type:"play-hidden",player:"ai",uid:"ready hidden unit UID"},
+ "chain-pass":{type:"chain-pass",player:"ai"},
+ "combat-attack":{type:"combat-attack",player:"ai",battlefield:0,uids:["ready unit UID"]},
+ "combat-pass":{type:"combat-pass",player:"ai"},
+ "rewind-combat":{type:"rewind-combat",ifRevision:"current revision (local physical player only)"},
+ "cancel-follow-up":{type:"cancel-follow-up",ifRevision:"current revision (local physical player only)"},
  phase:{type:"phase",phase:"Main"},
  add:{type:"add",player:"ai",zone:"base",card:{name:"Card Name",type:"Unit",image:"optional HTTPS image URL"}},
  move:{type:"move",uid:"read from state.cards",zone:"battlefield",battlefield:0},
@@ -191,11 +247,87 @@ const guide={
 const deckDescriptions=()=>PRECONS.map(p=>({id:p.id,label:p.label,source:p.source,
  mainSize:p.main.reduce((sum,[,n])=>sum+n,0),runeSize:p.runes.reduce((sum,[,n])=>sum+n,0),
  battlefields:p.battlefields}));
-async function executeGameCommand(input){
+const recentCommands=new Map();
+const checkpoints=[];
+function ensureRevision(revision){
+ if(Number.isInteger(revision)&&revision!==state.revision)
+  throw Error("Version obsolète; recharge /api/state");
+}
+function completeAnnouncedAttack(previous,next){
+ const pending=next.pendingFollowUp;
+ if(!pending)return {next};
+ const {action,turn,wait}=pending;
+ const sameWindow=action?.type==="combat-attack"&&action.player==="human"&&
+  next.started&&!next.finished&&next.active==="human"&&next.turn===turn&&
+  next.phase==="Main"&&!next.pendingCombat;
+ if(sameWindow&&next.spellChain)return {next};
+ delete next.pendingFollowUp;
+ // The intent may only run when this transaction actually releases its wait.
+ // An older client may have finished the chain while ignoring the stored intent.
+ if(!sameWindow||(wait==="chain"?!previous.spellChain:!previous.pendingEffects.length))
+  return {next};
+ if(next.pendingEffects.length){
+  next.pendingFollowUp={...pending,wait:"effect"};
+  return {next};
+ }
+ const preceding=next.message;
+ try{
+  const applied=applyCommand(next,action);
+  applied.message=preceding+" · "+applied.message;
+  return {next:applied,action,completed:true};
+ }catch(error){
+  next.message=preceding+" · Attaque annoncée non appliquée : "+error.message;
+  next.history[0].text=next.message;
+  return {next,completed:true};
+ }
+}
+function commitGame(next,{commands=[],id=crypto.randomUUID(),origin="local",remember=true,opening=null}={}){
+ const previous=state;
+ const followUp=completeAnnouncedAttack(previous,next);
+ next=followUp.next;
+ const receipt={id,status:"applied",origin,before:previous.revision,after:next.revision,
+  actions:[...commands.map(c=>c.type),...(followUp.action?[followUp.action.type]:[])],
+  result:next.message};
+ next.history=(next.history||[]).map((event,index)=>index===0?{...event,commandId:id,origin}:event);
+ opening=captureCombatOpening(next)||opening;
+ if(opening&&matchesCombatOpening(opening,next)){
+  // Keep the checkpoint matching the previous save until the board commits.
+  const previousOpening=savedCombatOpenings.find(candidate=>matchesCombatOpening(candidate,previous));
+  const records=previousOpening?[opening,previousOpening]:[opening];
+  saveAtomic(combatCheckpointFile,records);
+  savedCombatOpenings=records;
+ }
+ saveAtomic(stateFile,next,{backup:true});
+ primaryStateHealthy=true;
+ if(remember){
+  checkpoints.push({state:previous,receipt});
+  if(checkpoints.length>30)checkpoints.shift();
+ }
+ state=next;broadcast();
+ if(followUp.completed&&["local","remote"].includes(origin)){
+  try{receiveAgentMessage(next.message);}
+  catch(error){console.warn("Réponse de l’attaque non sauvegardée :",error.message);}
+ }
+ return receipt;
+}
+async function executeGameCommand(input,{origin="local",withReceipt=false,english=false}={}){
  // Shared between local authenticated server and restricted remote agent gateway.
  if(!manager.status().canLaunch)throw Error("Mets à jour ou vérifie le compagnon avant de modifier la partie.");
- if(Number.isInteger(input.ifRevision)&&input.ifRevision!==state.revision)
-  throw Error("Version obsolète; recharge /api/state");
+ if(!input||typeof input!=="object"||Array.isArray(input))throw Error("Commande JSON invalide.");
+ const requestId=typeof input.commandId==="string"?input.commandId:null;
+ if(requestId&&!/^[A-Za-z0-9_-]{8,80}$/.test(requestId))throw Error("Identifiant de commande invalide.");
+ const commandKey=requestId&&origin+":"+requestId;
+ const signature=JSON.stringify(input);
+ function replay(){
+  const stored=commandKey&&recentCommands.get(commandKey);
+  if(!stored)return null;
+  if(stored.signature!==signature)throw Error("Identifiant déjà utilisé pour une autre commande.");
+  return withReceipt?{state,receipt:{...stored.receipt,status:"duplicate"}}:state;
+ }
+ const duplicate=replay();
+ if(duplicate)return duplicate;
+ const revision=state.revision;
+ ensureRevision(input.ifRevision);
  let command=input;
  if(input.type==="select-precon"){
    const cards=await loadServerCatalog();
@@ -204,30 +336,88 @@ async function executeGameCommand(input){
     battlefield:deck.battlefield,battlefields:deck.battlefields,
     main:deck.main,runes:deck.runes,mainIncludesChampion:true,
     format:"preconstructed",deckName:deck.label};
+   const retry=replay();
+   if(retry)return retry;
+   ensureRevision(revision);
  }
- state=applyCommand(state,command);
- if(["start","next-turn"].includes(command.type)||
-    command.type==="effect-confirm"&&!state.pendingEffects?.length&&state.phase==="Beginning")
-  state=advanceMandatoryTurn(state);
- if(input.type==="reset"){conversation.clear();pendingHumanAction=null;}
- save();broadcast();
+ let next,receipt;
+ if(command.type==="rewind-combat"){
+  if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Retour à l’attaque réservé à la table locale avec révision.");
+  const opening=savedCombatOpenings.find(candidate=>matchesCombatOpening(candidate,state));
+  const restored=rewindCombat(opening,state,{english});
+  delete restored.pendingFollowUp;
+  receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
+  pendingSpokenPlay=null;
+  while(checkpoints.at(-1)?.receipt.after>opening.revision)checkpoints.pop();
+ }else if(command.type==="undo"){
+  if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
+  const checkpoint=checkpoints.at(-1);
+  if(!checkpoint)throw Error("Aucune transaction de cette session à annuler.");
+  const restored=structuredClone(checkpoint.state);
+  restored.revision=state.revision+1;
+  restored.message="Transaction annulée : "+checkpoint.receipt.result;
+  restored.history=[{revision:restored.revision,at:new Date().toISOString(),
+   text:restored.message,undoOf:checkpoint.receipt.id},...restored.history].slice(0,120);
+  delete restored.pendingFollowUp;
+  receipt=commitGame(restored,{commands:[command],id:requestId||undefined,origin,remember:false});
+  checkpoints.pop();
+ }else if(command.type==="new-duel"){
+  if(!desktop||origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Configuration réservée à l’application Windows.");
+  const card=code=>desktopCatalog.find(candidate=>candidate.code===code);
+  const legend=card(input.legend),champion=card(input.champion),battlefield=card(input.battlefield);
+  if(!isLegend(legend)||!isChosenChampion(champion,legend)||!isBattlefield(battlefield)||
+     !["human","ai"].includes(input.player))throw Error("Légende, champion, champ ou premier joueur invalide.");
+  const deck=resolvePrecon(desktopCatalog,input.deck||"random");
+  const commands=[{type:"reset"},
+   {type:"setup-human",legend,champion,battlefield},
+   {type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
+    battlefields:deck.battlefields,main:deck.main,runes:deck.runes,mainIncludesChampion:true,
+    format:"preconstructed",deckName:deck.label},
+   {type:"start",player:input.player}];
+  next=advanceMandatoryTurn(commands.reduce((game,action)=>applyCommand(game,action),state));
+  receipt=commitGame(next,{commands,id:requestId||undefined,origin,remember:false});
+  conversation.clear();pendingSpokenPlay=null;checkpoints.length=0;
+ }else if(command.type==="cancel-follow-up"){
+  if(origin!=="local"||!Number.isInteger(input.ifRevision))throw Error("Annulation réservée à la table locale avec révision.");
+  if(!state.pendingFollowUp)throw Error("Aucune attaque annoncée en attente.");
+  next=applyCommand(state,{type:"note",text:"Attaque annoncée annulée. La chaîne se poursuit."});
+  delete next.pendingFollowUp;
+  receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
+ }else{
+  next=applyCommand(state,command);
+  if(next.active!==state.active||["start","next-turn","effect-confirm","chain-pass"].includes(command.type))next=advanceMandatoryTurn(next);
+  if(["start","setup-human","setup-ai"].includes(command.type))delete next.pendingFollowUp;
+  receipt=commitGame(next,{commands:[command],id:requestId||undefined,origin});
+  if(input.type==="reset"){conversation.clear();pendingSpokenPlay=null;checkpoints.length=0;}
+ }
+ if(commandKey){
+  recentCommands.set(commandKey,{receipt,signature});
+  if(recentCommands.size>256)recentCommands.delete(recentCommands.keys().next().value);
+ }
  // Every transition into AI control starts the deterministic turn immediately,
  // including toolbar "Tour suivant", reactions and effect confirmations.
  // The runner coalesces requests by state revision.
- integratedAI.advanceTurnIfAI();
- return state;
+ if(!["undo","rewind-combat"].includes(command.type))integratedAI.advanceTurnIfAI();
+ return withReceipt?{state,receipt}:state;
 }
 const readMessages=after=>conversation.list(after);
-const receiveAgentMessage=text=>conversation.post("ai",text);
-function applyAgentBatch(actions,revision){
+const receiveAgentMessage=(text,view)=>conversation.post("ai",text,{view});
+function applyAgentBatch(actions,revision,origin="ai",followUp=null){
  if(!manager.status().canLaunch)throw Error("Compagnon non vérifié : actions IA suspendues.");
  if(state.revision!==revision)throw Error("L'état de la partie a changé entre-temps.");
- let next=state;
+ let next=state,opening=null;
  for(const cmd of actions){
+  const active=next.active;
   next=applyCommand(next,cmd);
-  if(["start","next-turn"].includes(cmd.type))next=advanceMandatoryTurn(next);
+  if(next.active!==active||["start","next-turn","effect-confirm","chain-pass"].includes(cmd.type))next=advanceMandatoryTurn(next);
+  opening=captureCombatOpening(next)||opening;
  }
- state=next;save();broadcast();
+ if(followUp){
+  if(!next.spellChain||state.pendingFollowUp)
+   throw Error("Une attaque annoncée doit suivre une chaîne précise.");
+  next.pendingFollowUp={action:followUp,turn:next.turn,wait:"chain"};
+ }
+ commitGame(next,{commands:actions,origin,opening});
  // Some AI actions finish an effect or advance into another playable state.
  // Re-evaluate only after the current batch has been committed.
  queueMicrotask(()=>integratedAI.advanceTurnIfAI());
@@ -235,7 +425,8 @@ function applyAgentBatch(actions,revision){
 }
 const integratedAI=createIntegratedAI({
  userData,getState:()=>state,applyBatch:applyAgentBatch,
- sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:loadServerCatalog
+ sendMessage:receiveAgentMessage,getMessages:readMessages,getCatalog:async()=>desktopCatalog||catalogCache||[],
+ ...(desktop?{prepareModel:model=>localFreeAI.ensureModel(model),isTacticalModelReady:()=>localFreeAI.status().ready}:{})
 });
 // This release defaults to a strictly free local opponent. Old paid-provider
 // profiles are left on disk for migration but never auto-start after upgrade.
@@ -243,95 +434,188 @@ if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
  integratedAI.disable();
 // The physical player can correct the previous card name without a separate model request.
 // Pending actions are never executed until a real catalog card and all costs are verified.
-let pendingHumanAction=null;
 let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
-const receiveHumanMessage=text=>{
- const entry=conversation.post("human",text);
+const receiveHumanMessage=(text,requestId)=>{
+ const previous=conversation.findHumanRequest(requestId,text);
+ if(previous)return previous;
+ const entry=conversation.post("human",text,{trackTable:true,requestId});
+ const receivedRevision=state.revision;
+ const receivedSession=conversation.list(0).session;
+ let outcome="delegated",nextClarification;
+ const mark=()=>{
+  try{conversation.markTable(entry.id,receivedSession,{status:outcome,revision:state.revision},nextClarification);}
+  catch(error){console.warn("Suivi du message non sauvegardé :",error.message);}
+ };
+ if(/^(?:reprends|reprendre|resume)[.! ]*$/i.test(entry.text)){
+  outcome="unchanged";mark();
+  receiveAgentMessage("Partie à la révision "+state.revision+". "+state.message);
+  integratedAI.advanceTurnIfAI();
+  return entry;
+ }
  humanAnnouncements=humanAnnouncements.catch(()=>{}).then(async()=>{
-  let catalog=[];
-  try{catalog=await loadServerCatalog();}catch{}
+  if(conversation.list(0).session!==receivedSession)return;
   let announcement=entry.text;
   const english=detectMessageLanguage(entry.text)==="en";
   const normalized=entry.text.normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
    .toLowerCase().replace(/[.!?]+$/g,"").trim();
+  const publicReply=publicTableReply(entry.text,sharedState(),{english});
+  if(publicReply){
+   outcome="unchanged";
+   receiveAgentMessage(publicReply.text,publicReply.view);
+   return;
+  }
+  if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(normalized)&&state.pendingFollowUp){
+   await executeGameCommand({type:"cancel-follow-up",ifRevision:state.revision});
+   outcome="applied";
+   receiveAgentMessage(state.message);
+   return;
+  }
+  if(requestsCombatRewind(normalized)){
+   await executeGameCommand({type:"rewind-combat",ifRevision:receivedRevision},{english});
+   outcome="applied";
+   receiveAgentMessage(state.message);
+   return;
+  }
   const barePlay=/^(?:(?:et|and)\s+)?(?:(?:je|j'|i)\s+)?(?:joue|jouer|pose|play|playing|place|mets)\s*(?:une?\s+carte|a\s+card)?$/i.test(normalized);
   if(barePlay){
+   outcome="clarification";
+   nextClarification=null;
    pendingSpokenPlay={revision:state.revision,time:Date.now(),prefix:english?"I play ":"Je joue "};
    receiveAgentMessage(english?"I heard 'I play'. Which card?":
     "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
    return;
   }
+  const pending=conversation.getClarification();
   if(pendingSpokenPlay){
    const previous=pendingSpokenPlay;pendingSpokenPlay=null;
-   if(!pendingHumanAction&&previous.revision===state.revision&&Date.now()-previous.time<30000&&
+   if(!pending&&previous.revision===state.revision&&Date.now()-previous.time<30000&&
      !/\b(?:joue|pose|play|place|mets|pioche|draw|termine|finis|end|channel|canalise)\b/i.test(normalized)&&
      normalized.length>=4&&normalized.length<=90&&!/[?]/.test(entry.text)){
     announcement=previous.prefix+entry.text;
    }
   }
-  if(pendingHumanAction){
-   const answer=resolveCardClarification(pendingHumanAction,entry.text,catalog,state,{english});
+  // Public champion data is already on the table and works offline.
+  let plan=planNamedChampionAnnouncement(announcement,state);
+  let catalog=desktopCatalog||catalogCache||[];
+  const titleExpected=announcement!==entry.text||pending?.kind==="card"||state.pendingEffects?.[0]?.trigger==="pakaa-reveal";
+  if(!plan&&!catalog.length&&(titleExpected||
+     /\b(?:joue|jouer|lance|revele|reveal|defausse|pose|play|place|resonating strike|bonus de field musicians)\b/i.test(normalized))){
+   try{catalog=await loadServerCatalog();}catch{}
+   if(conversation.list(0).session!==receivedSession)return;
+  }
+  if(pending){
+   const answer=resolveAnnouncementClarification(pending,entry.text,catalog,state,{english});
    if(answer.status==="waiting"){
+    outcome="clarification";
     receiveAgentMessage(answer.message);
     return;
    }
-   if(answer.status==="cancel"){
-    pendingHumanAction=null;
+   if(answer.status!=="question")nextClarification=null;
+   if(answer.status==="cancel"||answer.status==="expired"){
+    outcome=answer.status==="cancel"?"unchanged":"rejected";
     receiveAgentMessage(answer.message);
     return;
    }
    if(answer.status==="confirmed"){
-    announcement=answer.announcement;
-    pendingHumanAction=null;
-   }else pendingHumanAction=null; // new action or expired request
+    if(answer.plan)plan=answer.plan;
+    else {announcement=answer.announcement;plan=null;}
+   }
   }
-  const plan=planPlayerSequence(announcement,state,catalog);
+  plan??=planPlayerSequence(announcement,state,catalog);
   if(plan.needsClarification){
-   pendingHumanAction=makeCardClarification({
-    announcement,query:plan.needsClarification.query,
+   if(receivedRevision!==state.revision){
+    outcome="rejected";
+    receiveAgentMessage(english?"The board changed. Repeat your announcement.":"Le plateau a changé. Répète ton annonce.");
+    return;
+   }
+   outcome="clarification";
+   const need=plan.needsClarification;
+   if(need.kind==="champion-placement"){
+    nextClarification={...need,revision:state.revision,createdAt:Date.now()};
+    receiveAgentMessage(english?plan.promptEN:plan.prompt);
+    return;
+   }
+   nextClarification=makeCardClarification({
+    announcement,query:need.query,
     revision:state.revision,catalog
    });
-   const prompt=resolveCardClarification(pendingHumanAction,"",catalog,state,{english});
+   const prompt=resolveAnnouncementClarification(nextClarification,"",catalog,state,{english});
    receiveAgentMessage(prompt.message);
    return;
   }
   if(plan.error){
+   outcome="rejected";
    receiveAgentMessage(english?plan.errorEN:plan.error);
    return;
   }
-  if(plan.recognized&&!plan.commands?.length){
-   receiveAgentMessage(english?"Already reflected on the board.":"Cette action est déjà prise en compte sur le plateau.");
+  if(plan.prompt){
+   outcome="clarification";
+   receiveAgentMessage(english?plan.promptEN:plan.prompt);
    return;
   }
-  if(!plan.recognized&&/\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
+  if(plan.recognized&&!plan.commands?.length){
+   outcome="unchanged";
+   receiveAgentMessage(english?(plan.summaryEN||"Already reflected on the board."):
+    (plan.summary||"Cette action est déjà prise en compte sur le plateau."));
+   return;
+  }
+  if(!plan.recognized&&!remoteAccess.status().active&&
+     /\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
+   outcome="clarification";
    receiveAgentMessage(english?"I heard a card play, but the name or target is incomplete. Repeat the card name. No change was made.":
     "J'ai entendu une annonce de carte, mais je n'ai pas pu identifier une action complète. Répète le nom de la carte. Le plateau n'a pas changé.");
    return;
   }
   if(plan.commands?.length){
+   if(receivedRevision!==state.revision){
+    outcome="rejected";
+    receiveAgentMessage(english?"The board changed before I could apply that announcement. Repeat it in the current window; no action was applied.":
+     "Le plateau a changé depuis ton annonce. Répète-la dans la fenêtre actuelle ; aucune action n’a été appliquée.");
+    return;
+   }
    const revision=state.revision;
-   try{applyAgentBatch(plan.commands,revision);}
+   try{
+    applyAgentBatch(plan.commands,revision,"announcement",plan.afterChain);
+    outcome="applied";
+    const firstPlay=plan.commands.length>1&&plan.commands[0].type==="play-physical"?
+     state.history.find(event=>event.revision===revision+1)?.text:"";
+    receiveAgentMessage([firstPlay,state.message,plan.afterChain?"L’attaque suivra la résolution de la chaîne.":""]
+     .filter(Boolean).join(" · "));
+   }
    catch(e){
+    outcome="rejected";
     receiveAgentMessage((english?"Action not applied: ":"Action non appliquée : ")+String(e.message||e).slice(0,180));
     return;
    }
   }
   integratedAI.onHumanMessage(announcement,{actionApplied:Boolean(plan.recognized||plan.commands?.length)});
- }).catch(e=>receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180)));
+ }).catch(e=>{
+  outcome="review";
+  receiveAgentMessage("Action interrompue : "+String(e.message||e).slice(0,180));
+ }).finally(mark);
  return entry;
 };
 const localFreeAI=createFreeLocalAI({
  userData,
+ preferRecommended:desktop,
+ onInstalled:async model=>{
+  if(!desktop||remoteOpponentSelected())return;
+  integratedAI.configure({provider:"free",model,enabled:true});
+  integratedAI.advanceTurnIfAI();
+ },
  onReady:async model=>{
-  if(remoteAccess.status().active)throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
+  if(desktop)return;
+  if(remoteOpponentSelected())throw Error("Coupe l'accès agent distant avant d'activer l'IA locale.");
   integratedAI.configure({provider:"free",model,enabled:true});
   integratedAI.advanceTurnIfAI();
  }
 });
 const speech=createLocalWhisper({userData});
+const piper=createLocalPiper({userData});
 let serverClosing=false;
 function shutdownAll(){
+ piper.stop();
  if(serverClosing)return;
  serverClosing=true;
  try{remoteAccess.stop();}catch{}
@@ -350,7 +634,7 @@ function shutdownAll(){
 const manager=createPortableManager({
  root:userData,exePath:process.execPath,portable,sessionToken:token,port,
  skipStartupCheck:process.env.RIFTBOUND_PORTABLE_TEST==="1"||
-  process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
+  desktop||process.env.RIFTBOUND_SKIP_UPDATE_CHECK==="1",
  onOutdated:()=>{
   try{localFreeAI.stop();}catch{}
   try{remoteAccess.stop();}catch{}
@@ -360,27 +644,65 @@ const manager=createPortableManager({
 });
 const remoteAccess=createRemoteAccess({
  userData,
- getState:()=>state,
- performCommand:executeGameCommand,
+ ...(desktop&&{executableDir:path.join(userData,"temp")}),
+ version:appVersion,
+ getState:()=>sharedState(state,{agent:true}),
+ performCommand:async input=>{
+  const result=await executeGameCommand(input,{origin:"remote",withReceipt:true});
+  return {...result,state:sharedState(result.state,{agent:true})};
+ },
  getCatalog:loadServerCatalog,
  getDecks:deckDescriptions,
  getGuide:()=>guide,
- getMessages:readMessages,
+ getMessages:after=>conversation.list(after,{agent:true}),
  sendMessage:receiveAgentMessage,
- markAgentPoll:()=>conversation.markAgentPoll()
+ markAgentPoll:()=>conversation.markAgentPoll(),
+ onStatus:({active})=>{
+  if(desktop&&!active&&resumeAfterRemote&&!remoteStart&&!serverClosing){
+   resumeAfterRemote=false;
+   integratedAI.enable();
+   resumeLocalOpponent();
+  }
+ }
 });
+let remoteStart=null;
+let resumeAfterRemote=false;
+function remoteOpponentSelected(){
+ return Boolean(remoteStart||remoteAccess.status().active);
+}
+function startRemoteOpponent(){
+ if(remoteStart)return remoteStart;
+ if(remoteAccess.status().active)return Promise.resolve(remoteAccess.status(true));
+ const wasLocal=integratedAI.status().enabled;
+ if(wasLocal)integratedAI.disable({persist:!desktop});
+ remoteStart=remoteAccess.start().then(session=>{
+  resumeAfterRemote=wasLocal;
+  localFreeAI.stop();
+  return session;
+ },error=>{
+  if(wasLocal){
+   integratedAI.enable();
+   resumeLocalOpponent();
+  }
+  throw error;
+ }).finally(()=>{remoteStart=null;});
+ return remoteStart;
+}
 const processDashboard=createProcessDashboard({integratedAI,localFreeAI,speech,remoteAccess});
 // Closing the companion also terminates any optional public tunnel.
 process.once("exit",()=>{remoteAccess.stop();localFreeAI.stop();speech.stop();});
 for(const signal of ["SIGINT","SIGTERM"])process.once(signal,shutdownAll);
 const packagedAssetCache=new Map();
-const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","rules-compendium.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
+const WEB_ASSETS=new Set(["index.html","manager.html","release-policy.mjs","local-voice.mjs","app.mjs","core.mjs","combat-engine.mjs","combat-voice.mjs","battlefield-rules.mjs","rune-payment.mjs","play-effects.mjs","effect-engine.mjs","effect-runtime.mjs","draw-rules.mjs","priority-chain.mjs","chat-scrolling.mjs","player-sequence.mjs","catalog.mjs","precons.mjs","narration.mjs","picker.mjs","manual-bridge.mjs","conversation.mjs","integrated-ai.mjs","free-ai.mjs","game-knowledge.mjs","rules-compendium.mjs","player-actions.mjs","card-voice.mjs","clarification.mjs","ai-turn.mjs","turn-upkeep.mjs","verified-cards.mjs","public-table.mjs","voice-session.mjs","style.css","assets/companion-icon.svg","licenses/cloudflared-APACHE-2.0.txt"]);
 function serveFile(req,res,url){
  const requested=url.pathname==="/"?"/index.html":url.pathname;
  if(!/^\/[a-z0-9._/-]+$/i.test(requested)||requested.includes("..")||requested.startsWith("/.")){
   msg(res,404,"Not found",req);return;
  }
  const name=requested.slice(1);
+ if(desktop&&name==="manager.html"){
+  msg(res,404,"Not found",req);return;
+ }
  if(!WEB_ASSETS.has(name)){msg(res,404,"Not found",req);return;}
  const ext=path.extname(name);
  const mime=ext===".css"?"text/css":ext===".html"?"text/html":ext===".mjs"?"text/javascript":ext===".svg"?"image/svg+xml":"text/plain";
@@ -397,6 +719,11 @@ function serveFile(req,res,url){
 }
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://127.0.0.1");
+  if(desktop&&(url.pathname==="/api/pair"||
+    url.pathname.startsWith("/api/manager/update/")||url.pathname==="/api/manager/uninstall"||
+    url.pathname==="/api/ai/config"||url.pathname==="/api/ai/free/install")){
+   msg(res,404,"Not found",req);return;
+  }
   if(req.method==="OPTIONS"){headers(res,req);res.writeHead(204);res.end();return;}
   if(!url.pathname.startsWith("/api/")){if(req.method!=="GET"){msg(res,405,"Method not allowed",req);return;}serveFile(req,res,url);return;}
   if(url.pathname==="/api/events"){
@@ -406,12 +733,12 @@ const server=http.createServer(async(req,res)=>{
     tickets.delete(ticket);
     headers(res,req);
     res.writeHead(200,{"Content-Type":"text/event-stream; charset=utf-8","Cache-Control":"no-store","Connection":"keep-alive"});
-    res.write("data: "+JSON.stringify({state})+"\n\n");clients.add(res);
+    res.write("data: "+JSON.stringify({state:sharedState()})+"\n\n");clients.add(res);
     const heart=setInterval(()=>{try{res.write(":keepalive\n\n");}catch{}},15000);
     req.on("close",()=>{clients.delete(res);clearInterval(heart);});return;
   }
   if(req.method==="GET"&&url.pathname==="/api/health"){
-    json(res,200,{ok:true,name:"Riftbound Companion",version:CURRENT_VERSION,packaged,portable},req);return;
+    json(res,200,{ok:true,name:"Riftbound Companion",version:appVersion,packaged,portable},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/pair"){
     // Local browser handoff: only the exact hosted companion origin may request a token.
@@ -431,7 +758,7 @@ const server=http.createServer(async(req,res)=>{
   // Allow reading and maintenance during updates, but never start or mutate a
   // physical game from an unverified or confirmed outdated Windows executable.
   if(req.method==="POST"&&["/api/messages","/api/command",
-      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe",
+      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe","/api/speech/synthesis",
       "/api/remote/start"].includes(url.pathname)&&
      !manager.status().canLaunch){
    msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
@@ -444,11 +771,11 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/messages"){
     try{
       const message=await body(req);
-      const entry=receiveHumanMessage(message.text);
+      const entry=receiveHumanMessage(message.text,message.requestId);
       json(res,200,{ok:true,message:entry},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }
-  if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state},req);return;}
+  if(req.method==="GET"&&url.pathname==="/api/state"){json(res,200,{state:sharedState()},req);return;}
   if(req.method==="GET"&&url.pathname==="/api/guide"){json(res,200,guide,req);return;}
   if(req.method==="GET"&&url.pathname==="/api/decks"){
     json(res,200,{decks:deckDescriptions()},req);return;
@@ -473,10 +800,56 @@ const server=http.createServer(async(req,res)=>{
     json(res,200,integratedAI.status(),req);return;
   }
   if(req.method==="GET"&&url.pathname==="/api/ai/free/status"){
-    json(res,200,localFreeAI.status(),req);return;
+    json(res,200,{...localFreeAI.status(),rulesOnly:integratedAI.status().rulesOnly},req);return;
+  }
+  if(desktop&&req.method==="POST"&&url.pathname==="/api/ai/free/desktop-install"){
+   if(remoteOpponentSelected()){msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;}
+   try{
+    const input=await body(req);
+    json(res,202,localFreeAI.install(input.model,{backend:input.backend,repair:input.repair===true}),req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
+  }
+  if(desktop&&req.method==="POST"&&url.pathname==="/api/ai/free/desktop-enable"){
+   if(remoteOpponentSelected()){msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;}
+   try{
+    const input=await body(req);
+    const id=localFreeAI.selectInstalled(input.model,input.backend);
+    const active=integratedAI.configure({provider:"free",model:id,enabled:true,rulesOnly:false});
+    integratedAI.advanceTurnIfAI();
+    json(res,200,active,req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
+  }
+  if(desktop&&req.method==="POST"&&url.pathname==="/api/manager/modules/remove"){
+   try{
+    const input=await body(req);
+    if(input.target==="whisper")await speech.remove();
+    else if(input.target==="qwen"){
+     const active=integratedAI.status();
+     if(active.model===input.model&&active.enabled&&!active.rulesOnly){
+      integratedAI.configure({provider:"free",enabled:true,rulesOnly:true});
+     }
+     await localFreeAI.remove(input.model);
+    }else throw Error("Module inconnu.");
+    json(res,200,{ok:true},req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/ai/rules/activate"){
+   if(!manager.status().canLaunch||remoteOpponentSelected()){
+    msg(res,409,"Vérifie le compagnon et coupe le relais distant avant d’activer l’adversaire local.",req);return;
+   }
+   try{
+    localFreeAI.stop();
+    const active=integratedAI.configure({provider:"free",model:LOCAL_AI_MODEL,enabled:true,rulesOnly:true});
+    integratedAI.advanceTurnIfAI();
+    json(res,200,active,req);
+   }catch(error){msg(res,400,error.message,req);}
+   return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/free/install"){
-    if(remoteAccess.status().active){
+    if(remoteOpponentSelected()){
       msg(res,409,"Coupe d'abord l'accès IA distant.",req);return;
     }
     const existing=integratedAI.status();
@@ -549,18 +922,33 @@ const server=http.createServer(async(req,res)=>{
     catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="GET"&&url.pathname==="/api/speech/status"){
-    json(res,200,{...speech.status(),folder:userData},req);return;
+    json(res,200,{...speech.status(),synthesis:piper.status(),folder:userData},req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/install"){
     try{
      const input=await body(req);
      if(input?.confirmFolder!==userData)throw Error("Confirme le dossier choisi avant l'installation de Whisper.");
-     json(res,202,speech.begin(WHISPER_MODEL),req);
+     json(res,202,speech.begin(WHISPER_MODEL,{repair:desktop&&input.repair===true}),req);
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/warm"){
    try{json(res,202,speech.warm(),req);}
    catch(e){msg(res,400,String(e.message||e),req);}
+   return;
+  }
+  if(req.method==="GET"&&url.pathname==="/api/speech/synthesis"){
+   json(res,200,piper.status(),req);return;
+  }
+  if(req.method==="POST"&&url.pathname==="/api/speech/synthesis"){
+   if(!piper.status().installed){msg(res,404,"Voix Piper indisponible.",req);return;}
+   try{
+    const input=await body(req);
+    if(typeof input?.text!=="string")throw Error("Texte de synthèse requis.");
+    const wav=await piper.synthesize(input.text);
+    headers(res,req);
+    res.writeHead(200,{"Content-Type":"audio/wav","Cache-Control":"no-store"});
+    res.end(wav);
+   }catch(error){msg(res,400,error.message,req);}
    return;
   }
   if(req.method==="POST"&&url.pathname==="/api/speech/transcribe"){
@@ -575,10 +963,12 @@ const server=http.createServer(async(req,res)=>{
      }
      // Speech must never wait on a remote card-catalog refresh. Use the
      // current table and the already cached catalogue, entirely offline.
-     const visible=state.cards.filter(c=>c.zone!=="hand"||c.owner==="ai");
-     const known=Array.isArray(catalogCache)?catalogCache:[];
+     const visible=state.cards.filter(c=>!c.faceDown&&!["hand","deck","rune-deck"].includes(c.zone));
+     const known=desktopCatalog||catalogCache||[];
+     const champion=state.players.human.legend?.championName;
+     const themed=champion?known.filter(card=>card.tags?.includes(champion)||card.championName===champion):[];
      const seen=new Set(),cards=[];
-     for(const card of [...visible,...known]){
+     for(const card of [...visible,...themed,...known]){
       const key=String(card.name||"").trim().toLowerCase();
       if(!key||seen.has(key))continue;
       seen.add(key);cards.push(card);
@@ -598,7 +988,7 @@ const server=http.createServer(async(req,res)=>{
     }catch(e){msg(res,400,String(e.message||e),req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/ai/config"){
-    if(remoteAccess.status().active){msg(res,409,"Coupe d'abord l'accès IA distant pour éviter deux adversaires simultanés.",req);return;}
+    if(remoteOpponentSelected()){msg(res,409,"Coupe d'abord l'accès IA distant pour éviter deux adversaires simultanés.",req);return;}
     try{const settings=await body(req);json(res,200,integratedAI.configure(settings),req);}
     catch(e){msg(res,400,e.message,req);}return;
   }
@@ -611,8 +1001,7 @@ const server=http.createServer(async(req,res)=>{
     json(res,200,remoteAccess.status(true),req);return;
   }
   if(req.method==="POST"&&url.pathname==="/api/remote/start"){
-    if(integratedAI.status().enabled){msg(res,409,"Désactive d'abord l'IA intégrée pour éviter deux adversaires.",req);return;}
-    try{json(res,200,await remoteAccess.start(),req);}
+    try{json(res,200,await startRemoteOpponent(),req);}
     catch(e){msg(res,503,e.message,req);}return;
   }
   if(req.method==="POST"&&url.pathname==="/api/remote/stop"){
@@ -622,7 +1011,7 @@ const server=http.createServer(async(req,res)=>{
     try{
       const cards=await loadServerCatalog(url.searchParams.get("refresh")==="1");
       const q=url.searchParams.get("q")||"",type=url.searchParams.get("type")||"";
-      const limit=Math.min(2000,Math.max(1,Number(url.searchParams.get("limit")||100)||100));
+      const limit=Math.min(desktop?25000:2000,Math.max(1,Number(url.searchParams.get("limit")||100)||100));
       const result=searchCards(cards,q,type,limit);
       json(res,200,{count:cards.length,returned:result.length,cards:result,source:CARD_SOURCE},req);
     }catch(e){msg(res,503,e.message,req);}return;
@@ -635,21 +1024,12 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/command"){
     try{
       const input=await body(req);
-      const updated=await executeGameCommand(input);
-      json(res,200,{ok:true,state:updated},req);
-    }catch(e){msg(res,400,e.message,req);}return;
+      const updated=await executeGameCommand(input,{withReceipt:true});
+      json(res,200,{ok:true,...updated,state:sharedState(updated.state)},req);
+    }catch(e){json(res,400,{ok:false,error:e.message,receipt:{status:"rejected",revision:state.revision}},req);}return;
   }
   msg(res,404,"Endpoint inconnu",req);
 });
-if(process.argv.includes("--verify-bundle")){
- try{
-  const result=verifyEmbeddedTunnel();
-  console.log("Embedded cloudflared verified:",result.sha256,result.bytes,"bytes");
- }catch(e){
-  console.error("Embedded cloudflared verification failed:",e.message);
-  process.exitCode=1;
- }
-}else{
 server.on("error",err=>{
  console.error("Démarrage impossible :",err.code==="EADDRINUSE"?"Le port "+port+" est déjà utilisé. Ferme l'autre instance du module.":err.message);
  process.exitCode=1;
@@ -658,10 +1038,19 @@ function resumeLocalOpponent(){
  if(manager.status().canLaunch&&integratedAI.status().provider==="free"&&
     integratedAI.status().enabled){
   // Reuse installed weights; a confirmed outdated build must not run the model.
-  localFreeAI.resume(integratedAI.status().model);
+  integratedAI.advanceTurnIfAI();
+  if(!desktop&&!integratedAI.status().rulesOnly)localFreeAI.resume(integratedAI.status().model);
  }
 }
 server.listen(port,host,()=>{
+  if(desktop){
+   manager.startupCheck().then(()=>{
+    if(!integratedAI.status().enabled)integratedAI.configure({provider:"free",enabled:true,rulesOnly:true});
+    resumeLocalOpponent();
+    saveAtomic(process.env.RIFTBOUND_DESKTOP_READY,{port:server.address().port});
+   }).catch(error=>{console.error(error.message);shutdownAll();});
+   return;
+  }
   // Background network verification only. The manager shows a startup screen
   // until verification is complete and does not launch the game early.
   manager.startupCheck().then(result=>{
@@ -694,7 +1083,5 @@ server.listen(port,host,()=>{
     }
   }
 });
-
-}
 
 }

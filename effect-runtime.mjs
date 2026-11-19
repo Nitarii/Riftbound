@@ -3,12 +3,20 @@
 // This is not the complete Riot chain/priority/continuous-effect rules engine.
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
-import {drawMainCards} from "./draw-rules.mjs";
-import {effectiveMight} from "./combat-engine.mjs";
+import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
+import {effectiveMight,deflectValue,OPPOSITE} from "./combat-engine.mjs";
+import {planRunePayment} from "./rune-payment.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
-const ownerName=p=>p==="ai"?"IA":"Joueur";
+export function unitBeforeDeath(state,card){
+ const combat=state.pendingCombat;
+ const role=combat?.kind==="combat"&&card.zone==="battlefield"&&combat.battlefield===card.battlefield?
+  (combat.attacker===card.owner?"attack":"defend"):"none";
+ return {...card,wasMighty:effectiveMight(card,role,state)>=5,
+  withAlly:state.cards.some(other=>other.uid!==card.uid&&unit(other)&&!other.faceDown&&
+  other.owner===card.owner&&activeZone(card.zone)&&other.zone===card.zone&&other.battlefield===card.battlefield)};
+}
 // Most triggered abilities happen every time their condition occurs. Only
 // text explicitly saying once (or N times) per turn is limited.
 const isTracked=ability=>Number.isInteger(ability.perTurnLimit)&&ability.perTurnLimit>0;
@@ -16,6 +24,7 @@ function eligibleSources(state,event){
  const {trigger,actor,source,field}=event;
  if(["play","move","die","attack","defend","discard"].includes(trigger))return source?[source]:[];
  let cards=state.cards.filter(c=>c.owner===actor&&activeZone(c.zone));
+ if(trigger==="opponent-play")cards=cards.filter(c=>c.zone==="battlefield"&&!c.faceDown);
  if(["hold","conquer"].includes(trigger))
   cards=cards.filter(c=>c.zone==="battlefield"&&c.battlefield===field);
  if(["ally-play","draw"].includes(trigger)&&source)
@@ -40,11 +49,17 @@ function makePending(state,source,ability,actor,reason){
   reason:String(reason||"Choix ou capacité non automatisée").slice(0,250)
  });
 }
-function selectTarget(state,kind,source,actor){
- const pool=state.cards.filter(c=>unit(c)&&["base","battlefield"].includes(c.zone));
+function canChooseUnit(card,step,actor,source){
+ if(!card||!unit(card)||!["base","battlefield"].includes(card.zone)||card.faceDown||
+    step.atBattlefield&&card.zone!=="battlefield"||step.another&&card.uid===source.uid||
+    card.owner!==actor&&card.counters?.tempShroud)return false;
+ const {kind}=step;
  const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(kind);
  const friendly=kind==="buff-friendly";
- let eligible=pool.filter(c=>enemy?c.owner!==actor:friendly?c.owner===actor:true);
+ return enemy?card.owner!==actor:friendly?card.owner===actor:true;
+}
+function selectTarget(pool,kind,actor,state){
+ let eligible=pool;
  // For flexible choices prefer helpful actions over harming our own units.
  if(["damage-enemy","stun-unit","kill-unit"].includes(kind)){
   const hostile=eligible.filter(c=>c.owner!==actor);
@@ -54,8 +69,7 @@ function selectTarget(state,kind,source,actor){
   const allies=eligible.filter(c=>c.owner===actor);
   if(allies.length)eligible=allies;
  }
- const value=c=>Number(c.might||0)+Number(c.counters?.tempMight||0)-
-  Number(c.damage||0);
+ const value=c=>(effectiveMight(c,"none",state)??0)-Number(c.damage||0);
  return eligible.sort((a,b)=>{
   if(["buff-unit","buff-friendly"].includes(kind))
    return Number(b.zone==="battlefield")-Number(a.zone==="battlefield")||
@@ -65,76 +79,79 @@ function selectTarget(state,kind,source,actor){
   return value(a)-value(b)||String(a.uid).localeCompare(String(b.uid));
  })[0]||null;
 }
-function buildSteps(state,source,ability,actor,choices){
- const instructions=[],previous=choices?.discardUids||[];
- if(ability.optional&&actor==="human")
-  return {reason:"Effet facultatif : choisis de le résoudre ou de le décliner."};
+export function prepareCardText(state,source,ability,actor,choices={}){
+ const instructions=[];
+ if(ability.optional&&actor==="human"&&!choices.accepted)
+  return {reason:"Veux-tu mettre cette capacité facultative sur la chaîne ?",choice:{kind:"optional"}};
  if(ability.optional&&actor==="ai"&&ability.steps.some(x=>
     ["discard","exhaust-runes","exhaust-self"].includes(x.kind)))
   return {instructions:[],declined:true};
- const required=ability.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
- const selected=previous.length?previous:
-  required?chooseRequiredDiscards(state,source.uid,required):[];
- if(selected===null||selected.length!==required||new Set(selected).size!==selected.length)
-  return {reason:"Choisis le nombre exact de cartes distinctes à défausser."};
- let discarded=0;
  const reservedDeflect=new Set();
- for(const step of ability.steps){
+ let reservedPower=0;
+ for(const [index,step] of ability.steps.entries()){
   let detail={...step};
-  if(step.kind==="discard"){
-   if(actor!=="ai")return {reason:"Le joueur physique doit choisir et défausser ses cartes cachées."};
-   const uids=selected.slice(discarded,discarded+step.count);
-   if(!uids||uids.length!==step.count||new Set(uids).size!==uids.length)
-    return {reason:"Cartes à défausser insuffisantes ou choix de main incomplet."};
-   if(!uids.every(uid=>state.cards.some(c=>c.uid===uid&&c.owner===actor&&
-    c.zone==="hand"&&c.uid!==source.uid)))
-    return {reason:"Défausse invalide : carte absente de la main de l'IA."};
-   detail.uids=uids;discarded+=step.count;
+  const chosenUid=choices.targets?.[index]??choices.targetUid;
+  if(step.kind==="ready-friendly"){
+   const pool=state.cards.filter(c=>unit(c)&&c.owner===actor&&c.uid!==source.uid&&
+     c.exhausted&&["base","battlefield"].includes(c.zone));
+   if(!pool.length)continue;
+   if(actor==="human"&&pool.length!==1&&!chosenUid)return {
+    reason:"Choisis quelle autre unité redresser.",choice:{kind:"target",step:index,targetUids:pool.map(c=>c.uid)}};
+   const target=chosenUid?pool.find(c=>c.uid===chosenUid):pool.sort((a,b)=>(effectiveMight(b,"none",state)??0)-
+    (effectiveMight(a,"none",state)??0))[0];
+   if(!target)return {reason:"Choisis une autre unité alliée épuisée."};
+   detail.targetUid=target.uid;
   }
   if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
        "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
-   const chosen=choices?.targetUid?state.cards.find(c=>c.uid===choices.targetUid):null;
-   const target=chosen||(actor==="ai"?selectTarget(state,step.kind,source,actor):null);
-   const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(step.kind);
-   const friendly=step.kind==="buff-friendly";
-   if(!target||!unit(target)||!["base","battlefield"].includes(target.zone)||
-      (enemy&&target.owner===actor)||(friendly&&target.owner!==actor))
-    return {reason:"Choisis une unité valide pour cet effet."};
-   if(target.owner!==actor&&/\bdeflect\b/i.test(target.text||"")){
-    if(actor!=="ai")
-     return {reason:"Deflect : le joueur doit payer et confirmer 1 Power pour choisir cette cible."};
-    const rune=state.cards.find(r=>r.owner===actor&&r.zone==="runes"&&
-     !reservedDeflect.has(r.uid));
-    if(!rune)return {reason:"Deflect : aucune rune à recycler pour payer 1 Power."};
-    reservedDeflect.add(rune.uid);
-    detail.deflectRuneUid=rune.uid;
+   const pool=state.cards.filter(card=>canChooseUnit(card,step,actor,source));
+   if(!pool.length&&!chosenUid)continue;
+   const available={...state,cards:state.cards.filter(card=>!reservedDeflect.has(card.uid)),
+    powerPool:{...state.powerPool,[actor]:(state.powerPool?.[actor]??0)-reservedPower}};
+   const payable=pool.filter(card=>{
+    try{return card.owner===actor||!planRunePayment(available,actor,
+     {name:source.name,energy:0,extraPower:deflectValue(card,state)}).error;}
+    catch{return false;}
+   });
+   if(!payable.length&&!chosenUid)return {cancelled:true,reason:"aucune cible dont le coût peut être payé"};
+   const target=chosenUid?pool.find(c=>c.uid===chosenUid):
+    actor==="ai"?selectTarget(payable.length?payable:pool,step.kind,actor,state):null;
+   if(!target)
+    return {reason:"Choisis une unité valide pour cet effet.",choice:{kind:"target",step:index,
+     targetUids:payable.map(c=>c.uid)}};
+   let deflect=0;
+   try{if(target.owner!==actor)deflect=deflectValue(target,state);}
+   catch(error){return {reason:error.message};}
+   if(deflect){
+    const payment=planRunePayment(available,actor,{name:source.name,energy:0,extraPower:deflect});
+    if(payment.error)return {reason:"Deflect : "+payment.error};
+    for(const uid of [...payment.recycleUids,...payment.goldUids])reservedDeflect.add(uid);
+    reservedPower+=payment.poolPower;
+    detail.deflectPower=deflect;
    }
    detail.targetUid=target.uid;
   }
-  if(step.kind==="predict"&&actor==="human")
-   return {reason:"Vision/Predict : regarde la prochaine carte physique et choisis si tu la recycles."};
-  if(["ready-self","exhaust-self","self-buff","heal-self"].includes(step.kind)&&
-   !state.cards.some(c=>c.uid===source.uid))
-   return {reason:"Source de l'effet absente du plateau."};
   instructions.push(detail);
  }
- if(discarded!==selected.length)
-  return {reason:"Le nombre de cartes défaussées ne correspond pas au texte."};
  return {instructions};
 }
-function applySteps(state,source,steps,actor,place,deckCard){
+export function payCardText(instructions,actor,source,runtime){
+ const logs=[];
+ for(const step of instructions)if(step.deflectPower){
+  const paid=runtime.pay(actor,{name:source.name,energy:0,extraPower:step.deflectPower});
+  logs.push("Deflect : "+paid.power+" Power payé"+
+   (paid.recycleUids.length?" · "+paid.recycleUids.length+" rune(s) recyclée(s)":"")+
+   (paid.goldUids.length?" · "+paid.goldUids.length+" Gold dépensé(s)":"")+
+   (paid.poolPower?" · "+paid.poolPower+" Power de la réserve":""));
+  delete step.deflectPower;
+ }
+ return logs;
+}
+function applySteps(state,source,steps,actor,runtime,trigger){
+ const {place,deckCard}=runtime;
  const logs=[];
  for(const step of steps){
   const n=step.count;
-  if(step.deflectRuneUid){
-   const rune=state.cards.find(c=>c.uid===step.deflectRuneUid);
-   if(!rune||rune.zone!=="runes"||rune.owner!==actor)
-    throw Error("Rune Deflect invalide après finalisation.");
-   state.decks.ai.runes.push(deckCard(rune));
-   state.cards=state.cards.filter(c=>c.uid!==rune.uid);
-   state.players.ai.runeCount=state.decks.ai.runes.length;
-   logs.push("Deflect : 1 Power payé par recyclage de "+rune.name);
-  }
   if(step.kind==="discard"){
    const names=[];
    for(const uid of step.uids){
@@ -143,7 +160,24 @@ function applySteps(state,source,steps,actor,place,deckCard){
     state.players[actor].handCount--;
     names.push(card.name);
    }
-   logs.push("défausse "+names.join(", "));
+   if(names.length)logs.push("défausse "+names.join(", "));
+  }else if(step.kind==="burn"){
+   logs.push(burnMainCards(state,actor,n,source,{place}));
+  }else if(step.kind==="score"){
+   state.players[actor].score+=n;
+   logs.push("+"+n+" PV");
+  }else if(step.kind==="ready-friendly"){
+   const target=state.cards.find(c=>c.uid===step.targetUid);
+   target.exhausted=false;
+   logs.push("redresse "+target.name);
+  }else if(step.kind==="shadow-clone"){
+   const token=place(state,actor,{code:"TOKEN-SHADOW-CLONE",name:"Shadow Clone",type:"Unit",
+    might:0,energy:0,power:0,tags:["Token"]},"base");
+   token.exhausted=true;
+   logs.push("crée Shadow Clone en base");
+   logs.push(...processCardEvent(state,{trigger:"play",actor,source:token},runtime));
+   state.turnActions.played[actor]++;
+   logs.push(...processCardEvent(state,{trigger:"ally-play",actor,source:token},runtime));
   }else if(step.kind==="predict"){
    const top=state.decks?.ai?.main?.[0];
    if(actor==="ai"&&top){
@@ -175,8 +209,16 @@ function applySteps(state,source,steps,actor,place,deckCard){
     (step.kind==="channel-exhausted"?" épuisées":""));
   }else if(step.kind==="draw"){
    const result=drawMainCards(state,actor,n,{place,deckCard});
+   if(trigger==="hold"&&actor===state.active&&result.actual)
+    (state.turnActions.holdDraws??=[]).push({name:source.name,count:result.actual});
    logs.push("pioche "+result.actual+" carte(s)"+
     (result.burnOuts?" (Burn Out ×"+result.burnOuts+")":""));
+  }else if(step.kind==="ready-runes-ending"){
+   if(state.phase==="Ending")continue;
+   state.delayedEnding??=[];
+   const id="ending-"+(state.effectSerial||0)+"-"+state.delayedEnding.length;
+   state.delayedEnding.push({id,player:actor,cardName:source.name,count:n});
+   logs.push("jusqu’à "+n+" rune(s) à redresser à la fin de ce tour");
   }else if(step.kind==="ready-runes"||step.kind==="exhaust-runes"){
    const exhaust=step.kind==="exhaust-runes";
    const cards=state.cards.filter(c=>c.owner===actor&&c.zone==="runes"&&
@@ -206,11 +248,11 @@ function applySteps(state,source,steps,actor,place,deckCard){
    logs.push(c.name+" est étourdie");
   }else if(step.kind==="kill-unit"||step.kind==="kill-enemy"){
    const c=state.cards.find(c=>c.uid===step.targetUid);
-   const lastKnown={...c};
+   const lastKnown=unitBeforeDeath(state,c);
    c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
    logs.push(c.name+" est détruite");
    const triggered=processCardEvent(state,{trigger:"die",actor:c.owner,source:lastKnown},
-    {place,deckCard});
+    runtime);
    if(triggered.length)logs.push(...triggered);
   }else if(step.kind==="create-units"){
    const destination=step.destination==="here"&&
@@ -223,6 +265,9 @@ function applySteps(state,source,steps,actor,place,deckCard){
     },destination,destination==="battlefield"?source.battlefield:null,false,
      "c_token_"+state.revision+"_"+state.cards.length+"_"+i);
     card.exhausted=true;
+    logs.push(...processCardEvent(state,{trigger:"play",actor,source:card},runtime));
+    state.turnActions.played[actor]++;
+    logs.push(...processCardEvent(state,{trigger:"ally-play",actor,source:card},runtime));
    }
    logs.push("crée "+n+" jeton(s) "+step.tokenName+" ("+step.tokenMight+" Might)");
   }else if(step.kind==="damage-enemy"){
@@ -231,23 +276,90 @@ function applySteps(state,source,steps,actor,place,deckCard){
     throw Error("La cible des dégâts a quitté le plateau.");
    // An effect must not silently bypass Shield, printed stat modifiers, or
    // death triggers. Defer to the shared combat stat computation.
-   c.damage=(c.damage||0)+n;
-   const might=effectiveMight(c,"none",state);
+   const prevented=Math.min(n,c.counters?.preventDamage||0);
+   c.counters??={};c.counters.preventDamage=(c.counters.preventDamage||0)-prevented;
+   c.damage=(c.damage||0)+n-prevented;
+   const combat=state.pendingCombat;
+   const role=combat?.kind==="combat"&&c.zone==="battlefield"&&c.battlefield===combat.battlefield?
+    (combat.attacker===c.owner?"attack":"defend"):"none";
+   const might=effectiveMight(c,role,state);
    if(might===null)throw Error("Might inconnue : dégâts non résolus.");
-   if(c.damage>=might){
-    const lastKnown={...c};
-    c.zone="trash";c.battlefield=null;c.exhausted=false;c.damage=0;
-    const triggered=processCardEvent(state,{
-     trigger:"die",actor:lastKnown.owner,source:lastKnown
-    },{place,deckCard});
-    logs.push(n+" dégâts à "+c.name+" (unité vaincue)");
-    if(triggered.length)logs.push(...triggered);
-   }else logs.push(n+" dégâts à "+c.name);
+   // Lethal marked damage is handled by the reducer's cleanup, after the
+   // whole ability. A later draw must not recycle this unit prematurely.
+   logs.push((n-prevented)+" dégâts à "+c.name+(prevented?" · "+prevented+" prévenu(s)":""));
   }
  }
  return logs;
 }
-export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
+// The instruction cursor is persisted with the chain item. A physical choice
+// resumes this exact resolution, without reopening priority or replaying the
+// preceding instructions. Only publicly discarded cards enter shared state.
+export function resolveCardText(state,item,runtime,choice={}){
+ const logs=[],actor=item.owner;
+ item.cursor??=0;
+ const pending=(trigger,text)=>{
+  state.pendingEffects.push({id:item.uid+"-"+item.cursor+"-"+(item.discarded||0),
+   trigger,player:actor,sourceUid:item.sourceUid,chainUid:item.uid,
+   cardName:item.cardName,text,reason:"La résolution reprend après ton choix.",optional:false});
+ };
+ for(;item.cursor<item.instructions.length;item.cursor++){
+  let step={...item.instructions[item.cursor]};
+  const source=state.cards.find(c=>c.uid===item.sourceUid&&activeZone(c.zone))??item.source;
+  if(step.targetUid){
+   const target=state.cards.find(c=>c.uid===step.targetUid);
+   const valid=step.kind==="ready-friendly"?target&&unit(target)&&activeZone(target.zone)&&
+    target.owner===actor&&target.uid!==source.uid:canChooseUnit(target,step,actor,source);
+   if(!valid){logs.push("cible devenue invalide");continue;}
+  }
+  if(["ready-self","exhaust-self","self-buff","heal-self"].includes(step.kind)&&
+     !state.cards.some(c=>c.uid===source.uid&&["base","battlefield"].includes(c.zone))){
+   logs.push("la source a quitté le plateau");continue;
+  }
+  if(step.kind==="discard"){
+   const count=Math.min(step.count-(item.discarded||0),state.players[actor].handCount);
+   if(actor==="human"&&count>0){
+    if(!choice.card){pending("card-text-discard","Défausse une carte de ta main ("+count+" restante(s)).");
+     return {logs,paused:true};}
+    const card=runtime.validateCard(choice.card);
+    if(!/^(unit|gear|spell)$/i.test(card.type))throw Error("Indique une carte physique de ta main défaussée.");
+    runtime.place(state,actor,card,"trash");state.players[actor].handCount--;
+    logs.push("défausse "+card.name);item.discarded=(item.discarded||0)+1;choice={};
+    if(item.discarded<step.count&&state.players[actor].handCount>0){
+     pending("card-text-discard","Défausse encore "+Math.min(step.count-item.discarded,state.players[actor].handCount)+" carte(s).");
+     return {logs,paused:true};
+    }
+   }else if(actor==="ai"){
+    const preferred=(item.preferredDiscards||[]).filter(uid=>state.cards.some(c=>
+     c.uid===uid&&c.owner===actor&&c.zone==="hand")).slice(0,count);
+    const remaining={...state,cards:state.cards.filter(c=>!preferred.includes(c.uid))};
+    step.uids=[...preferred,...(chooseRequiredDiscards(remaining,"",count-preferred.length)||[])];
+    logs.push(...applySteps(state,source,[step],actor,runtime,item.trigger));
+   }
+   delete item.discarded;
+   continue;
+  }
+  if(step.kind==="predict"&&actor==="human"&&state.players.human.deckCount>0){
+   if(typeof choice.recycle!=="boolean"){
+    pending("card-text-predict","Regarde la première carte de ton deck. Veux-tu la recycler ?");
+    return {logs,paused:true};
+   }
+   logs.push(choice.recycle?"Vision : carte recyclée":"Vision : carte conservée");choice={};continue;
+  }
+  const before=state.pendingEffects.length;
+  logs.push(...applySteps(state,source,[step],actor,runtime,item.trigger));
+  if(state.pendingEffects.length>before){
+   // Burn reveals physical cards before subsequent instructions may proceed.
+   for(const effect of state.pendingEffects.slice(before)){
+    effect.resumeCardText=item.uid;
+   }
+   item.cursor++;
+   return {logs,paused:true};
+  }
+ }
+ return {logs,paused:false};
+}
+export function processCardEvent(state,event,runtime={}){
+ const {stageCardAbility}=runtime;
  const {trigger,actor}=event;
  if(!["human","ai"].includes(actor)||!trigger)throw Error("Événement de capacité invalide.");
  state.effectWork=(Number(state.effectWork)||0)+1;
@@ -267,6 +379,15 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
    }
   }
   for(const ability of compiled.abilities.filter(a=>a.trigger===trigger)){
+   if(ability.minimumXP!=null&&(state.players[actor].xp??0)<ability.minimumXP)continue;
+   if(ability.toBattlefield&&source.zone!=="battlefield")continue;
+   if(ability.minimumExcess!=null&&(event.excessDamage??0)<ability.minimumExcess)continue;
+   if(ability.condition==="did-not-die-alone"&&!source.withAlly)continue;
+   if(ability.condition==="was-mighty"&&!source.wasMighty)continue;
+   if(ability.condition==="empowered"&&!source.counters?.empowered)continue;
+   if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
+      c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
+      c.uid!==source.uid).length!==1)continue;
    if(ability.condition==="legion"&&
       !(Number(state.turnActions?.played?.[actor])>0))continue;
    if(trigger==="ally-play"&&ability.playedType&&
@@ -285,11 +406,21 @@ export function processCardEvent(state,event,{place,deckCard=card=>card}={}){
      compiled.unsupported.find(x=>x.text===ability.text)?.reason);
     continue;
    }
-   const plan=buildSteps(state,source,ability,actor,event.choices||{});
-   if(plan.reason){makePending(state,source,ability,actor,plan.reason);continue;}
-   const logs=applySteps(state,source,plan.instructions,actor,place,deckCard);
-   if(logs.length)summaries.push(ownerName(actor)+" · "+source.name+" : "+logs.join(", "));
+   const token=ability.steps.length===1&&ability.steps[0];
+   if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main","gain-xp","buff-here","ready-gear",
+      "return-field-unit","schedule-enemy-move","expire-temporary","stun-played-unit"].includes(token.kind)||
+      token.kind==="draw"&&(["did-not-die-alone","was-mighty"].includes(ability.condition)||ability.minimumXP!=null)||
+      token.kind==="create-units"&&(token.destination==="base"||token.temporary))){
+    const notice=stageCardAbility(source,ability,token,event);
+    if(notice)summaries.push(notice);
+    continue;
+   }
+   if(!stageCardAbility)throw Error("Le moteur doit mettre la capacité déclenchée sur la chaîne.");
+   const notice=stageCardAbility(source,ability,{kind:"card-text"},event);
+   if(notice)summaries.push(notice);
   }
  }
+ if(trigger==="play"&&event.source&&unit(event.source))
+  summaries.push(...processCardEvent(state,{trigger:"opponent-play",actor:OPPOSITE[actor],source:event.source},runtime));
  return summaries;
 }

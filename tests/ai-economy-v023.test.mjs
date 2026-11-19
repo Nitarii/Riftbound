@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {createState,applyCommand} from "../core.mjs";
 import {planRunePayment,runeDomain} from "../rune-payment.mjs";
 import {planAutonomousAITurn,describeAITurn} from "../ai-turn.mjs";
+import {passShowdown} from "./showdown-helper.mjs";
 const card=(name,type="Unit",extra={})=>({name,type,...extra});
 const rune=(domain)=>card(domain+" Rune","Rune",{domains:[domain]});
 const fury=rune("Fury"),chaos=rune("Chaos");
@@ -12,7 +13,8 @@ function game({runes=[fury,chaos,fury,chaos,fury,chaos],main=[],first="ai"}={}){
   champion:card("Shen Champion"),battlefield:card("Grove","Battlefield")});
  s=applyCommand(s,{type:"setup-ai",legend:card("Jinx","Legend"),
   champion:card("Jinx Champion","Unit"),battlefield:card("Star Spring","Battlefield"),
-  main,runes,mainIncludesChampion:false});
+  main:[...main,...Array.from({length:12},(_,i)=>card("Unplayable "+i,"Unit",{energy:90}))],
+  runes,mainIncludesChampion:false});
  s=applyCommand(s,{type:"start",player:first});
  return s;
 }
@@ -98,11 +100,13 @@ test("autonomous AI develops units, pays Power and moves ready units to conquer 
  s=applyCommand(one.state,{type:"next-turn"});
  const two=afterPlan(s);
  assert.ok(two.plan.commands.some(c=>c.type==="move"&&c.zone==="battlefield"));
- assert.ok(two.state.players.ai.score>=1,"AI Conquer should grant victory point");
+ let resolved=passShowdown(two.state);
+ assert.ok(resolved.players.ai.score>=1,"Closing conquest should grant victory point");
  assert.equal(two.state.cards.some(c=>c.zone==="battlefield"&&c.owner==="ai"),true);
- assert.match(describeAITurn(two.plan),/PV/);
+ assert.match(describeAITurn(two.plan),/après les réactions/);
  // Holding an uncontested field on a later turn scores again.
- const holding=applyCommand(two.state,{type:"next-turn"});
+ while(resolved.active==="ai")resolved=passShowdown(afterPlan(resolved).state);
+ const holding=applyCommand(resolved,{type:"next-turn"});
  assert.ok(holding.players.ai.score>=2,"Hold should score on next AI Beginning");
 });
 test("AI never creates cards or pays unknown Power and does not declare a fake victory",()=>{
@@ -119,8 +123,9 @@ test("AI prefers new unclaimed battlefield over reinforcing an already controlle
  for(const name of ["One","Two"]){
   s=applyCommand(s,{type:"add",player:"ai",zone:"base",card:card(name,"Unit",{energy:1,power:0})});
  }
- const plan=afterPlan(s);
- const units=plan.state.cards.filter(c=>["One","Two"].includes(c.name));
+ s=passShowdown(afterPlan(s).state);
+ s=passShowdown(afterPlan(s).state);
+ const units=s.cards.filter(c=>["One","Two"].includes(c.name));
  assert.deepEqual(units.map(c=>c.battlefield).sort(),[0,1]);
- assert.equal(plan.state.players.ai.score,2);
+ assert.equal(s.players.ai.score,2);
 });

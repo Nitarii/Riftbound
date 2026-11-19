@@ -5,6 +5,7 @@ import {createState,applyCommand} from "../core.mjs";
 import {previewCombat,assignDamage,effectiveMight,combatPriority} from "../combat-engine.mjs";
 import {planAutonomousAITurn} from "../ai-turn.mjs";
 import {planPlayerSequence} from "../player-sequence.mjs";
+import {passShowdown as pass} from "./showdown-helper.mjs";
 const card=(name,might=2,text="")=>({name,type:"Unit",might,energy:1,power:0,text,domains:[]});
 const legend=name=>({name,type:"Legend"}),field=name=>({name,type:"Battlefield"});
 function setup(active="ai"){
@@ -24,14 +25,15 @@ function add(s,name,owner,might,zone="base",battlefield=0,text=""){
 }
 const uid=(s,name)=>s.cards.find(x=>x.name===name)?.uid;
 const attack=(s,player,index,units)=>applyCommand(s,{type:"combat-attack",player,battlefield:index,uids:units.map(n=>uid(s,n))});
-const pass=s=>applyCommand(s,{type:"combat-pass",player:"human"});
 test("basic attack enters showdown, deals simultaneous damage, kills defender, heals attacker, scores 1",()=>{
  let s=setup();
  s=add(s,"Attacker","ai",3);
  s=add(s,"Defender","human",2,"battlefield",0);
  s=attack(s,"ai",0,["Attacker"]);
  assert.equal(s.players.ai.score,0);
- assert.equal(s.pendingCombat?.passes.ai,true);
+ assert.equal(s.pendingCombat?.focus,"ai");
+ assert.equal(s.pendingCombat?.passes.ai,false);
+ assert.throws(()=>applyCommand(s,{type:"combat-pass",player:"human"}),/focalisation/);
  assert.equal(s.pendingCombat?.passes.human,false);
  assert.equal(s.cards.find(c=>c.name==="Attacker").exhausted,true);
  assert.throws(()=>applyCommand(s,{type:"next-turn"}),/Combat en cours/);
@@ -136,11 +138,11 @@ test("complex combat card text requires explicit confirmation of applied effects
  s=add(s,"Defender","human",2,"battlefield",0);
  s=attack(s,"ai",0,["Attacker"]);
  assert.ok(s.pendingCombat.warnings.length);
- s=pass(s);
- assert.ok(s.pendingCombat);
+ assert.throws(()=>pass(s),/Résous les effets/);
  assert.equal(s.players.ai.score,0);
  assert.throws(()=>applyCommand(s,{type:"combat-resolve"}),/Effets de cartes/);
  s=applyCommand(s,{type:"combat-confirm-effects",confirm:true});
+ s=pass(s);
  assert.equal(s.pendingCombat,null);
  assert.equal(s.players.ai.score,1);
 });
@@ -186,6 +188,8 @@ test("voice pass ends a safe combat after both parties pass without requiring En
  assert.deepEqual(plan.commands,[{type:"combat-pass",player:"human"}]);
  assert.deepEqual(planPlayerSequence("je passe ma réaction",s,[]).commands,plan.commands);
  for(const c of plan.commands)s=applyCommand(s,c);
+ assert.equal(s.pendingCombat.focus,"ai");
+ s=applyCommand(s,{type:"combat-pass",player:"ai"});
  assert.equal(s.pendingCombat,null);
  assert.equal(s.players.human.score,1);
 });

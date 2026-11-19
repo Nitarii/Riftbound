@@ -53,7 +53,7 @@ test("natural Poro announcement recognizes costs and does not double draw",()=>{
  const plan=planHumanAnnouncement("je pioche une carte et je joue loyal poro pour 1 rune",s,cards);
  assert.equal(plan.error,undefined,plan.error);
  assert.equal(plan.commands.filter(c=>c.type==="draw").length,0);
- assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Loyal Poro"));
+ assert.ok(plan.commands.some(c=>c.type==="play-physical"&&c.card.name==="Loyal Poro"));
  for(const command of plan.commands)s=applyCommand(s,command);
  assert.equal(s.players.human.handCount,before-1);
 });
@@ -61,7 +61,8 @@ test("printed energy can be paid without speaking the rune count",()=>{
  const s=advanceMandatoryTurn(start());
  const plan=planHumanAnnouncement("je joue Loyal Poro",s,cards);
  assert.equal(plan.error,undefined,plan.error);
- assert.ok(plan.commands.some(c=>c.type==="exhaust-runes"&&c.count===1));
+ const result=plan.commands.reduce(applyCommand,s);
+ assert.equal(result.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.exhausted).length,1);
 });
 test("an incorrect announced rune count is never silently accepted",()=>{
  const s=advanceMandatoryTurn(start());
@@ -77,8 +78,7 @@ test("real Loyal Poro costing 3 energy is played on first turn of second player"
  const plan=planHumanAnnouncement("je pioche une carte et je joue Loyal Poro pour 3 runes",s,realCost);
  assert.equal(plan.error,undefined,plan.error);
  assert.equal(plan.commands.filter(c=>c.type==="draw").length,0);
- assert.equal(plan.commands.find(c=>c.type==="exhaust-runes")?.count,3);
- assert.ok(plan.commands.some(c=>c.type==="add"&&c.card.name==="Loyal Poro"));
+ assert.ok(plan.commands.some(c=>c.type==="play-physical"&&c.card.name==="Loyal Poro"));
  for(const cmd of plan.commands)s=applyCommand(s,cmd);
  assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes"&&c.exhausted).length,3);
 });

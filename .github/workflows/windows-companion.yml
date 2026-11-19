@@ -1,285 +1,83 @@
-name: Build Windows Companion
+name: Windows Companion
 on:
-  workflow_dispatch:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
-    paths:
-      - 'server.mjs'
-      - 'remote.mjs'
-      - 'agent.html'
-      - 'agent.js'
-      - 'core.mjs'
-      - 'battlefield-rules.mjs'
-      - 'player-sequence.mjs'
-      - 'turn-upkeep.mjs'
-      - 'chat-scrolling.mjs'
-      - 'catalog.mjs'
-      - 'precons.mjs'
-      - 'narration.mjs'
-      - 'picker.mjs'
-      - 'manual-bridge.mjs'
-      - 'conversation.mjs'
-      - 'integrated-ai.mjs'
-      - 'game-knowledge.mjs'
-      - 'rules-compendium.mjs'
-      - 'free-ai.mjs'
-      - 'whisper-local.mjs'
-      - 'portable.mjs'
-      - 'portable-manager.mjs'
-      - 'update-transaction.mjs'
-      - 'update-helper.mjs'
-      - 'scripts/windows-update-smoke.mjs'
-      - 'scripts/windows-uninstall-smoke.mjs'
-      - 'uninstall-helper.mjs'
-      - 'release-policy.mjs'
-      - 'process-lifecycle.mjs'
-      - 'process-dashboard.mjs'
-      - 'local-voice.mjs'
-      - 'local-ai-profiles.mjs'
-      - 'local-action-gate.mjs'
-      - 'manager.html'
-      - 'voice-session.mjs'
-      - 'player-actions.mjs'
-      - 'card-voice.mjs'
-      - 'clarification.mjs'
-      - 'ai-turn.mjs'
-      - 'combat-engine.mjs'
-      - 'combat-voice.mjs'
-      - 'rune-payment.mjs'
-      - 'play-effects.mjs'
-      - 'effect-engine.mjs'
-      - 'effect-runtime.mjs'
-      - 'draw-rules.mjs'
-      - 'priority-chain.mjs'
-      - 'app.mjs'
-      - 'index.html'
-      - 'style.css'
-      - 'scripts/build-sea.mjs'
-      - 'scripts/apply-icon.mjs'
-      - 'assets/companion-icon.svg'
-      - '.github/workflows/windows-companion.yml'
+    tags: ['desktop-v*']
+  workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: windows-companion-release
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
-    timeout-minutes: 35
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
-      - name: Bundle source for Windows
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Read package version
+        id: version
         shell: pwsh
         run: |
-          npx --yes esbuild@0.25.12 server.mjs --bundle --platform=node --format=cjs --target=node26 --outfile=dist/server.bundle.cjs --log-level=warning
-          node --check dist/server.bundle.cjs
-          # Reproducible vendor asset: fixed Cloudflare release and GitHub asset digest.
-          $vendor = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-windows-amd64.exe"
-          Invoke-WebRequest -Uri $vendor -OutFile "dist/cloudflared.exe" -MaximumRetryCount 3 -RetryIntervalSec 3
-          $expected = "2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7751343"
-          $actual = (Get-FileHash "dist/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {throw "Cloudflare checksum mismatch: $actual"}
-          & ".\dist\cloudflared.exe" --version
-          if ($LASTEXITCODE -ne 0) {throw "Bundled Cloudflare client cannot execute"}
-          Write-Host "Cloudflare vendor binary verified and will be embedded inside the EXE."
-          node scripts/build-sea.mjs
-      - name: Verify bundled tunnel bytes
+          $version = ([xml](Get-Content desktop/RiftboundCompanion.csproj -Raw)).Project.PropertyGroup.Version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "desktop-v$version") { throw 'Tag/version mismatch' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Restore build tools and install Windows runtime when needed
         shell: pwsh
         run: |
-          $json = Get-Content "dist/sea-config.json" -Raw | ConvertFrom-Json
-          if (!$json.assets.'cloudflared.exe.br') {throw "Cloudflare client missing from single executable assets"}
-          if (!(Test-Path "dist/cloudflared.exe.br")) {throw "Compressed tunnel component missing"}
-      - name: Create single executable with Node SEA
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $tools = (New-Item -ItemType Directory -Force dist/desktop-tools).FullName
+          $compiler = Join-Path $tools 'innosetup.exe'
+          $release = Invoke-RestMethod 'https://api.github.com/repos/jrsoftware/issrc/releases/tags/is-7_1_1'
+          $asset = $release.assets | Where-Object { $_.name -like 'innosetup-*.exe' -and $_.digest -eq 'sha256:8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0' } | Select-Object -First 1
+          if (!$asset) { throw 'Pinned Inno Setup asset not found' }
+          curl.exe -fLsS --retry 3 $asset.browser_download_url -o $compiler
+          if ((Get-FileHash $compiler).Hash -ne '8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0') { throw 'Inno Setup checksum mismatch' }
+          $arguments = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /PORTABLE=1 /DIR="' + (Join-Path $tools 'inno') + '"'
+          $p = Start-Process $compiler -ArgumentList $arguments -PassThru -Wait -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) { throw "Inno setup exit $($p.ExitCode)" }
+      - name: Build installer
         shell: pwsh
-        run: node --build-sea dist/sea-config.json
-      - name: Verify embedded vendor binary without network access
-        shell: pwsh
-        run: |
-          & ".\dist\RiftboundCompanion.exe" --verify-bundle
-          if ($LASTEXITCODE -ne 0) {throw "The EXE failed its embedded tunnel integrity check"}
-      - name: Validate official Whisper CPU archive and executable
-        shell: pwsh
-        run: |
-          $url = "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip"
-          Invoke-WebRequest -Uri $url -OutFile "dist/whisper-bin-x64.zip" -MaximumRetryCount 3 -RetryIntervalSec 3
-          $expected = "6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb"
-          $actual = (Get-FileHash "dist/whisper-bin-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {throw "Whisper CPU archive checksum mismatch"}
-          Expand-Archive -LiteralPath "dist/whisper-bin-x64.zip" -DestinationPath "dist/whisper-smoke"
-          $binary = Get-ChildItem "dist/whisper-smoke" -Filter "whisper-cli.exe" -File -Recurse | Select-Object -First 1
-          if ($null -eq $binary) {throw "whisper-cli.exe missing from official archive"}
-          # whisper-cli --help deliberately returns a nonzero exit code in this release.
-          # --version is the supported, zero-exit smoke test for binary dependencies.
-          $whisperVersion = & $binary.FullName --version 2>&1
-          if ($LASTEXITCODE -ne 0 -or !$whisperVersion) {throw "Whisper CPU binary cannot run"}
-          Write-Host $whisperVersion
-          Remove-Item "dist/whisper-bin-x64.zip" -Force
-          Remove-Item "dist/whisper-smoke" -Recurse -Force
-      - name: Apply branded Windows icon
-        shell: pwsh
-        run: |
-          npm install --prefix dist/icon-tools --no-save --no-audit --no-fund @resvg/resvg-js@2.6.2 rcedit@5.0.2
-          node scripts/apply-icon.mjs
-      - name: Verify actual Windows Explorer icon
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          Add-Type -AssemblyName System.Drawing
-          $exe=(Resolve-Path "dist/RiftboundCompanion.exe").Path
-          $icon=[System.Drawing.Icon]::ExtractAssociatedIcon($exe)
-          if ($null -eq $icon) {throw "No executable icon was extracted"}
-          $bmp=$icon.ToBitmap()
-          $goldPixels=0
-          for($x=0;$x -lt $bmp.Width;$x++){
-            for($y=0;$y -lt $bmp.Height;$y++){
-              $p=$bmp.GetPixel($x,$y)
-              if($p.A -gt 200 -and $p.R -gt 160 -and $p.G -gt 90 -and $p.R -gt ($p.B + 40)){$goldPixels++}
-            }
-          }
-          Write-Host "Extracted Windows icon: $($bmp.Width)x$($bmp.Height), gold pixels=$goldPixels"
-          $bmp.Dispose()
-          $icon.Dispose()
-          if($goldPixels -lt 12){throw "Windows executable still has a generic icon; refusing to publish."}
-          Copy-Item -Path "dist/RiftboundCompanion.exe" -Destination "dist/RiftboundCompanion-v0.42.exe" -Force
-      - name: Smoke test executable with authentication and static assets
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $env:PORT = "8878"
-          $env:RIFTBOUND_TOKEN = "ci-only-local-smoketest-token"
-          $env:RIFTBOUND_NO_BROWSER = "1"
-          $env:RIFTBOUND_PORTABLE_TEST = "1"
-          $env:RIFTBOUND_DATA_DIR = (Join-Path (Resolve-Path "dist").Path "portable-ci")
-          $p = Start-Process -FilePath ".\dist\RiftboundCompanion.exe" -ArgumentList "--no-browser" -PassThru -RedirectStandardOutput "dist\server-smoke.log" -RedirectStandardError "dist\server-smoke.err"
-          try {
-            $healthy = $false
-            for ($i=0; $i -lt 50; $i++) {
-              Start-Sleep -Milliseconds 400
-              try {
-                $h = Invoke-RestMethod "http://127.0.0.1:8878/api/health" -TimeoutSec 2
-                if ($h.ok -eq $true -and $h.packaged -eq $true) {$healthy = $true; break}
-              } catch {}
-            }
-            if (!$healthy) {Get-Content "dist\server-smoke.log";Get-Content "dist\server-smoke.err";throw "Executable failed to start"}
-            $portableStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
-            if (!$portableStatus.portable -or $portableStatus.path -ne $env:RIFTBOUND_DATA_DIR) {throw "Windows companion wrote outside user-selected portable root"}
-            if (!(Test-Path (Join-Path $portableStatus.path ".riftbound-install.json"))) {throw "Missing portable installation manifest"}
-            $managerPage = Invoke-WebRequest "http://127.0.0.1:8878/manager.html" -UseBasicParsing
-            if (!$managerPage.Content.Contains("manager-stop") -or !$managerPage.Content.Contains("startup-screen") -or !$managerPage.Content.Contains("process-stop-all")) {throw "Version gate / live engine process UI missing"}
-            if ($managerPage.StatusCode -ne 200 -or !$managerPage.Content.Contains("Désinstaller")) {throw "Bundled manager UI missing"}
-            $speechJS = Invoke-WebRequest "http://127.0.0.1:8878/local-voice.mjs" -UseBasicParsing
-            if (!$speechJS.Content.Contains("audioToWav")) {throw "Bundled offline speech UI missing"}
-            if (!$portableStatus.canLaunch -or $portableStatus.updateState -ne "current") {throw "Latest portable companion should be startable"}
-            $speechStatus = Invoke-RestMethod "http://127.0.0.1:8878/api/speech/status" -Headers @{ Authorization = "Bearer ci-only-local-smoketest-token" }
-            $head = @{Authorization = "Bearer ci-only-local-smoketest-token"}
-            $processes = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes" -Headers $head
-            if ($processes.scope -ne "companion-only" -or !$processes.companion.active) {throw "Process dashboard scope invalid"}
-            if ($processes.qwen.active -or $processes.whisper.active -or $processes.tunnel.active) {throw "Fresh companion should not claim an idle model is running"}
-            $pausedVoice = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"target":"whisper"}'
-            if ($pausedVoice.whisper.enabled -or !$pausedVoice.companion.active) {throw "Whisper did not disable / local manager was killed"}
-            $invalidTargetRejected = $false
-            try {
-              Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"target":"powershell"}' | Out-Null
-            } catch { $invalidTargetRejected = $true }
-            if (!$invalidTargetRejected) {throw "Arbitrary OS process termination must be forbidden"}
-            $stoppedEngines = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"target":"all"}'
-            if (!$stoppedEngines.ok -or !$stoppedEngines.companion.active) {throw "Stop-all must keep manager alive"}
-            $managerStillAlive = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/processes" -Headers $head
-            if ($managerStillAlive.whisper.enabled) {throw "Stop-all did not persist Whisper disable"}
-            if ($speechStatus.folder -ne $env:RIFTBOUND_DATA_DIR) {throw "Speech model folder is not portable"}
-            $page = Invoke-WebRequest "http://127.0.0.1:8878/" -UseBasicParsing
-            if ($page.StatusCode -ne 200 -or !$page.Content.Contains("welcome-screen")) {throw "Bundled UI missing"}
-            $js = Invoke-WebRequest "http://127.0.0.1:8878/app.mjs" -UseBasicParsing
-            if (!$js.Content.Contains("function renderWelcome")) {throw "Bundled JS missing"}
-            $badPairHeaders = @{Origin = "https://untrusted.example"; "X-Riftbound-Pair" = "1"}
-            $rejected = $false
-            try {
-              Invoke-RestMethod "http://127.0.0.1:8878/api/pair" -Method POST -Headers $badPairHeaders -ContentType "application/json" -Body '{}' | Out-Null
-            } catch { $rejected = $true }
-            if (!$rejected) {throw "Pairing from unrelated origin should be denied"}
-            $pairHeaders = @{Origin = "https://nitarii.github.io"; "X-Riftbound-Pair" = "1"}
-            $paired = Invoke-RestMethod "http://127.0.0.1:8878/api/pair" -Method POST -Headers $pairHeaders -ContentType "application/json" -Body '{}'
-            if ($paired.token -ne "ci-only-local-smoketest-token") {throw "Existing-tab pairing failed"}
-            $icon = Invoke-WebRequest "http://127.0.0.1:8878/assets/companion-icon.svg" -UseBasicParsing
-            if ($icon.StatusCode -ne 200 -or !$icon.Content.Contains("<svg")) {throw "Branded icon is not embedded"}
-            $head = @{Authorization = "Bearer ci-only-local-smoketest-token"}
-            $state = Invoke-RestMethod "http://127.0.0.1:8878/api/state" -Headers $head
-            if ($null -eq $state.state.players.human) {throw "Authenticated state missing"}
-            $cmd = Invoke-RestMethod "http://127.0.0.1:8878/api/command" -Method POST -Headers $head -ContentType "application/json" -Body '{"type":"note","text":"Windows smoke test"}'
-            $runePayScript = Invoke-WebRequest "http://127.0.0.1:8878/rune-payment.mjs" -UseBasicParsing
-            if ($runePayScript.StatusCode -ne 200 -or !$runePayScript.Content.Contains("planRunePayment")) {throw "Rune Power payment module missing in SEA bundle"}
-            $combat = Invoke-WebRequest "http://127.0.0.1:8878/combat-engine.mjs" -UseBasicParsing
-            if ($combat.StatusCode -ne 200 -or !$combat.Content.Contains("previewCombat")) { throw "Combat engine missing from bundled EXE" }
-            $combatVoice = Invoke-WebRequest "http://127.0.0.1:8878/combat-voice.mjs" -UseBasicParsing
-            if (!$combatVoice.Content.Contains("combatVoicePlan")) { throw "Combat voice module missing" }
-            $aiTurnScript = Invoke-WebRequest "http://127.0.0.1:8878/ai-turn.mjs" -UseBasicParsing
-            if (!$aiTurnScript.Content.Contains("planAutonomousAITurn")) {throw "AI Conquer strategy missing in SEA bundle"}
-            if (!$cmd.ok -or $cmd.state.revision -lt 1) {throw "API command failed"}
-            $invalidStop = $false
-            try {
-              Invoke-RestMethod "http://127.0.0.1:8878/api/manager/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"confirm":"NO"}' | Out-Null
-            } catch { $invalidStop = $true }
-            if (!$invalidStop) {throw "Stop must require explicit confirmation"}
-            $stopped = Invoke-RestMethod "http://127.0.0.1:8878/api/manager/stop" -Method POST -Headers $head -ContentType "application/json" -Body '{"confirm":"STOP_RIFTBOUND"}'
-            if (!$stopped.ok) {throw "Process stop endpoint did not acknowledge shutdown"}
-            $gone = $false
-            for ($i=0; $i -lt 35; $i++) {
-              Start-Sleep -Milliseconds 200
-              $process = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
-              if ($null -eq $process -or $process.HasExited) {$gone = $true; break}
-            }
-            if (!$gone) {throw "The Windows companion was not fully terminated"}
-            Write-Host "PASS: executable serves UI, state and actions, then exits cleanly"
-          } finally {
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          }
-      - name: Windows end-to-end self-update and recovery smoke test
-        shell: pwsh
-        run: |
-          node scripts/windows-update-smoke.mjs
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "=== Updater diagnostic log ==="
-            Get-ChildItem -Path "dist" -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -in @("update.log","maintenance-output.log","update-status.json")} | ForEach-Object {
-              Get-Content -LiteralPath $_.FullName -Tail 80
-            }
-            throw "Self-updater failed to restart or recover"
-          }
-      - name: Windows end-to-end uninstall and cleanup smoke test
-        shell: pwsh
-        run: |
-          node scripts/windows-uninstall-smoke.mjs
-          if ($LASTEXITCODE -ne 0) {
-            Get-ChildItem -Path "dist" -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -in @("uninstall-status.json","uninstall-clean.log","uninstall-keep-personal.log")} | ForEach-Object {
-              Write-Host "=== $($_.FullName) ==="
-              Get-Content -LiteralPath $_.FullName -Tail 80
-            }
-            throw "Windows uninstall failed to remove owned files"
-          }
-      - name: SHA256
-        shell: pwsh
-        run: |
-          $hash = (Get-FileHash "dist/RiftboundCompanion.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  RiftboundCompanion.exe" | Out-File -FilePath "dist/RiftboundCompanion.exe.sha256" -Encoding ascii -NoNewline
-          "$hash  RiftboundCompanion-v0.42.exe" | Out-File -FilePath "dist/RiftboundCompanion-v0.42.exe.sha256" -Encoding ascii -NoNewline
-      - name: Publish one-file download to GitHub Release
-        if: github.ref == 'refs/heads/main'
+        run: ./scripts/build-desktop.ps1 -Iscc (Resolve-Path dist/desktop-tools/inno/ISCC.exe)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riftbound-windows-installer
+          path: |
+            dist/RiftboundCompanion-*-x64-Setup.exe
+            dist/RiftboundCompanion-*-x64-Setup.exe.sha256
+          if-no-files-found: error
+      - name: Test installed WebView2 application
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DESKTOP_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release view companion-latest --repo "$env:GITHUB_REPOSITORY" *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create companion-latest --repo "$env:GITHUB_REPOSITORY" --title "Riftbound Companion · Windows" --notes "Compagnon fan pour parties physiques, sans affiliation à Riot. Lancez simplement RiftboundCompanion.exe (Windows 64 bits). Aucune installation Node.js nécessaire. Exécutable non signé : Windows peut afficher SmartScreen."
-            if ($LASTEXITCODE -ne 0) {throw "Release creation failed"}
-          }
-          gh release upload companion-latest "dist/RiftboundCompanion.exe" "dist/RiftboundCompanion.exe.sha256" "dist/RiftboundCompanion-v0.42.exe" "dist/RiftboundCompanion-v0.42.exe.sha256" "dist/companion-icon-preview.png" --repo "$env:GITHUB_REPOSITORY" --clobber
-          if ($LASTEXITCODE -ne 0) {throw "Release upload failed"}
+          npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
+          ./scripts/windows-installer-smoke.ps1 -Installer "dist/RiftboundCompanion-$env:DESKTOP_VERSION-x64-Setup.exe"
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: riftbound-windows-installer
+          path: installer
+      - name: Publish verified installer under the versioned tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" installer/* --verify-tag --title "Riftbound Companion $VERSION" --generate-notes

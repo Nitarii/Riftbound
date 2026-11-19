@@ -38,7 +38,7 @@ test("normal spoken play of Disciple of Shen for 2 runes changes the board witho
  let s=advanceMandatoryTurn(board());
  const plan=planHumanAnnouncement("je vais jouer disciple of shen pour 2 runes",s,[disciple]);
  assert.equal(plan.error,undefined,plan.error);
- assert.ok(plan.commands.some(x=>x.type==="add"&&x.fromHand===true));
+ assert.ok(plan.commands.some(x=>x.type==="play-physical"));
  for(const action of plan.commands)s=applyCommand(s,action);
  assert.equal(s.pendingEffects.length,0);
  assert.equal(s.cards.find(c=>c.name==="Disciple of Shen").zone,"base");

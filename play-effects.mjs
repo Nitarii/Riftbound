@@ -1,19 +1,19 @@
 import {onPlayInstructions} from "./effect-engine.mjs";
-// A generic, card-agnostic preflight remains backwards compatible with the
-// older planSafeAITurn and payment tests.
+// Reports restrictions and expected on-play instructions. A triggered discard
+// is an effect to resolve after responses, not an additional card-play cost.
 const RESTRICTION=/\b(?:play only|can't play|cannot play|additional cost|as an additional cost|must pay|you may only play|ne peut etre jouee que|co[uû]t suppl[ée]mentaire)\b/i;
-export function mandatoryPlayEffects(card,{playedBefore=0}={}){
+export function mandatoryPlayEffects(card,{playedBefore=0,xp=0}={}){
  const text=String(card?.text||"");
  if(RESTRICTION.test(text))
   return {supported:false,discard:0,reason:"conditions de jeu supplémentaires"};
- const compiled=onPlayInstructions(card,{playedBefore});
+ const compiled=onPlayInstructions(card,{playedBefore,xp});
  const discard=compiled.steps.filter(x=>x.kind==="discard").reduce((n,x)=>n+x.count,0);
  const issue=compiled.unsupported[0];
  return {supported:!issue,discard:issue?0:discard,reason:issue?.reason||""};
 }
 
 // Discard the least useful remaining AI hand cards; do not see the human hand.
-// The exact UID is validated again by the reducer during atomic play.
+// The reducer revalidates the current hand at the actual discard instruction.
 export function chooseRequiredDiscards(state,playedUid,count){
  const hand=(state?.cards||[]).filter(c=>c.owner==="ai"&&c.zone==="hand"&&c.uid!==playedUid);
  if(hand.length<count)return null;

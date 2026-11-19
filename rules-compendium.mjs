@@ -41,7 +41,7 @@ const DATA=[
  ["upkeep","315,487.7",40,"À la phase d'éveil, préparer les éléments du joueur. Les occupations se comptent dans l'étape des scores du départ, AVANT la canalisation et la pioche. En duel, le second joueur reçoit une rune bonus à sa première canalisation.","preparer phase reveil debut maintenir hold channel draw"],
  ["ending","317",42,"En fin de tour, résoudre les déclenchements de fin, soigner les unités, faire expirer les effets de ce tour et vider la réserve runique; ensuite seulement le tour change.","end ending fin soin heal expire temporary"],
  ["cleanup","318-324",43,"Un nettoyage vérifie victoire, dégâts mortels, contrôle, cartes illégales et combats ou confrontations à préparer. Plusieurs nettoyages peuvent se suivre jusqu'à stabilisation.","nettoyage cleanup combat lethal controle score"],
- ["chain","327-340",45,"La chaîne traite les objets en attente, leur finalisation, les passes de priorité et leur résolution. Les Réactions peuvent répondre pendant une chaîne; ne pas résoudre un nouvel objet au milieu d'un autre.","chaine stack fepr resolution pile repondre reaction priorite"],
+ ["chain","337–340",45,"Après finalisation des objets en attente, le contrôleur du prochain objet à résoudre obtient la priorité. Le joueur prioritaire peut jouer une Réaction légale ou passer. Quand tous passent consécutivement sans rien ajouter, seul le dernier objet finalisé se résout. Si la chaîne contient encore un objet, son contrôleur reçoit la priorité avant la résolution suivante.","chaine stack fepr resolution pile repondre reaction priorite"],
  ["confrontation","341-348",48,"Une confrontation ouvre une fenêtre de focalisation et priorité. Les joueurs peuvent y jouer Action ou Réaction avant la résolution; l'absence d'adversaire n'autorise pas à ignorer cette fenêtre.","confrontation focus priorite reponse passe"],
  ["play-process","349-359",49,"Pour jouer une carte, déclarer, choisir modes/cibles et actions lors du jeu, calculer coût total, payer, vérifier légalité, puis résoudre selon le type. Ne jamais mettre une carte sur le plateau en ignorant ses instructions obligatoires.","jouer play pose carte cible effet cout lancer disciple shen"],
  ["abilities","360-399",66,"Distinguer capacités passives, activées, déclenchées et effets de remplacement. Un déclenchement peut attendre une chaîne; le modèle ne doit pas traiter un effet non reconnu comme déjà exécuté.","capacite effet obligatoire declenche passif activation replacement"],
@@ -64,7 +64,7 @@ const DATA=[
  ["gank","810",141,"Gank permet le déplacement standard directement d'un champ de bataille à un autre.","gank deplacer champ"],
  ["hidden","811",141,"Caché autorise, sous conditions et coût de carte, à placer une carte face cachée sur un champ contrôlé; identité non publique.","cache hidden face cachee"],
  ["legion","812",143,"Légion conditionne le texte qui suit le mot-clé. Vérifier les unités ou conditions nécessaires avant d'appliquer ses instructions.","legion nombre unite"],
- ["reaction","813",144,"Réaction élargit les fenêtres d'Action et permet aussi de répondre pendant un état fermé, avant les objets déjà dans la chaîne.","reaction chaine repondre timing"],
+ ["reaction","338.1.a,813",144,"Avec la priorité, un joueur peut ajouter une Réaction légale à une chaîne existante, même durant le tour adverse. Appliquer aussi les cibles, coûts et autres restrictions de la carte.","reaction chaine repondre timing"],
  ["shield","814",145,"Bouclier X modifie la puissance défensive conformément au mot-clé; ne pas l'appliquer comme une réduction générale des dégâts hors de son contexte.","bouclier shield defense"],
  ["tank","815",145,"Tank exige que les dégâts mortels soient attribués à cette unité avant d'autres alliés, selon les restrictions du combat.","tank frontline cible combat"],
  ["temporary","816",146,"Temporaire élimine son permanent au début de la phase de départ de son contrôleur, avant le score d'occupation.","temporaire ephemeral preparation hold"],
@@ -84,6 +84,20 @@ const DATA=[
 ];
 export const CORE_RULE_ENTRIES=Object.freeze(DATA.map(([id,rules,page,summary,keywords])=>
  Object.freeze({id,rules,page,summary,keywords})));
+export function chainPriorityReply(normalized,{english=false}={}){
+ if(!/^(?:comment (?:fonctionne|marche|se passe)|how does)\b/.test(normalized)||
+    !/\b(?:priorite|priority)\b/.test(normalized)||!/\b(?:chaine|chain|stack)\b/.test(normalized))return "";
+ return english?
+  "The player with priority can play a legal Reaction or pass. After both players pass consecutively without adding anything, only the top item resolves. If an item remains, its controller gets priority before that item can resolve. See rules 337–340.":
+  "Le joueur qui a la priorité peut jouer une Réaction légale ou passer. Après deux passes consécutives sans ajout, seul l’objet au sommet se résout. S’il reste un objet, son contrôleur reçoit la priorité avant la résolution suivante. Voir les règles 337 à 340.";
+}
+export function gankRuleReply(normalized,{english=false}={}){
+ if(!/\b(?:gank|ganking)\b/.test(normalized)||
+    !/^(?:gank(?:ing)?$|que permet|comment (?:fonctionne|marche)|qu'est ce que|c'est quoi|est ce que|what (?:is|does)|how does|(?:can|does) (?:i|gank|a unit))\b/.test(normalized))return "";
+ return english?
+  "Ganking lets a ready unit exhaust to move straight from one battlefield to another as a standard move in your open Main Phase. Entering an enemy-occupied battlefield can start combat. See rules 144 and 810.":
+  "Avec Ganking, une unité prête peut s’épuiser pendant ta phase principale ouverte pour se déplacer directement d’un champ de bataille à un autre. Si elle arrive sur un champ occupé par l’adversaire, elle peut déclencher un combat. Voir les règles 144 et 810.";
+}
 const norm=x=>String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 export function selectCoreRules(query="",{state,limit=7}={}){
  const message=norm(query),parts=new Set((message.match(/[\p{L}\p{N}]+/gu)||[]).filter(x=>x.length>2));

@@ -6,10 +6,8 @@ import {createRequire} from "node:module";
 import {pathToFileURL} from "node:url";
 const require=createRequire(import.meta.url);
 const root=process.cwd(),dist=path.join(root,"dist");
-const {Resvg}=require(path.join(dist,"icon-tools","node_modules","@resvg","resvg-js"));
-const imported=await import(pathToFileURL(path.join(dist,"icon-tools","node_modules","rcedit","lib","index.js")).href);
-const rcedit=imported.rcedit||imported.default;
-if(typeof rcedit!=="function")throw Error("rcedit package did not expose an executable editor");
+const tools=path.resolve(process.env.RIFTBOUND_ICON_TOOLS||path.join(dist,"icon-tools","node_modules"));
+const {Resvg}=require(path.join(tools,"@resvg","resvg-js"));
 const svg=fs.readFileSync(path.join(root,"assets","companion-icon.svg"));
 const sizes=[16,24,32,48,64,128,256];
 const images=sizes.map(size=>new Resvg(svg,{
@@ -31,6 +29,10 @@ images.forEach((png,i)=>{
 fs.writeFileSync(path.join(dist,"companion-icon-preview.png"),images[images.length-1]);
 const ico=path.join(dist,"companion.ico");
 fs.writeFileSync(ico,Buffer.concat([table,...images]));
+if(process.argv.includes("--icon-only"))process.exit(0);
+const imported=await import(pathToFileURL(path.join(tools,"rcedit","lib","index.js")).href);
+const rcedit=imported.rcedit||imported.default;
+if(typeof rcedit!=="function")throw Error("rcedit package did not expose an executable editor");
 const exe=path.join(dist,"RiftboundCompanion.exe");
 await rcedit(exe,{
  icon:ico,

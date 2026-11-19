@@ -5,7 +5,8 @@ import path from "node:path";
 import http from "node:http";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright-core";
-import {createState} from "../core.mjs";
+import {applyCommand,createState} from "../core.mjs";
+import {CURRENT_VERSION} from "../release-policy.mjs";
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
 const contentType=file=>file.endsWith(".html")?"text/html":
@@ -23,8 +24,11 @@ const server=http.createServer((req,res)=>{
 });
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const url="http://127.0.0.1:"+server.address().port;
-let chromePath=["/usr/bin/google-chrome","/usr/bin/google-chrome-stable","/usr/bin/chromium"]
- .find(file=>fs.existsSync(file));
+const chromePath=[process.env.RIFTBOUND_BROWSER_PATH,
+  "/usr/bin/google-chrome","/usr/bin/google-chrome-stable","/usr/bin/chromium",
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"]
+ .find(file=>file&&fs.existsSync(file));
 const browser=await chromium.launch({headless:true,
  ...(chromePath?{executablePath:chromePath}:{}),args:["--no-sandbox"]});
 fs.mkdirSync(path.join(root,"artifacts"),{recursive:true});
@@ -124,21 +128,33 @@ try{
    const rect=()=>board.getBoundingClientRect();
    const before=rect();
    const pending=document.querySelector("#pending-effect-panel");
-   document.querySelector("#pending-effect-card").textContent="Disciple of Shen";
+   document.querySelector("#pending-effect-card").textContent="Targon's Peak";
    document.querySelector("#pending-effect-description").textContent=
-    "I have [Shield 3] while I'm at a battlefield with exactly one other unit you control.";
+    "Choisis jusqu’à deux de tes runes à redresser.";
+   const runeField=document.querySelector("#pending-effect-runes");
+   const runeOptions=document.querySelector("#pending-effect-rune-options");
+   for(let i=1;i<=12;i++){
+    const label=document.createElement("label"),input=document.createElement("input");
+    input.type="checkbox";label.append(input,(i<=6?"Calm":"Order")+" Rune "+i+" · épuisée");
+    runeOptions.append(label);
+   }
+   runeField.hidden=false;
    pending.hidden=false;
    const effect=pending.getBoundingClientRect();
    const boardWithEffect=rect();
    const effectPosition=getComputedStyle(pending).position;
+   const runeChoicesFit=runeOptions.scrollWidth<=runeOptions.clientWidth+1&&
+    runeOptions.getBoundingClientRect().bottom<=effect.bottom;
    pending.hidden=true;
+   runeField.hidden=true;
+   runeOptions.replaceChildren();
    const victory=document.querySelector("#game-victory");
    victory.hidden=false;
    const win=victory.getBoundingClientRect();
    const boardWithVictory=rect();
    const victoryPosition=getComputedStyle(victory).position;
    victory.hidden=true;
-   return {effectWidth:effect.width,effectHeight:effect.height,
+   return {effectWidth:effect.width,effectHeight:effect.height,runeChoicesFit,
     effectLeft:effect.left,effectRight:effect.right,effectPosition,
     winWidth:win.width,winLeft:win.left,winRight:win.right,victoryPosition,
     boardShift:Math.max(Math.abs(before.width-boardWithEffect.width),
@@ -151,6 +167,7 @@ try{
    "Rule prompt or winner banner incorrectly participates in the three-column grid");
   ensure(notificationGeometry.effectWidth>Math.min(300,viewport.width*.65)&&
    notificationGeometry.effectHeight<viewport.height*.6&&
+   notificationGeometry.runeChoicesFit&&
    notificationGeometry.effectLeft>=0&&notificationGeometry.effectRight<=viewport.width+2,
    "Pending ability panel is squeezed or cropped: "+JSON.stringify(notificationGeometry));
   ensure(notificationGeometry.boardShift<2,
@@ -228,15 +245,43 @@ try{
   console.log("PASS",viewport.width+"x"+viewport.height,"no page scroll; board/chat/history accessible");
   await page.close();
  }
+ const shenPage=await browser.newPage({viewport:{width:390,height:844}});
+ const shenFixture=[
+  {type:"setup-human",legend:{code:"VEN-147",name:"Shen, Eye of Twilight",type:"Legend"},
+   champion:{name:"Chosen Shen",type:"Unit"},battlefield:{name:"Grove",type:"Battlefield"}},
+  {type:"start",player:"human"},{type:"phase",phase:"Main"},
+  {type:"add",player:"human",card:{code:"TOKEN-GOLD",name:"Gold",type:"Gear"},zone:"base"},
+  {type:"add",player:"human",card:{code:"VEN-117",name:"Disciple of Shen",type:"Unit",might:1},zone:"base"}
+ ].reduce(applyCommand,createState());
+ await shenPage.addInitScript(state=>localStorage.setItem("riftbound-companion-state-v1",JSON.stringify(state)),shenFixture);
+ await shenPage.goto(url,{waitUntil:"domcontentloaded"});
+ await shenPage.evaluate(()=>document.body.classList.remove("home-visible"));
+ const gold=shenFixture.cards.find(c=>c.code==="TOKEN-GOLD");
+ const goldTile=shenPage.locator('#human-base [data-uid="'+gold.uid+'"]');
+ await goldTile.click();
+ await shenPage.getByRole("button",{name:"Dépenser Gold",exact:true}).click();
+ await shenPage.waitForFunction(()=>document.querySelector("#human-meta")?.textContent?.includes("1 Power en réserve"));
+ ensure(await goldTile.count()===0,"The spent Gold must leave the mobile table");
+ await shenPage.locator("#human-legend [data-uid]").click();
+ const tankChoice=shenPage.getByLabel("Unité qui reçoit Tank");
+ ensure(await tankChoice.isVisible(),"Tank target must be selectable on the card dialog");
+ ensure((await tankChoice.locator("option:checked").textContent()).includes("Disciple of Shen"),
+  "The dialog should list the visible allied unit");
+ await shenPage.getByRole("button",{name:"Activer Shen",exact:true}).click();
+ await shenPage.waitForFunction(()=>document.querySelector("#combat-preview")?.textContent?.includes("Disciple of Shen · Tank"));
+ ensure(await shenPage.locator("#human-legend [data-card-state=exhausted]").count()===1,
+  "Activating Shen should pay the exhaust cost");
+ await shenPage.close();
+ console.log("PASS Gold spending and Shen activation on mobile");
  // UI integration regression: the manager MUST show the updater screen
  // before allowing game launch when an old release is installed.
  const managerPage=await browser.newPage({viewport:{width:1024,height:820}});
  let upToDate=false,uninstallCalls=0,managerApiRequests=0;
  const managerPayload=()=>({
-  version:upToDate?"0.42.0":"0.26.0",portable:true,
+  version:upToDate?CURRENT_VERSION:"0.26.0",portable:true,
   path:"C:\\Portable\\Riftbound",updateState:upToDate?"current":"outdated",
   canLaunch:upToDate,mustUpdate:!upToDate,
-  availableVersion:upToDate?null:"0.42.0",progress:0,
+  availableVersion:upToDate?null:CURRENT_VERSION,progress:0,
   error:"",updating:false,shuttingDown:false
  });
  await managerPage.route("**/api/**",async route=>{
@@ -321,14 +366,29 @@ try{
  const gamePage=await browser.newPage({viewport:{width:1440,height:900}});
  let installedVersion="0.26.0";
  const localState=createState();
+ const publicStrike={uid:"layout-strike",owner:"ai",zone:"chain",name:"Ruthless Strike",type:"Spell",
+  image:"https://example.test/ruthless-strike.png"};
+ localState.cards.push(publicStrike,{uid:"layout-witness",owner:"human",zone:"battlefield",
+  name:"Mournful Witness",type:"Unit",battlefield:0,might:2});
+ localState.spellChain={items:[{uid:publicStrike.uid,targetUid:"layout-witness",damage:5}],priority:"human"};
+ const checkedAt=new Date().toISOString();
+ const chatMessages=[
+  {id:1,role:"ai",at:checkedAt,text:"Ruthless Strike. Cible Mournful Witness. 5 dégâts prévus.",
+   view:{kind:"card",uid:publicStrike.uid}},
+  {id:2,role:"ai",at:checkedAt,text:"Score 6–6.",view:{kind:"board"}}
+ ];
+ await gamePage.route("https://example.test/ruthless-strike.png",route=>route.fulfill({
+  contentType:"image/svg+xml",body:'<svg xmlns="http://www.w3.org/2000/svg" width="72" height="100"><rect width="72" height="100" fill="green"/></svg>'
+ }));
  await gamePage.route("http://127.0.0.1:8787/api/**",async route=>{
-  const pathname=new URL(route.request().url()).pathname;
+  const requestUrl=new URL(route.request().url()),pathname=requestUrl.pathname;
   const body=pathname==="/api/state"?{state:localState}:
    pathname==="/api/health"?{ok:true,name:"Riftbound Companion",version:installedVersion}:
-   pathname==="/api/manager/status"?{canLaunch:installedVersion==="0.42.0",
-    updateState:installedVersion==="0.42.0"?"current":"outdated",
-    mustUpdate:installedVersion!=="0.42.0",availableVersion:"0.26.0"}:
-   pathname==="/api/messages"?{messages:[],lastId:0,session:"smoke"}:
+   pathname==="/api/manager/status"?{canLaunch:installedVersion===CURRENT_VERSION,
+    updateState:installedVersion===CURRENT_VERSION?"current":"outdated",
+    mustUpdate:installedVersion!==CURRENT_VERSION,availableVersion:"0.26.0"}:
+   pathname==="/api/messages"?{messages:chatMessages.filter(m=>m.id>Number(requestUrl.searchParams.get("after")||0)),
+    lastId:chatMessages.at(-1).id,session:"smoke"}:
    pathname==="/api/events-ticket"?{ticket:"smoke"}:{};
   await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),
    headers:{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,content-type"}});
@@ -346,11 +406,29 @@ try{
   "Outdated companion still permits skipping the install wizard");
  ensure(await gamePage.locator("#manager-open").count()===1,
   "Manager button missing from the main header");
- installedVersion="0.42.0";
+ installedVersion=CURRENT_VERSION;
  await gamePage.evaluate(()=>document.querySelector("#connect-relay").click());
  await gamePage.waitForFunction(()=>document.querySelector("#companion-version-gate")?.hidden===true,{timeout:10000});
  ensure(!gameErrors.length,"Game startup version gate script errors: "+gameErrors.join("; "));
  console.log("PASS site redirects old companion to first installation step");
+ await gamePage.evaluate(()=>document.body.classList.remove("home-visible"));
+ const cardLink=gamePage.locator("#chat-messages").getByRole("button",{name:"Ruthless Strike"});
+ await cardLink.click();
+ await gamePage.locator("#card-dialog").waitFor({state:"visible"});
+ ensure((await gamePage.locator("#detail-state").textContent()).includes("5 dégâts prévus"),
+  "The read-only spell dialog should show the current target and damage");
+ ensure(await gamePage.locator("#detail-image img").isVisible(),"The public spell artwork is missing");
+ ensure(await gamePage.locator("#detail-add").isHidden(),"Viewing the public spell exposes an edit action");
+ await gamePage.locator("#detail-close").click();
+ publicStrike.zone="hand";
+ localState.spellChain=null;
+ await cardLink.click();
+ await gamePage.waitForFunction(()=>document.getElementById("notice")?.textContent?.includes("plus visible"));
+ ensure(await gamePage.locator("#card-dialog").isHidden(),"An old public-card link reopened an AI hand card");
+ await gamePage.locator("#chat-messages").getByRole("button",{name:"Voir le plateau"}).click();
+ ensure(await gamePage.locator("#game-app").getAttribute("data-workspace-view")==="board","Board link did not return to the table");
+ console.log("PASS public spell and board links, read-only art, and hidden-card recheck");
+ await gamePage.evaluate(()=>document.body.classList.add("home-visible"));
  // From the welcome screen the manager must remain visible and take the user
  // back to the same authenticated manager tab, not spawn a second window.
  ensure(await gamePage.locator("#manager-open").isVisible(),

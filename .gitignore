@@ -4,3 +4,7 @@ node_modules/
 .DS_Store
 
 .riftbound-catalog-cache.json
+dist/
+artifacts/
+desktop/bin/
+desktop/obj/

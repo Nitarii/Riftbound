@@ -101,6 +101,7 @@ test("warmed Whisper Small server is scoped to loopback and a private path",()=>
  assert.equal(args[args.indexOf("--host")+1],"127.0.0.1");
  assert.equal(args[args.indexOf("--port")+1],"45678");
  assert.equal(args[args.indexOf("--request-path")+1],"/local-secret");
+ assert.ok(!args.includes("--no-context"),"The pinned b5454 server does not accept this CLI flag");
  assert.ok(args.includes("--no-gpu"));
  assert.throws(()=>whisperServerArguments({model:"x",port:80}),/Port local/);
 });
