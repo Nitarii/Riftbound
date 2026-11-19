@@ -288,7 +288,7 @@ test("Level-dependent Deathknell stays inactive below the threshold and unhandle
   if(xp<6)assert.equal(s.spellChain,null);
   else assert.equal(passChain(s).players.ai.xp,8);
  }
- const passive=compileCardAbilities(c("Level Defender","Unit",{text:"[Level 3][>] I have +1 [S] and [Deflect]."}));
+ const passive=compileCardAbilities(c("Level Defender","Unit",{text:"[Level 3][>] I have [Shield 3]."}));
  assert.equal(passive.unsupported.length,1);
 });
 

@@ -4,7 +4,8 @@
 import {compileCardAbilities} from "./effect-engine.mjs";
 import {chooseRequiredDiscards} from "./play-effects.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
-import {effectiveMight,OPPOSITE} from "./combat-engine.mjs";
+import {effectiveMight,deflectValue,OPPOSITE} from "./combat-engine.mjs";
+import {planRunePayment} from "./rune-payment.mjs";
 
 const activeZone=zone=>["legend","base","battlefield"].includes(zone);
 const unit=c=>String(c.type||"").toLowerCase()==="unit";
@@ -58,7 +59,7 @@ function canChooseUnit(card,step,actor,source){
  const friendly=kind==="buff-friendly";
  return enemy?card.owner!==actor:friendly?card.owner===actor:true;
 }
-function selectTarget(pool,kind,actor){
+function selectTarget(pool,kind,actor,state){
  let eligible=pool;
  // For flexible choices prefer helpful actions over harming our own units.
  if(["damage-enemy","stun-unit","kill-unit"].includes(kind)){
@@ -69,8 +70,7 @@ function selectTarget(pool,kind,actor){
   const allies=eligible.filter(c=>c.owner===actor);
   if(allies.length)eligible=allies;
  }
- const value=c=>Number(c.might||0)+Number(c.counters?.tempMight||0)-
-  Number(c.damage||0);
+ const value=c=>(effectiveMight(c,"none",state)??0)-Number(c.damage||0);
  return eligible.sort((a,b)=>{
   if(["buff-unit","buff-friendly"].includes(kind))
    return Number(b.zone==="battlefield")-Number(a.zone==="battlefield")||
@@ -95,6 +95,7 @@ function buildSteps(state,source,ability,actor,choices){
   return {reason:"Choisis le nombre exact de cartes distinctes à défausser."};
  let discarded=0;
  const reservedDeflect=new Set();
+ let reservedPower=0;
  for(const step of ability.steps){
   let detail={...step};
   if(step.kind==="discard"){
@@ -115,24 +116,35 @@ function buildSteps(state,source,ability,actor,choices){
      c.exhausted&&["base","battlefield"].includes(c.zone));
    if(!pool.length)continue;
    if(actor==="human"&&pool.length!==1)return {reason:"Choisis quelle autre unité redresser."};
-   detail.targetUid=pool.sort((a,b)=>Number(b.might||0)-Number(a.might||0))[0].uid;
+   detail.targetUid=pool.sort((a,b)=>(effectiveMight(b,"none",state)??0)-
+    (effectiveMight(a,"none",state)??0))[0].uid;
   }
   if(["damage-enemy","buff-unit","buff-friendly","stun-unit",
        "stun-enemy","kill-unit","kill-enemy"].includes(step.kind)){
    const pool=state.cards.filter(card=>canChooseUnit(card,step,actor,source));
    if(!pool.length&&!choices?.targetUid)continue;
+   const available={...state,cards:state.cards.filter(card=>!reservedDeflect.has(card.uid)),
+    powerPool:{...state.powerPool,[actor]:(state.powerPool?.[actor]??0)-reservedPower}};
+   const payable=actor==="ai"?pool.filter(card=>{
+    try{return card.owner===actor||!planRunePayment(available,actor,
+     {name:source.name,energy:0,extraPower:deflectValue(card,state)}).error;}
+    catch{return false;}
+   }):pool;
    const target=choices?.targetUid?pool.find(c=>c.uid===choices.targetUid):
-    actor==="ai"?selectTarget(pool,step.kind,actor):null;
+    actor==="ai"?selectTarget(payable.length?payable:pool,step.kind,actor,state):null;
    if(!target)
     return {reason:"Choisis une unité valide pour cet effet."};
-   if(target.owner!==actor&&/\bdeflect\b/i.test(target.text||"")){
+   let deflect=0;
+   try{if(target.owner!==actor)deflect=deflectValue(target,state);}
+   catch(error){return {reason:error.message};}
+   if(deflect){
     if(actor!=="ai")
-     return {reason:"Deflect : le joueur doit payer et confirmer 1 Power pour choisir cette cible."};
-    const rune=state.cards.find(r=>r.owner===actor&&r.zone==="runes"&&
-     !reservedDeflect.has(r.uid));
-    if(!rune)return {reason:"Deflect : aucune rune à recycler pour payer 1 Power."};
-    reservedDeflect.add(rune.uid);
-    detail.deflectRuneUid=rune.uid;
+     return {reason:"Deflect : le joueur doit payer et confirmer "+deflect+" Power pour choisir cette cible."};
+    const payment=planRunePayment(available,actor,{name:source.name,energy:0,extraPower:deflect});
+    if(payment.error)return {reason:"Deflect : "+payment.error};
+    for(const uid of [...payment.recycleUids,...payment.goldUids])reservedDeflect.add(uid);
+    reservedPower+=payment.poolPower;
+    detail.deflectPower=deflect;
    }
    detail.targetUid=target.uid;
   }
@@ -152,14 +164,12 @@ function applySteps(state,source,steps,actor,runtime,trigger){
  const logs=[];
  for(const step of steps){
   const n=step.count;
-  if(step.deflectRuneUid){
-   const rune=state.cards.find(c=>c.uid===step.deflectRuneUid);
-   if(!rune||rune.zone!=="runes"||rune.owner!==actor)
-    throw Error("Rune Deflect invalide après finalisation.");
-   state.decks.ai.runes.push(deckCard(rune));
-   state.cards=state.cards.filter(c=>c.uid!==rune.uid);
-   state.players.ai.runeCount=state.decks.ai.runes.length;
-   logs.push("Deflect : 1 Power payé par recyclage de "+rune.name);
+  if(step.deflectPower){
+   const paid=runtime.pay(actor,{name:source.name,energy:0,extraPower:step.deflectPower});
+   logs.push("Deflect : "+paid.power+" Power payé"+
+    (paid.recycleUids.length?" · "+paid.recycleUids.length+" rune(s) recyclée(s)":"")+
+    (paid.goldUids.length?" · "+paid.goldUids.length+" Gold dépensé(s)":"")+
+    (paid.poolPower?" · "+paid.poolPower+" Power de la réserve":""));
   }
   if(step.kind==="discard"){
    const names=[];

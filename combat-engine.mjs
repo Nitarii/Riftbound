@@ -1,11 +1,28 @@
 // Riftbound combat arithmetic for the October 9, 2026 Core Rules 466–468.
 // Pure, deterministic. Reactions/triggered effects must be resolved before damage.
-import {conditionalShieldRule,compileCardAbilities} from "./effect-engine.mjs";
+import {conditionalShieldRule,compileCardAbilities,levelStatRules} from "./effect-engine.mjs";
 import {mournfulWitness,sacredProtector,handHammer,printedCode} from "./verified-cards.mjs";
 export const COMBAT_RULES_DATE="2026-10-09";
 export const OPPOSITE={ai:"human",human:"ai"};
 const number=v=>Number.isFinite(Number(v))?Number(v):0;
 const isUnit=c=>/^unit$/i.test(c?.type||"");
+const currentXP=(card,state)=>state?.players?.[card.owner]?.xp??0;
+export function deflectValue(card,state=null){
+ let value=0;
+ for(const line of String(card?.text||"").split(/\r?\n/)){
+  const levels=isUnit(card)?levelStatRules(line):[];
+  if(levels.length){
+   for(const rule of levels)if(currentXP(card,state)>=rule.minimumXP)value+=rule.deflect;
+   continue;
+  }
+  const text=line.replace(/\([^)]*\)/g,"").trim();
+  for(const match of text.matchAll(/\[Deflect(?: (\d+))?\]/gi)){
+   if(match.index!==0)throw Error("Le coût Deflect conditionnel doit encore être vérifié.");
+   value+=Number(match[1]||1);
+  }
+ }
+ return value;
+}
 export function clearTurnUnitState(unit){
  unit.damage=0;unit.stunned=false;
  for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud","tempTank","tempNoMoveBy"])
@@ -50,10 +67,12 @@ export function effectiveMight(card,role="none",state=null){
    (otherUnits===1?3:1);
  const temple=card.zone==="battlefield"&&hasKeyword(card,"Tank")&&
    printedCode(state?.battlefields?.[card.battlefield]?.card)==="VEN-159"?1:0;
+ const levelMight=levelStatRules(card).filter(rule=>currentXP(card,state)>=rule.minimumXP)
+  .reduce((total,rule)=>total+rule.might,0);
  const stats=Math.max(0,printed+number(counters.might)+number(counters.buff)+
   number(counters.tempMight)+number(counters.mightThisTurn)+number(counters["might bonus"])+
   (role==="attack"?keywordValue(card,"Assault|Assaut")+number(counters.tempAssault):0)+
-  shieldBonus(card,role,state)+temple+gearMight+(mournfulWitness(card)&&counters.empowered?2:0));
+  shieldBonus(card,role,state)+temple+gearMight+levelMight+(mournfulWitness(card)&&counters.empowered?2:0));
  return stats;
 }
 export function offensiveMight(card,role,state=null){

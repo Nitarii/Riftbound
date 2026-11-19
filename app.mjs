@@ -7,7 +7,7 @@ import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
-import {previewCombat} from "./combat-engine.mjs";
+import {previewCombat,effectiveMight} from "./combat-engine.mjs";
 import {shenLegend,goldToken} from "./verified-cards.mjs";
 import {publicCardVisible,publicChainDetail} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
@@ -154,12 +154,19 @@ function notify(message,bad=false){
  const home=$("home-feedback");
  if(home){home.textContent=message;home.classList.toggle("error",bad);}
 }
+function displayedMight(card,role){
+ if(!card.uid||!["base","battlefield"].includes(card.zone))return card.might;
+ const fight=state.pendingCombat;
+ role??=fight?.kind==="combat"&&card.zone==="battlefield"&&fight.battlefield===card.battlefield?
+  (fight.attacker===card.owner?"attack":"defend"):"none";
+ return effectiveMight(card,role,state);
+}
 function cardHTML(c,show=true,large=false){
  if(!c)return '<div class="empty-card">—</div>';
  const faceDown=Boolean(c.faceDown),turned=Boolean(c.exhausted);
  const title=faceDown?(uiLanguage==="en"?"Hidden card":"Carte cachée"):esc(c.name);
  const art=!faceDown&&c.image&&!desktop?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
-   '<div class="empty-card">'+title+(desktop&&!faceDown&&Number.isFinite(c.might)?'<small>'+c.might+'</small>':"")+'</div>';
+   '<div class="empty-card">'+title+(desktop&&!faceDown&&Number.isFinite(displayedMight(c))?'<small>'+displayedMight(c)+'</small>':"")+'</div>';
  const label=show&&!faceDown?'<div class="card-label">'+title+'</div>':'';
  const status=faceDown?' data-card-state="hidden" aria-label="'+title+'"':
   turned?' data-card-state="exhausted" aria-label="'+title+' — exhausted"':
@@ -289,7 +296,7 @@ function selectCombatTargets(){
   const label=document.createElement("label");label.className="combat-unit-choice";
   const checkbox=document.createElement("input");checkbox.type="checkbox";
   checkbox.value=unit.uid;checkbox.checked=units.length===1;
-  label.append(checkbox,document.createTextNode(unit.name+" ("+(unit.might??"?")+" Might)"));
+  label.append(checkbox,document.createTextNode(unit.name+" ("+(displayedMight(unit,"attack")??"?")+" Might)"));
   container.append(label);
  }
  const confirm=document.createElement("button");confirm.type="button";confirm.className="primary";
@@ -322,7 +329,7 @@ $("combat-order-button").onclick=()=>{
  const select=document.createElement("select");
  for(const enemy of enemies){
   const option=document.createElement("option");option.value=enemy.uid;
-  option.textContent=enemy.name+" ("+(enemy.might??"?")+" Might)";
+  option.textContent=enemy.name+" ("+(displayedMight(enemy)??"?")+" Might)";
   select.append(option);
  }
  const confirm=document.createElement("button");confirm.type="button";

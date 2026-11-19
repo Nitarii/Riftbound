@@ -20,10 +20,21 @@ export function conditionalShieldRule(value){
  }
  return null;
 }
+export function levelStatRules(value){
+ const text=normalize(value?.text??value);
+ const rules=[];
+ const pattern=/^\[Level (\d{1,2})\](?:\[>\])?\s*I have \+(\d{1,2}) \[[SM]\]( and \[Deflect\])?\.(?:\s*\(While you have \1\+ XP, get the effect\.(?: Opponents must pay \[A\] to choose a \[Deflect\] unit with a spell or ability\.)?\))?$/i;
+ for(const line of text.split("\n")){
+  const match=pattern.exec(line.trim());
+  if(match&&Number(match[1])>0)rules.push({kind:"level-stats",minimumXP:Number(match[1]),
+   might:Number(match[2]),deflect:match[3]?1:0});
+ }
+ return rules;
+}
 export function migrateLegacyPassivePendingEffects(state){
  if(!state||!Array.isArray(state.pendingEffects))return state;
  const pendingEffects=state.pendingEffects.filter(effect=>
-  !(effect?.trigger==="other"&&conditionalShieldRule(effect.text)));
+  !(effect?.trigger==="other"&&(conditionalShieldRule(effect.text)||levelStatRules(effect.text).length)));
  return pendingEffects.length===state.pendingEffects.length?state:
   {...state,pendingEffects};
 }
@@ -220,6 +231,8 @@ export function compileCardAbilities(card){
     .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){
+  const levelStats=type==="unit"?levelStatRules(line):[];
+  if(levelStats.length){continuous.push(...levelStats);continue;}
   const hunt=type==="unit"&&/^\[Hunt(?: (\d{1,2}))?\](?:\s*\(When I conquer or hold, gain \d{1,2} XP\.\))?\s*$/i.exec(line);
   if(hunt&&Number(hunt[1]??1)>0){
    for(const trigger of ["conquer","hold"]){

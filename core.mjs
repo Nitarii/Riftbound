@@ -5,7 +5,7 @@ import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
 import {processCardEvent,unitBeforeDeath} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight} from "./effect-engine.mjs";
-import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
+import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
@@ -101,7 +101,7 @@ export function applyCommand(old, command) {
     /^unit$/i.test(v.type||""));
   const stagedAbilities=[];
   let stagedAbilitySerial=0;
-  const runtime={place,deckCard,random:()=>nextRandom(s),stageCardAbility};
+  const runtime={place,deckCard,pay,random:()=>nextRandom(s),stageCardAbility};
   const movementTriggers=[];
   const onBoard=v=>v&&["base","battlefield"].includes(v.zone);
   const canMove=(card,actor)=>card.counters?.tempNoMoveBy!==actor;
@@ -191,22 +191,27 @@ export function applyCommand(old, command) {
   }
   function deflectPower(target,owner){
     if(!target||target.owner===owner)return 0;
-    let power=0;
-    for(const keyword of String(target.text||"").matchAll(/\[Deflect(?: (\d+))?\]/gi)){
-      if(keyword.index!==0&&target.text[keyword.index-1]!=="\n")
-        throw Error("Le coût Deflect conditionnel doit encore être vérifié.");
-      power+=Number(keyword[1]||1);
-    }
-    return power;
+    return deflectValue(target,s);
   }
-  function defeatBySpell(target,logs){
-    const lastKnown=unitBeforeDeath(s,target);
+  function defeatBySpell(target,logs,lastKnown=unitBeforeDeath(s,target)){
     target.zone="trash";
     target.battlefield=null;
     target.exhausted=false;
     target.damage=0;
     logs.push(target.name+" éliminé");
     return lastKnown;
+  }
+  function cleanupLethalUnits(){
+    const logs=[];
+    for(;;){
+      const dying=s.cards.filter(card=>onBoard(card)&&!card.faceDown&&/^unit$/i.test(card.type)&&card.damage>0&&
+       card.damage>=(effectiveMight(card,combatRole(card),s)??Infinity))
+       .map(card=>({card,lastKnown:unitBeforeDeath(s,card)}));
+      if(!dying.length)return logs;
+      for(const {card,lastKnown} of dying)defeatBySpell(card,logs,lastKnown);
+      for(const {lastKnown} of dying)
+        logs.push(...processCardEvent(s,{trigger:"die",actor:lastKnown.owner,source:lastKnown},runtime));
+    }
   }
   function discardForSpell(owner,uid,physicalCard){
     const player=s.players[owner];
@@ -231,11 +236,11 @@ export function applyCommand(old, command) {
       .sort((a,b)=>Number(a.exhausted)-Number(b.exhausted)||(b.might??0)-(a.might??0))[0]:null;
     if(!checkSpellTarget({target:"unit"},target,owner))
       throw Error("Indique une unité en jeu pour l’effet de "+source.name+".");
-    if(target.owner!==owner&&/\[Deflect\]/i.test(target.text||""))
-      throw Error("Le coût Deflect supplémentaire n'est pas pris en charge pour cet effet.");
+    const extraPower=deflectPower(target,owner);
+    const cost=extraPower?payLabel(pay(owner,{name:source.name,energy:0,extraPower})):"";
     s.spellChain={items:[{uid:source.uid,targetUid:target.uid,ability:"field-musicians"}],
      priority:owner,lastPass:null,opener:owner};
-    return "capacité +3 en attente sur "+target.name;
+    return "capacité +3 en attente sur "+target.name+cost;
   }
   function paidPlayTriggers(source,choices){
     if(fieldMusicians(source))return [stageMusicians(source,choices.targetUid),
@@ -1387,6 +1392,8 @@ export function applyCommand(old, command) {
   } else if(type==="note") {
     summary=string(c.text,600);
   } else throw Error("Type de commande inconnu : "+type);
+  const lethalCleanup=cleanupLethalUnits();
+  if(lethalCleanup.length)summary+=" · "+lethalCleanup.join(" · ");
   for(const trigger of movementTriggers)appendChainItem(trigger,{triggered:true});
   flushStagedAbilities();
   if(s.pendingConquest&&!s.pendingEffects.length&&!s.spellChain){
