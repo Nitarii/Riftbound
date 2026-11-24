@@ -226,7 +226,8 @@ export function applyCombatResult(state,result,{previousController=null}={}){
   if(dead.has(card.uid)){
    card.zone="trash";card.battlefield=null;card.exhausted=false;trash.push(card.name);
   }else if(recall.has(card.uid)){
-   card.zone="base";card.battlefield=null;card.exhausted=true;
+   // Recall changes location only (RUP5 458 and 460).
+   card.zone="base";card.battlefield=null;
   }
  }
  // Combat cleanup heals ALL units on the board, not just combatants.

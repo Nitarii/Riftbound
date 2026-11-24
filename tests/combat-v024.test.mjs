@@ -5,7 +5,7 @@ import {createState,applyCommand} from "../core.mjs";
 import {previewCombat,assignDamage,effectiveMight,combatPriority} from "../combat-engine.mjs";
 import {planAutonomousAITurn} from "../ai-turn.mjs";
 import {planPlayerSequence} from "../player-sequence.mjs";
-import {passShowdown as pass} from "./showdown-helper.mjs";
+import {passShowdown as pass,resolveTop} from "./showdown-helper.mjs";
 const card=(name,might=2,text="")=>({name,type:"Unit",might,energy:1,power:0,text,domains:[]});
 const legend=name=>({name,type:"Legend"}),field=name=>({name,type:"Battlefield"});
 function setup(active="ai"){
@@ -120,6 +120,25 @@ test("Backline last, Tank first, player-selectable damage order within matching 
  result=assignDamage(3,[{...card("First",2),uid:"a"},{...card("Second",2),uid:"b"}],
   "defend",["b","a"]);
  assert.deepEqual(result.assigned,{b:2,a:1});
+});
+test("recall keeps a surviving attacker ready after a reaction readies it",()=>{
+ let s=setup("human");
+ s=add(s,"Attacker","human",2);
+ s=add(s,"Guard","ai",4,"battlefield",0);
+ s=attack(s,"human",0,["Attacker"]);
+ const attacker=uid(s,"Attacker");
+ assert.equal(s.cards.find(c=>c.uid===attacker).exhausted,true);
+ s=applyCommand(s,{type:"stun",uid:uid(s,"Guard")});
+ s=applyCommand(s,{type:"cast",player:"human",targetUid:attacker,
+  card:{name:"Ready Signal",type:"Spell",energy:0,text:"[Reaction]\nReady a unit."}});
+ s=resolveTop(s);
+ assert.equal(s.cards.find(c=>c.uid===attacker).exhausted,false);
+ s=pass(s);
+ const returned=s.cards.find(c=>c.uid===attacker);
+ assert.equal(returned.zone,"base");
+ assert.equal(returned.exhausted,false);
+ assert.equal(s.cards.find(c=>c.name==="Guard").stunned,true);
+ assert.equal(s.players.human.score,0);
 });
 test("Tank and Backline conflicts can be decided independently in a spoken damage order",()=>{
  let s=setup();
