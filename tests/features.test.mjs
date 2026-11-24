@@ -43,8 +43,8 @@ test("official 40-card precons reconstruct exactly and set aside champion",()=>{
    const d=resolvePrecon(cards,pre.id,()=>0);
    assert.equal(d.main.length,40,pre.id);
    assert.equal(d.runes.length,12,pre.id);
-   assert.equal(d.battlefields.length,3,pre.id);
-   const s=applyCommand(createState(),{type:"setup-ai",...d,format:"preconstructed",mainIncludesChampion:true,deckName:d.label});
+   assert.equal(d.battlefields.length,pre.format==="proving-grounds"?1:3,pre.id);
+   const s=applyCommand(createState(),{type:"setup-ai",...d,format:d.format,mainIncludesChampion:true,deckName:d.label});
    assert.equal(s.players.ai.handCount,4);
    assert.equal(s.players.ai.deckCount,35);
    assert.equal(s.decks.ai.main.length,35);
@@ -52,20 +52,20 @@ test("official 40-card precons reconstruct exactly and set aside champion",()=>{
  }
 });
 test("all printed preconstructed decks have expected champions and 40 + 12 cards",()=>{
- assert.equal(PRECONS.length,9);
+ assert.equal(PRECONS.length,15);
  const ids=new Set(PRECONS.map(p=>p.id));
- for(const id of ["jinx","viktor","lee-sin","fiora","rumble","vi","vex","shen","zed"])assert.ok(ids.has(id));
+ for(const id of ["jinx","viktor","lee-sin","fiora","rumble","vi","vex","shen","zed","seraphine","evelynn","annie","garen","lux","master-yi"])assert.ok(ids.has(id));
  for(const p of PRECONS){
   assert.equal(p.main.reduce((n,[,qty])=>n+qty,0),40,p.id);
   assert.equal(p.runes.reduce((n,[,qty])=>n+qty,0),12,p.id);
-  assert.equal(p.battlefields.length,3,p.id);
+  assert.equal(p.battlefields.length,p.format==="proving-grounds"?1:3,p.id);
  }
  const jinx=PRECONS.find(p=>p.id==="jinx");
  assert.match(jinx.warning,/interdites/);
 });
 test("random precon selection is bounded",()=>{
  assert.equal(resolvePrecon(fakeCatalog(),"random",()=>0).id,"jinx");
- assert.equal(resolvePrecon(fakeCatalog(),"random",()=>0.99).id,"rumble");
+ assert.equal(resolvePrecon(fakeCatalog(),"random",()=>0.99).id,"master-yi");
 });
 test("French declarations produce safe, explicit bookkeeping commands",()=>{
  const cards=[{code:"SFD-110",name:"Fiora, Peerless",type:"Unit",isVariant:false}];

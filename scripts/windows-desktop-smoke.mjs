@@ -400,6 +400,20 @@ try{
  if(modelSource&&voiceSample){
   assert.equal((await call(page,"/api/speech/warm",{})).status,202);
  }
+ assert.deepEqual((await page.locator("#home-ai-deck option").evaluateAll(options=>options.map(option=>option.value))).sort(),
+  ["random","jinx","viktor","lee-sin","vi","vex","shen","zed","fiora","rumble","seraphine","evelynn","annie","garen","lux","master-yi"].sort());
+ for(const [deck,opponent,field] of [["evelynn",/Evelynn.*Embrace/,/Academy|Rakelstake|Bandle Tree/],
+    ["annie",/Annie.*Dark Child/,/Void Gate/]]){
+  const state=(await call(page,"/api/state")).body.state;
+  const started=await call(page,"/api/command",{type:"new-duel",deck,player:"human",
+   legend:"ven-147-166",champion:"ven-138-166",battlefield:"ogn-280-298",ifRevision:state.revision});
+  assert.equal(started.status,200,JSON.stringify(started.body));
+  const game=(await call(page,"/api/state")).body.state;
+  assert.match(game.players.ai.legend.name,opponent);
+  assert.match(game.battlefields[1].card.name,field);
+  assert.equal(game.players.ai.handCount,4);
+ }
+ console.log("PASS: all official deck options exposed and Radiance and Proving Grounds duels work offline.");
  const processes=(await call(page,"/api/manager/processes")).body;
  const closingPids=[processes.companion.pid,...await webViewPids(browser)];
  if(modelSource&&voiceSample){

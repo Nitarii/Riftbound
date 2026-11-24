@@ -413,7 +413,7 @@ export function applyCommand(old, command) {
        might:item.tokenMight,tags:["Token",item.tokenName],text:item.temporary?"[Temporary]":""};
     const field=isBird?(birdField??(item.owner==="ai"&&fieldController(item.field)===item.owner?item.field:null)):
      source?.zone==="battlefield"?source.battlefield:null;
-    if(field!==null&&(!Number.isInteger(field)||!s.battlefields[field]?.card||fieldController(field)!==item.owner)){
+    if(field!==null&&(!Number.isInteger(field)||!s.battlefields[field]?.card||isBird&&fieldController(field)!==item.owner)){
       if(item.destination==="here")return item.cardName+" · champ devenu invalide pour le jeton";
       throw Error("Choisis la base ou un champ que tu contrôles pour le jeton Bird.");
     }
@@ -857,15 +857,17 @@ export function applyCommand(old, command) {
     if(who==="ai") {
       if(!Array.isArray(c.main)||!Array.isArray(c.runes)) throw Error("Deck IA : main[] et runes[] requis");
       if(c.main.length>150||c.runes.length>36)throw Error("Deck trop grand");
-      if(c.format==="preconstructed"&&(c.main.length!==40||c.runes.length!==12||!Array.isArray(c.battlefields)||c.battlefields.length!==3)){
-        throw Error("Deck préconstruit : 40 cartes (champion inclus), 12 runes et 3 battlefields attendus");
+      const officialFields=c.format==="proving-grounds"?1:c.format==="preconstructed"?3:0;
+      if(officialFields&&(c.main.length!==40||c.runes.length!==12||
+         !Array.isArray(c.battlefields)||c.battlefields.length!==officialFields)){
+        throw Error("Deck officiel : 40 cartes (champion inclus), 12 runes et "+officialFields+" champ(s) attendus");
       }
       s.decks.ai.main=c.main.map(deckCard);
       // The chosen champion is one of the 40 main-deck cards, but starts in champion zone.
       if(c.mainIncludesChampion!==false) {
         const index=s.decks.ai.main.findIndex(v=>(c.champion.code&&v.code===c.champion.code)||
           (v.name.toLowerCase()===c.champion.name.toLowerCase()));
-        if(index<0){if(c.format==="preconstructed")throw Error("Champion absent des 40 cartes");}
+        if(index<0){if(officialFields)throw Error("Champion absent des 40 cartes");}
         else s.decks.ai.main.splice(index,1);
       }
       shuffle(s.decks.ai.main,s);
@@ -1207,14 +1209,14 @@ export function applyCommand(old, command) {
     if(!pending)throw Error("Aucun effet de carte en attente.");
     if(!c.confirm||c.id!==pending.id)
      throw Error("Confirme explicitement l'effet affiché avant de reprendre la partie.");
-    const chainChoice=["spell-discard","pakaa-reveal","bird-placement","gear-detach","card-text-discard","card-text-predict"].includes(pending.trigger);
+    const chainChoice=["spell-discard","pakaa-reveal","bird-placement","gear-detach","card-text-discard","card-text-predict","card-text-spend-buff"].includes(pending.trigger);
     if(chainChoice){
       if(s.spellChain?.items.at(-1)?.uid!==(pending.chainUid??pending.sourceUid))
         throw Error("L’effet en attente sur la chaîne a changé.");
       if(pending.trigger==="bird-placement"&&c.battlefield!==null&&!Number.isInteger(c.battlefield))
         throw Error("Précise la base ou un champ pour le jeton Bird.");
       s.pendingEffects.shift();
-      summary=resolveChainTop(c.card,c.battlefield,pending.trigger==="gear-detach"&&!c.decline,{recycle:c.recycle});
+      summary=resolveChainTop(c.card,c.battlefield,pending.trigger==="gear-detach"&&!c.decline,{recycle:c.recycle,targetUid:c.targetUid,decline:c.decline});
     }else if(pending.trigger==="ability-order"){
       const group=s.triggerGroups?.[0];
       const index=group?.items.findIndex(item=>item.uid===c.abilityUid)??-1;

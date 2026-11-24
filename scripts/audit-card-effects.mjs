@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {CARD_SOURCE,CARD_SOURCE_BACKUP,decodeCards} from "../catalog.mjs";
 import {compileCardAbilities,spellRule} from "../effect-engine.mjs";
-import {mandatoryPlayEffects} from "../play-effects.mjs";
+import {PRECONS,canonicalCode,resolvePrecon} from "../precons.mjs";
 
 const args=process.argv.slice(2);
 async function load(){
@@ -58,11 +58,36 @@ const result={
  unknownCosts,types,compiledSpells,verifiedSpells,recognizedOperations:features,issueCounts:issues,
  unresolvedExamples:unresolved
 };
+if(args.includes("--precons")){
+ const audited=new Map();
+ const incomplete=new Set();
+ const precons=Object.fromEntries(PRECONS.map(preset=>{
+  const deck=resolvePrecon(cards,preset.id,()=>0);
+  const included=new Map([deck.legend,...deck.main,...deck.battlefields].map(card=>[canonicalCode(card.code),card]));
+  const gaps=[];
+  for(const [code,card] of included){
+   if(!audited.has(code)){
+    const issues=compileCardAbilities(card).unsupported.map(issue=>issue.reason);
+    if(card.type==="Spell"&&!spellRule(card))issues.push("Sort sans règle de lancement");
+    audited.set(code,issues);
+   }
+   const issues=audited.get(code);
+   if(issues.length){
+    incomplete.add(code);
+    gaps.push({code,name:card.name,issues});
+   }
+  }
+  return [deck.id,{distinctCards:included.size,gaps}];
+ }));
+ result.preconstructed={distinctCards:audited.size,cardsWithGaps:incomplete.size,decks:precons};
+}
 if(args.includes("--json"))console.log(JSON.stringify(result,null,2));
 else{
  console.log("Card semantics audit (syntax only; NOT full rules coverage):");
  console.log("Cards",cards.length,"with text",withText,"parsed without flagged text",parsed,
   "unresolved",unhandled,"coverage ratio",result.parsedFraction);
+ if(result.preconstructed)console.log("Official decks:",result.preconstructed.distinctCards,
+  "distinct cards, with unresolved effects on",result.preconstructed.cardsWithGaps);
  console.log("Card categories:",JSON.stringify(types));
  console.log("Cast rules from printed text",compiledSpells,"and explicit handlers",verifiedSpells);
  console.log("Recognized ops:",JSON.stringify(features));

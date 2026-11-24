@@ -335,7 +335,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
    command={type:"setup-ai",legend:deck.legend,champion:deck.champion,
     battlefield:deck.battlefield,battlefields:deck.battlefields,
     main:deck.main,runes:deck.runes,mainIncludesChampion:true,
-    format:"preconstructed",deckName:deck.label};
+    format:deck.format,deckName:deck.label};
    const retry=replay();
    if(retry)return retry;
    ensureRevision(revision);
@@ -372,7 +372,7 @@ async function executeGameCommand(input,{origin="local",withReceipt=false,englis
    {type:"setup-human",legend,champion,battlefield},
    {type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
     battlefields:deck.battlefields,main:deck.main,runes:deck.runes,mainIncludesChampion:true,
-    format:"preconstructed",deckName:deck.label},
+    format:deck.format,deckName:deck.label},
    {type:"start",player:input.player}];
   next=advanceMandatoryTurn(commands.reduce((game,action)=>applyCommand(game,action),state));
   receipt=commitGame(next,{commands,id:requestId||undefined,origin,remember:false});

@@ -123,7 +123,15 @@ function parseInstructions(raw,spell=false){
   .replace(/(\[Burn \d+\])\.?\s*\(Put the top [^)]*\)/gi,"$1")
   .replace(/(\[Assault (\d+)\] this turn)\.?\s*\(\+\2 (?:\[S\]|\[M\]) while it(?:'s| is) an attacker\.?\)\.?$/i,"$1")
   .replace(/\s*\((?:It doesn't deal combat damage this turn\.?|A stunned unit doesn't deal combat damage this turn\.?)\)\.?$/i,"")
+  .replace(/\s*\(It is also at the battlefield\.\)\.?$/i,"")
   .replace(/[.,! ]+$/g,"").replace(/^(?:you may|may|you must|you can)\s+/i,"");
+ const addPower=!spell&&!/^(?:you may|may|you can)\b/i.test(normalize(raw))&&/^\[Add\]\s*((?:\[A\]){1,5})(?:\.\s*\(Abilities that add resources can't be reacted to\.\))?$/i.exec(expr);
+ if(addPower)return {steps:[{kind:"add-any-power",count:addPower[1].length/3}],reason:""};
+ const damageHere=!spell&&/^deal (\d{1,2})(?: damage)? to an enemy unit here$/i.exec(expr);
+ if(damageHere&&Number(damageHere[1])>0)
+  return {steps:[{kind:"damage-enemy",count:Number(damageHere[1]),here:true}],reason:""};
+ const selfAtBattlefield=!spell&&/^give me \+([1-9]|1[0-2]) \[[SM]\] this turn if there is a ready enemy unit here$/i.exec(expr);
+ if(selfAtBattlefield)return {steps:[{kind:"self-buff",count:Number(selfAtBattlefield[1]),requiresReadyEnemyHere:true}],reason:""};
  if(!expr)return {steps:[],reason:"effet sans instruction"};
  const xp=!spell&&/^gain (\d{1,2}) XP$/i.exec(expr);
  if(xp&&Number(xp[1])>0)return {steps:[{kind:"gain-xp",count:Number(xp[1])}],reason:""};
@@ -162,7 +170,7 @@ function parseInstructions(raw,spell=false){
  const steps=[];
  for(let item of parts){
   item=item.trim().replace(/[.,! ]+$/g,"").replace(/^(?:you may|may)\s+/i,"");
-  const token=/^play\s+(a|one|two|three|four|\d{1,2})\s+(\d{1,2})\s+(?:\{might\}|\[[SM]\])\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+((?:into|to)\s+your\s+base|here)$/i.exec(item);
+  const token=/^play\s+(a|one|two|three|four|\d{1,2})\s+(\d{1,2})\s+(?:\{might\}|\[[SM]\])\s+([a-z][a-z '-]{1,45})\s+unit\s+tokens?\s+((?:into|to|in)\s+your\s+base|here)$/i.exec(item);
   if(token){
    const word=token[1],n=word.toLowerCase()==="four"?4:toCount(word);
    const might=Number(token[2]),name=token[3];
@@ -340,13 +348,20 @@ export function compileCardAbilities(card){
     continue;
    }
   }
-  const condition=trigger==="hold"&&/^if there is exactly one other unit you control here,\s*/i.test(body)?
+  const facedown=trigger==="beginning"&&/^if you control a facedown card at a battlefield,\s*/i.exec(body);
+  if(facedown)body=body.slice(facedown[0].length);
+  const condition=facedown?"facedown-at-battlefield":trigger==="hold"&&/^if there is exactly one other unit you control here,\s*/i.test(body)?
    "one-other-unit":null;
-  if(condition)body=body.replace(/^if there is exactly one other unit you control here,\s*/i,"");
+  if(condition==="one-other-unit")body=body.replace(/^if there is exactly one other unit you control here,\s*/i,"");
   const excess=trigger==="conquer"&&body.match(/^if you assigned (\d+) or more excess damage,\s*/i);
   if(excess)body=body.slice(excess[0].length);
-  const optional=/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
-  const {steps,reason}=parseInstructions(body,type==="spell");
+  const monastery=trigger==="conquer"&&type==="battlefield"&&/^you may spend a buff to draw 1\.?$/i.test(body);
+  const plaza=trigger==="hold"&&type==="battlefield"&&/^if you have 7\+ units here, you win the game\.?$/i.test(body);
+  const optional=!monastery&&/^(?:you may|may|vous pouvez|tu peux)\b/i.test(body);
+  const endingRunes=trigger==="ending"&&/^ready up to ([1-9]|1[0-2]) runes?\.?$/i.exec(body);
+  const {steps,reason}=monastery?{steps:[{kind:"spend-buff-to-draw",count:1}],reason:""}:
+   plaza?{steps:[{kind:"win-game"}],reason:""}:endingRunes?{steps:[{kind:"ready-runes-ending",count:Number(endingRunes[1])}],reason:""}:
+   parseInstructions(body,type==="spell");
   // Match event card type rather than firing "play a unit" when a spell
   // or gear is played. "Another" already excludes the played card itself.
   const playedType=trigger==="ally-play"?(
@@ -357,7 +372,7 @@ export function compileCardAbilities(card){
   const ability={trigger,text:line,optional,steps,supported:!reason,
    ...(minimumXP>0&&{minimumXP}),
    ...(toBattlefield&&{toBattlefield}),
-   ...(dependent||condition?{condition:dependent||condition}:{}),...(keyword?{keyword}:{}),
+   ...(dependent||condition||plaza?{condition:dependent||condition||"seven-units-here"}:{}),...(keyword?{keyword}:{}),
    ...(excess&&{minimumExcess:Number(excess[1])}),
    ...(playedType?{playedType}:{}),...(limit?{perTurnLimit:limit}:{})};
   abilities.push(ability);

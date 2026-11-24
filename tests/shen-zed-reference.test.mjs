@@ -928,3 +928,91 @@ test("Twilight Shroud rejects hostile targeting and expires with the turn",()=>{
  assert.equal(get(s,witness.name).counters.tempShroud,undefined);
  assert.equal(applyCommand(s,enemySpell).spellChain.items[0].targetUid,targetUid);
 });
+
+test("Noxian Drummer creates its Recruit after reactions on a contested battlefield",()=>{
+ const drummer=card("Noxian Drummer","OGN-222","Unit",3,3,{
+  text:"When I move to a battlefield, play a 1 [S] Recruit unit token here. (It is also at the battlefield.)"});
+ let s=add(add(table("ai"),"ai",drummer),"human",assassin,"battlefield",0);
+ s=applyCommand(s,{type:"move",uid:get(s,drummer.name).uid,zone:"battlefield",battlefield:0});
+ assert.equal(s.spellChain.items[0]?.ability,"create-units");
+ assert.equal(get(s,"Recruit"),undefined);
+ s=resolveTop(s);
+ const token=get(s,"Recruit");
+ assert.deepEqual([token.owner,token.zone,token.battlefield,token.exhausted],["ai","battlefield",0,true]);
+ assert.equal(s.pendingCombat.kind,"combat");
+});
+
+test("Sneaky Zeebles adds Power on conquest without a reaction window",()=>{
+ const zeebles=card("Sneaky Zeebles","RAD-076","Unit",2,2,{
+  text:"When I conquer, [Add] [A]. (Abilities that add resources can't be reacted to.)"});
+ let s=add(table("ai"),"ai",zeebles);
+ s=applyCommand(s,{type:"move",uid:get(s,zeebles.name).uid,zone:"battlefield",battlefield:0});
+ assert.equal(s.powerPool.ai,0);
+ s=passShowdown(s);
+ assert.equal(s.players.ai.score,1);
+ assert.equal(s.powerPool.ai,1);
+ assert.equal(s.spellChain,null);
+});
+
+test("Annie readies up to two runes at Ending through the chain",()=>{
+ const annie=card("Annie, Dark Child, Starter","OGS-017","Legend",null,null,{
+  text:"At the end of your turn, ready up to 2 runes."});
+ let s=add(table("ai"),"ai",annie,"legend");
+ for(let i=0;i<3;i++){
+  s=add(s,"ai",rune("Fury"),"runes");
+  const current=s.cards.filter(c=>c.zone==="runes").at(-1);
+  s=applyCommand(s,{type:"exhaust",uid:current.uid});
+ }
+ s=applyCommand(s,{type:"phase",phase:"Ending"});
+ assert.equal(s.cards.filter(c=>c.zone==="runes"&&!c.exhausted).length,0);
+ assert.equal(s.spellChain.items[0]?.runeUids?.length,2);
+ s=resolveTop(s);
+ assert.equal(s.cards.filter(c=>c.zone==="runes"&&!c.exhausted).length,2);
+});
+
+test("The Grand Plaza only triggers with seven allied units and wins after both passes",()=>{
+ const plaza=card("The Grand Plaza","OGN-293","Battlefield",null,null,{
+  text:"When you hold here, if you have 7+ units here, you win the game."});
+ let setup=table();
+ setup.battlefields[0].card=plaza;
+ for(let i=0;i<6;i++)setup=add(setup,"ai",card("Plaza unit "+i,"P-"+i),"battlefield",0);
+ const short=applyCommand(setup,{type:"next-turn"});
+ assert.equal(short.spellChain,null);
+ assert.equal(short.finished,false);
+ let s=add(setup,"ai",card("Seventh unit","P-7"),"battlefield",0);
+ s=applyCommand(s,{type:"next-turn"});
+ assert.equal(s.spellChain?.items[0]?.cardName,plaza.name);
+ assert.equal(s.finished,false);
+ s=resolveTop(s);
+ assert.equal(s.winner,"ai");
+ assert.equal(s.winBy,"card-effect");
+ assert.ok(s.players.ai.score<8);
+});
+
+test("Monastery of Hirana spends an allied buff on resolution or declines without drawing",()=>{
+ const monastery=card("Monastery of Hirana","OGN-282","Battlefield",null,null,{
+  text:"When you conquer here, you may spend a buff to draw 1."});
+ let s=table("human");
+ s.battlefields[0].card=monastery;
+ s=add(s,"human",witness);s=add(s,"human",disciple);
+ const uid=get(s,witness.name).uid;
+ s=applyCommand(s,{type:"counter",uid,key:"buff",value:1});
+ s=applyCommand(s,{type:"move",uid,zone:"battlefield",battlefield:0});
+ s=passShowdown(s);
+ assert.equal(s.spellChain?.items[0]?.cardName,monastery.name);
+ const before=s.players.human.handCount;
+ s=resolveTop(s);
+ const effect=s.pendingEffects[0];
+ assert.equal(effect.trigger,"card-text-spend-buff");
+ assert.deepEqual(effect.targetUids,[uid]);
+ assert.equal(get(s,witness.name).counters.buff,1);
+ const decline=applyCommand(s,{type:"effect-confirm",id:effect.id,confirm:true,decline:true});
+ assert.equal(decline.players.human.handCount,before);
+ assert.throws(()=>applyCommand(s,{type:"effect-confirm",id:effect.id,confirm:true,targetUid:get(s,disciple.name).uid}),/buff/);
+ const spoken=planPlayerSequence("Je choisis Mournful Witness",s,[witness]);
+ assert.equal(spoken.commands[0]?.targetUid,uid,spoken.error);
+ s=spoken.commands.reduce(applyCommand,s);
+ assert.equal(get(s,witness.name).counters.buff,0);
+ assert.equal(s.players.human.handCount,before+1);
+ assert.equal(s.spellChain,null);
+});

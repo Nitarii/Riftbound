@@ -7,14 +7,12 @@ import {planAutonomousAITurn,planAIChainAction} from "../ai-turn.mjs";
 import {previewCombat} from "../combat-engine.mjs";
 import {battlefieldController} from "../battlefield-rules.mjs";
 import {decodeCards} from "../catalog.mjs";
-import {resolvePrecon} from "../precons.mjs";
+import {PRECONS,resolvePrecon} from "../precons.mjs";
 
 const count=Math.max(1,Math.min(2000,Number(process.argv[2])||100));
 const source=process.argv[3]?decodeCards(JSON.parse(fs.readFileSync(process.argv[3],"utf8"))):null;
 const opponent=process.argv[4]||"zed";
 const modes=["passif","occupation","pression"];
-const results=Object.fromEntries(modes.map(mode=>[mode,{total:0,finished:0,ai:0,human:0,
- stalls:0,invalid:0,decisions:0,decisionMs:0,spellResolutions:0,blockedBy:{},examples:[]}]));
 const card=(name,type="Unit",energy=0,might=2,extra={})=>({code:name,name,type,energy,might,...extra});
 const unit=c=>/^unit$/i.test(c.type||"");
 const synthetic=(name,seed,domain)=>({
@@ -30,9 +28,9 @@ function check(state){
     state.players.ai.handCount!==state.cards.filter(c=>c.owner==="ai"&&c.zone==="hand").length)
   throw Error("Comptes IA désynchronisés");
  if(new Set(state.cards.map(c=>c.uid)).size!==state.cards.length)throw Error("Identités dupliquées");
- if(state.finished&&(!state.winner||state.players[state.winner].score<8))throw Error("Victoire incohérente");
+ if(state.finished&&(!state.winner||state.players[state.winner].score<8&&state.winBy!=="card-effect"))throw Error("Victoire incohérente");
 }
-function game(seed,mode,metrics){
+function game(seed,mode,opponent,metrics){
  const random=()=>((seed*2654435761>>>0)%829)/829;
  const human=source?resolvePrecon(source,"shen",random):synthetic("Shen",seed,"Order");
  const ai=source?resolvePrecon(source,opponent,random):synthetic("Zed",seed+1,"Fury");
@@ -101,7 +99,7 @@ function game(seed,mode,metrics){
    const location=s.battlefields.findIndex((b,i)=>b.card&&battlefieldController(s,i)==="human");
    apply({type:"effect-confirm",confirm:true,id:effect.id,battlefield:location>=0?location:null});continue;
   }
-  if(effect?.trigger==="token-cost"){
+  if(["token-cost","card-text-spend-buff"].includes(effect?.trigger)){
    apply({type:"effect-confirm",confirm:true,id:effect.id,decline:true});continue;
   }
   if(effect?.trigger==="ability-target"){
@@ -151,17 +149,28 @@ function game(seed,mode,metrics){
  metrics.stalls++;
  if(metrics.examples.length<3)metrics.examples.push({seed,turn:s.turn,phase:s.phase,message:s.message});
 }
-for(const mode of modes){
- const metrics=results[mode];
- for(let seed=1;seed<=count;seed++){
-  metrics.total++;
-  try{game(seed,mode,metrics);}catch(error){
-   metrics.invalid++;
-   if(metrics.examples.length<3)metrics.examples.push({seed,error:error.message});
+function runOpponent(opponent){
+ const results={};
+ for(const mode of modes){
+  const metrics=results[mode]={total:0,finished:0,ai:0,human:0,stalls:0,invalid:0,
+   decisions:0,decisionMs:0,spellResolutions:0,blockedBy:{},examples:[]};
+  for(let seed=1;seed<=count;seed++){
+   metrics.total++;
+   try{game(seed,mode,opponent,metrics);}catch(error){
+    metrics.invalid++;
+    if(metrics.examples.length<3)metrics.examples.push({seed,error:error.message});
+   }
   }
+  metrics.avgDecisionMs=Number((metrics.decisionMs/Math.max(1,metrics.decisions)).toFixed(2));
+  delete metrics.decisionMs;
  }
- metrics.avgDecisionMs=Number((metrics.decisionMs/Math.max(1,metrics.decisions)).toFixed(2));
- delete metrics.decisionMs;
+ if(Object.values(results).some(r=>r.invalid||!source&&r.stalls))process.exitCode=1;
+ return results;
 }
-console.log(JSON.stringify({decks:source?"Shen / "+opponent:"fixtures synthétiques",results},null,2));
-if(Object.values(results).some(r=>r.invalid||!source&&r.stalls))process.exitCode=1;
+if(source&&opponent==="all"){
+ const results=Object.fromEntries(PRECONS.map(deck=>[deck.id,runOpponent(deck.id)]));
+ console.log(JSON.stringify({human:"shen",results},null,2));
+}else{
+ const results=runOpponent(opponent);
+ console.log(JSON.stringify({decks:source?"Shen / "+opponent:"fixtures synthétiques",results},null,2));
+}

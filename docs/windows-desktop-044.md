@@ -20,7 +20,7 @@ Préparer Node.js 26, le SDK .NET 10 et Inno Setup 7, puis lancer depuis la raci
 ./scripts/build-desktop.ps1 -Iscc 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe'
 node --test tests/*.test.mjs
 npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
-./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.7-x64-Setup.exe
+./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.8-x64-Setup.exe
 node scripts/build-pages.mjs --preview
 ```
 
@@ -67,3 +67,13 @@ Riot classe le jeu numérique à arbitrage automatique et les clients autonomes 
 Dans l’aperçu 0.44.6, l’IA vérifie avant de lancer Get Excited! si une carte de sa main peut infliger assez de dégâts. Elle choisit et révèle sa défausse à la résolution en tenant compte des réactions du joueur.
 
 L’aperçu 0.44.7 gère les coûts fixes d’Amplification des unités en énergie et en Power. Les bonus de Force, Assault et Ganking couverts prennent effet à la résolution. L’adversaire peut amplifier Shadow Fiend avant une attaque et attend la réponse du joueur avant de l’annoncer.
+
+L’aperçu 0.44.8 ajoute Seraphine et Evelynn (Radiance), ainsi que les quatre listes imprimées de Proving Grounds. Le duel amical utilise le champ unique de chaque liste Proving Grounds. Les autres listes ont trois champs au choix. Le Construit officiel exige trois champs différents par deck et applique les interdictions publiées par Riot. [Listes Radiance](https://playriftbound.com/en-us/news/announcements/the-radiance-overview/) · [Livret Proving Grounds](https://uvsgames.com/wp-content/uploads/2025/11/OGS-ProvingGrounds-HowtoPlay-EN.pdf) · [Règles de tournoi](https://playriftbound.com/en-us/rules-hub/)
+
+Tester les quinze adversaires contre Shen avec trois comportements simulés. Les simulations ne couvrent qu’une partie des interactions et des cartes.
+
+    node scripts/simulate-duels.mjs 24 dist/desktop-tools/cards.json all
+
+Le relevé des listes imprimées identifie 203 cartes parmi 308 cartes distinctes dont au moins un effet ou la règle de lancement reste à vérifier ou à implémenter, hors runes de base. Ce relevé détaille les cartes concernées par deck.
+
+    node scripts/audit-card-effects.mjs --file dist/desktop-tools/cards.json --precons --json

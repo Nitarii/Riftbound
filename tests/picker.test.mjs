@@ -47,7 +47,7 @@ test("all printed deck options are resolvable by ID, including random choice",()
    }
  }
  const catalog=[...cardsByCode.values()];
- assert.equal(PRECONS.length,9);
+ assert.equal(PRECONS.length,15);
  for(const p of PRECONS){
    const resolved=resolvePrecon(catalog,p.id,()=>0);
    assert.equal(resolved.id,p.id);

@@ -414,7 +414,7 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
   const keep=/^(?:je (?:la )?(?:garde|conserve)|keep(?: it)?|non|no)$/.test(text);
   if(recycle||keep)return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,recycle}],recognized:true};
  }
- if(waiting?.player==="human"&&["ability-target","gear-detach"].includes(waiting.trigger)){
+ if(waiting?.player==="human"&&["ability-target","card-text-spend-buff","gear-detach"].includes(waiting.trigger)){
   const detach=waiting.trigger==="gear-detach";
   const decline=/^(?:je decline|je refuse|i decline|non|no|je (?:le )?garde attache|keep it attached)$/.test(text);
   const accept=detach&&/^(?:je (?:le )?detache|detach(?: it)?|oui|yes)$/.test(text);

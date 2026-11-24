@@ -52,6 +52,7 @@ function makePending(state,source,ability,actor,reason){
 function canChooseUnit(card,step,actor,source){
  if(!card||!unit(card)||!["base","battlefield"].includes(card.zone)||card.faceDown||
     step.atBattlefield&&card.zone!=="battlefield"||step.another&&card.uid===source.uid||
+    step.here&&(source?.zone!=="battlefield"||card.zone!=="battlefield"||source.battlefield!==card.battlefield)||
     card.owner!==actor&&card.counters?.tempShroud)return false;
  const {kind}=step;
  const enemy=["damage-enemy","stun-enemy","kill-enemy"].includes(kind);
@@ -214,7 +215,7 @@ function applySteps(state,source,steps,actor,runtime,trigger){
    logs.push("pioche "+result.actual+" carte(s)"+
     (result.burnOuts?" (Burn Out ×"+result.burnOuts+")":""));
   }else if(step.kind==="ready-runes-ending"){
-   if(state.phase==="Ending")continue;
+   if(state.phase==="Ending"&&trigger!=="ending")continue;
    state.delayedEnding??=[];
    const id="ending-"+(state.effectSerial||0)+"-"+state.delayedEnding.length;
    state.delayedEnding.push({id,player:actor,cardName:source.name,count:n});
@@ -297,23 +298,29 @@ function applySteps(state,source,steps,actor,runtime,trigger){
 export function resolveCardText(state,item,runtime,choice={}){
  const logs=[],actor=item.owner;
  item.cursor??=0;
- const pending=(trigger,text)=>{
+ const pending=(trigger,text,options={})=>{
   state.pendingEffects.push({id:item.uid+"-"+item.cursor+"-"+(item.discarded||0),
    trigger,player:actor,sourceUid:item.sourceUid,chainUid:item.uid,
-   cardName:item.cardName,text,reason:"La résolution reprend après ton choix.",optional:false});
+   cardName:item.cardName,text,reason:"La résolution reprend après ton choix.",optional:false,...options});
  };
  for(;item.cursor<item.instructions.length;item.cursor++){
   let step={...item.instructions[item.cursor]};
   const source=state.cards.find(c=>c.uid===item.sourceUid&&activeZone(c.zone))??item.source;
   if(step.targetUid){
    const target=state.cards.find(c=>c.uid===step.targetUid);
+   const reference=step.here?state.cards.find(c=>c.uid===item.sourceUid):source;
    const valid=step.kind==="ready-friendly"?target&&unit(target)&&activeZone(target.zone)&&
-    target.owner===actor&&target.uid!==source.uid:canChooseUnit(target,step,actor,source);
+    target.owner===actor&&target.uid!==source.uid:canChooseUnit(target,step,actor,reference);
    if(!valid){logs.push("cible devenue invalide");continue;}
   }
   if(["ready-self","exhaust-self","self-buff","heal-self"].includes(step.kind)&&
      !state.cards.some(c=>c.uid===source.uid&&["base","battlefield"].includes(c.zone))){
    logs.push("la source a quitté le plateau");continue;
+  }
+  if(step.requiresReadyEnemyHere){
+   const current=state.cards.find(card=>card.uid===source.uid&&card.zone==="battlefield");
+   if(!current||!state.cards.some(card=>card.owner===OPPOSITE[actor]&&unit(card)&&!card.exhausted&&
+      !card.faceDown&&card.zone==="battlefield"&&card.battlefield===current.battlefield))continue;
   }
   if(step.kind==="discard"){
    const count=Math.min(step.count-(item.discarded||0),state.players[actor].handCount);
@@ -336,6 +343,30 @@ export function resolveCardText(state,item,runtime,choice={}){
     logs.push(...applySteps(state,source,[step],actor,runtime,item.trigger));
    }
    delete item.discarded;
+   continue;
+  }
+  if(step.kind==="win-game"){
+   state.winner=actor;
+   state.finished=true;
+   state.winBy="card-effect";
+   logs.push(source.name+" donne la victoire");
+   break;
+  }
+  if(step.kind==="spend-buff-to-draw"){
+   const candidates=state.cards.filter(card=>card.owner===actor&&unit(card)&&
+    ["base","battlefield"].includes(card.zone)&&!card.faceDown&&card.counters?.buff>0);
+   if(!candidates.length||choice.decline)continue;
+   if(actor==="human"&&!choice.targetUid){
+    pending("card-text-spend-buff","Choisis le buff à dépenser ou décline.",
+     {optional:true,targetUids:candidates.map(card=>card.uid)});
+    return {logs,paused:true};
+   }
+   const selected=actor==="ai"?candidates.find(card=>card.zone==="base")??candidates[0]:
+    candidates.find(card=>card.uid===choice.targetUid);
+   if(!selected)throw Error("Choisis une de tes unités avec un buff.");
+   selected.counters.buff--;
+   logs.push("buff de "+selected.name+" dépensé");
+   logs.push(...applySteps(state,source,[{kind:"draw",count:step.count}],actor,runtime,item.trigger));
    continue;
   }
   if(step.kind==="predict"&&actor==="human"&&state.players.human.deckCount>0){
@@ -385,6 +416,10 @@ export function processCardEvent(state,event,runtime={}){
    if(ability.condition==="did-not-die-alone"&&!source.withAlly)continue;
    if(ability.condition==="was-mighty"&&!source.wasMighty)continue;
    if(ability.condition==="empowered"&&!source.counters?.empowered)continue;
+   if(ability.condition==="facedown-at-battlefield"&&!state.cards.some(c=>
+      c.owner===actor&&c.faceDown&&Number.isInteger(c.battlefield)&&["hidden","battlefield"].includes(c.zone)))continue;
+   if(ability.condition==="seven-units-here"&&state.cards.filter(c=>c.owner===actor&&unit(c)&&
+      !c.faceDown&&c.zone==="battlefield"&&c.battlefield===event.field).length<7)continue;
    if(ability.condition==="one-other-unit"&&state.cards.filter(c=>unit(c)&&
       c.owner===actor&&c.zone==="battlefield"&&c.battlefield===source.battlefield&&
       c.uid!==source.uid).length!==1)continue;
@@ -407,10 +442,19 @@ export function processCardEvent(state,event,runtime={}){
     continue;
    }
    const token=ability.steps.length===1&&ability.steps[0];
+   if(token?.kind==="add-any-power"&&!ability.optional){
+    state.powerPool[actor]+=token.count;
+    summaries.push(source.name+" : +"+token.count+" Power");
+    continue;
+   }
+   if(trigger==="ending"&&token?.kind==="ready-runes-ending"){
+    summaries.push(...applySteps(state,source,[token],actor,runtime,trigger));
+    continue;
+   }
    if(token&&stageCardAbility&&(["create-gold","create-bird","mill-main","gain-xp","buff-here","ready-gear",
       "return-field-unit","schedule-enemy-move","expire-temporary","stun-played-unit"].includes(token.kind)||
       token.kind==="draw"&&(["did-not-die-alone","was-mighty"].includes(ability.condition)||ability.minimumXP!=null)||
-      token.kind==="create-units"&&(token.destination==="base"||token.temporary))){
+      token.kind==="create-units"&&(token.destination==="base"||token.temporary||trigger==="move"))){
     const notice=stageCardAbility(source,ability,token,event);
     if(notice)summaries.push(notice);
     continue;

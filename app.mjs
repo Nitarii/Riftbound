@@ -393,7 +393,7 @@ function renderPendingEffects(){
  const runeField=$("pending-effect-runes"),runeOptions=$("pending-effect-rune-options");
  const chooseRunes=pending?.trigger==="ending-ready-runes";
  const chooseBird=pending?.trigger==="bird-placement",chooseCost=pending?.trigger==="token-cost";
- const chooseTarget=pending?.trigger==="ability-target",chooseDetach=pending?.trigger==="gear-detach";
+ const chooseTarget=["ability-target","card-text-spend-buff"].includes(pending?.trigger),chooseDetach=pending?.trigger==="gear-detach";
  const chooseOrder=pending?.trigger==="ability-order";
  const choosePredict=pending?.trigger==="card-text-predict";
  $("pending-bird-choice").hidden=!chooseBird;
@@ -476,9 +476,9 @@ $("pending-effect-confirm").onclick=()=>{
  if(pending.trigger==="card-text-predict"){
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,recycle:false});return;
  }
- if(["ability-target","gear-detach"].includes(pending.trigger)){
+ if(["ability-target","card-text-spend-buff","gear-detach"].includes(pending.trigger)){
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,
-   ...(pending.trigger==="ability-target"&&{targetUid:$("pending-target").value})});
+   ...(pending.trigger!=="gear-detach"&&{targetUid:$("pending-target").value})});
   return;
  }
  if(pending.trigger==="token-cost"||pending.trigger==="bird-placement"){
@@ -508,7 +508,7 @@ $("pending-effect-decline").onclick=()=>{
  if(pending?.trigger==="card-text-predict"){
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,recycle:true});return;
  }
- if(["token-cost","ability-target","gear-detach"].includes(pending?.trigger))
+ if(["token-cost","ability-target","card-text-spend-buff","gear-detach"].includes(pending?.trigger))
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,decline:true});
 };
 let previousCardLocations=new Map();
@@ -803,7 +803,7 @@ $("setup-ai").onclick=()=>{
     $("deck-info").textContent=deck.label+" · 40 cartes, 12 runes, 3 terrains · terrain sélectionné : "+deck.battlefield.name+(deck.warning?" · ATTENTION : "+deck.warning:"");
     dispatch({type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
       main:deck.main,runes:deck.runes,battlefields:deck.battlefields,
-      mainIncludesChampion:true,format:"preconstructed",deckName:deck.label});
+      mainIncludesChampion:true,format:deck.format,deckName:deck.label});
   }catch(e){notify(e.message,true);}
 };
 $("start-human").onclick=()=>dispatch({type:"start",player:"human"});
@@ -2258,7 +2258,7 @@ $("home-create-game").onclick=async()=>{
   if(!await dispatch({type:"setup-human",legend,champion,battlefield}))return;
   if(!await dispatch({type:"setup-ai",legend:deck.legend,champion:deck.champion,battlefield:deck.battlefield,
    main:deck.main,runes:deck.runes,battlefields:deck.battlefields,
-   mainIncludesChampion:true,format:"preconstructed",deckName:deck.label}))return;
+   mainIncludesChampion:true,format:deck.format,deckName:deck.label}))return;
   if(!await dispatch({type:"start",player:$("home-first-player").value}))return;
   $("human-legend-input").value=legend.name;
   $("human-champion-input").value=champion.name;
