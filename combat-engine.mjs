@@ -87,11 +87,30 @@ export function offensiveMight(card,role,state=null){
    c.battlefield===card.battlefield).length!==1)return 0;
  return card.stunned||card.counters?.stunned?0:effectiveMight(card,role,state);
 }
-export function combatPriority(card){
+function damagePriorities(card){
  const tank=hasKeyword(card,"Tank"),backline=hasKeyword(card,"Backline");
- if(tank&&!backline)return 0;
- if(backline&&!tank)return 2;
- return 1;
+ if(tank&&backline)return [0,2];
+ return [tank?0:backline?2:1];
+}
+export function combatPriority(card){
+ return damagePriorities(card)[0];
+}
+// RUP5 467.2.c.6–9: a unit with conflicting keywords can be put in either
+// applicable group. Choose the lowest legal group for each stated target,
+// then fill in the unstated targets without changing their relative order.
+export function completeDamageOrder(targets,preferred=[]){
+ const entries=new Map(targets.map(card=>[card.uid,{card,priority:combatPriority(card)}]));
+ let priority=0;
+ for(const [index,uid] of preferred.entries()){
+  const entry=entries.get(uid);
+  if(!entry||entry.index!==undefined)return null;
+  const allowed=damagePriorities(entry.card).find(rank=>rank>=priority);
+  if(allowed===undefined)return null;
+  priority=entry.priority=allowed;
+  entry.index=index;
+ }
+ return [...entries.values()].sort((a,b)=>a.priority-b.priority||
+  (a.index??preferred.length)-(b.index??preferred.length)).map(entry=>entry.card);
 }
 export function combatWarnings(state,index,attackers,defenders){
  const notices=[];
@@ -115,13 +134,17 @@ export function combatWarnings(state,index,attackers,defenders){
 }
 export function assignDamage(total,targets,role,preferredOrder=[],state=null){
  if(!Number.isFinite(total)||total<0)throw Error("Total de dégâts invalide.");
- const order=new Map((preferredOrder||[]).map((uid,i)=>[uid,i]));
- const sorted=[...targets].sort((a,b)=>
-   combatPriority(a)-combatPriority(b)||
-   (order.get(a.uid)??999)-(order.get(b.uid)??999)||
+ const targetIds=new Set(targets.map(card=>card.uid));
+ const stated=(preferredOrder||[]).filter(uid=>targetIds.has(uid));
+ const order=new Map(stated.map((uid,i)=>[uid,i]));
+ const defaults=[...targets].sort((a,b)=>
    (Math.max(1,(effectiveMight(a,role,state)??0)-number(a.damage))-
     Math.max(1,(effectiveMight(b,role,state)??0)-number(b.damage)))||
    String(a.uid).localeCompare(String(b.uid)));
+ // Older saves, or a reaction changing a keyword, may invalidate a choice.
+ // In that case keep the player's preference inside each mandatory group.
+ const sorted=completeDamageOrder(defaults,stated)??defaults.sort((a,b)=>
+  combatPriority(a)-combatPriority(b)||(order.get(a.uid)??stated.length)-(order.get(b.uid)??stated.length));
  const assigned={};let left=total,excess=0;
  for(let i=0;i<sorted.length&&left>0;i++){
   const u=sorted[i];
@@ -184,9 +207,8 @@ export function previewCombat(state,index,attacker,orders={}){
   excessDamage:{[attacker]:toDefenders.excess,[OPPOSITE[attacker]]:toAttackers.excess},
   damage:after,dead:after.filter(c=>c.dead).map(c=>c.uid),
   recalled:survivingDefenders.length?survivingAttackers.map(c=>c.uid):[],
-  winner:survivingDefenders.length&&survivingAttackers.length?"none":
-   survivingAttackers.length?attacker:
-   survivingDefenders.length?OPPOSITE[attacker]:"none",
+  winner:survivingDefenders.length?OPPOSITE[attacker]:
+   survivingAttackers.length?attacker:"none",
   survivors:{attacker:survivingAttackers.length,defender:survivingDefenders.length}};
 }
 export function applyCombatResult(state,result,{previousController=null}={}){

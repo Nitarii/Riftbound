@@ -7,7 +7,7 @@ import {manualAgentRequest,previewManualActions} from "./manual-bridge.mjs";
 import {createLocalVoiceConversation} from "./local-voice.mjs";
 import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
-import {previewCombat,effectiveMight} from "./combat-engine.mjs";
+import {previewCombat,effectiveMight,completeDamageOrder} from "./combat-engine.mjs";
 import {shenLegend,goldToken} from "./verified-cards.mjs";
 import {publicCardVisible,publicChainDetail,chainIsResolving,chainIsFinalizing} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects,empowerEnergy} from "./effect-engine.mjs";
@@ -343,19 +343,46 @@ $("combat-order-button").onclick=()=>{
  if(!enemies.length)return;
  const container=$("combat-choices");
  container.replaceChildren();
+ const stored=(battle.orders?.human??[]).filter(uid=>enemies.some(card=>card.uid===uid));
+ const order=(completeDamageOrder(enemies,stored)??completeDamageOrder(enemies)).map(card=>card.uid);
+ const english=uiLanguage==="en";
  const select=document.createElement("select");
- for(const enemy of enemies){
-  const option=document.createElement("option");option.value=enemy.uid;
-  option.textContent=enemy.name+" ("+(displayedMight(enemy)??"?")+" Might)";
-  select.append(option);
- }
+ select.setAttribute("aria-label",english?"Target in damage order":"Cible dans l’ordre des dégâts");
+ const earlier=document.createElement("button"),later=document.createElement("button");
+ earlier.type=later.type="button";
+ earlier.textContent=english?"Move up":"Monter";
+ later.textContent=english?"Move down":"Descendre";
  const confirm=document.createElement("button");confirm.type="button";
- confirm.textContent="Prioriser cette cible";confirm.className="primary";
+ confirm.textContent=english?"Confirm order":"Confirmer l’ordre";confirm.className="primary";
+ const hint=document.createElement("span");
+ hint.setAttribute("role","status");
+ function refreshOrder(){
+  earlier.disabled=select.selectedIndex<=0;
+  later.disabled=select.selectedIndex>=order.length-1;
+  confirm.disabled=!completeDamageOrder(enemies,order);
+  hint.textContent=confirm.disabled?(english?"Tank first, Backline last.":"Tank d’abord, Arrière-ligne en dernier."):"";
+ }
+ function renderOrder(selected){
+  select.replaceChildren(...order.map((uid,index)=>{
+   const enemy=enemies.find(card=>card.uid===uid);
+   return new Option((index+1)+". "+enemy.name+" ("+(displayedMight(enemy)??"?")+" Might)",uid);
+  }));
+  select.value=selected;
+  refreshOrder();
+ }
+ function moveTarget(offset){
+  const from=select.selectedIndex,to=from+offset;
+  [order[from],order[to]]=[order[to],order[from]];
+  renderOrder(order[to]);
+ }
+ select.onchange=refreshOrder;
+ earlier.onclick=()=>moveTarget(-1);
+ later.onclick=()=>moveTarget(1);
  confirm.onclick=()=>{
-  const uids=[select.value,...enemies.map(x=>x.uid).filter(uid=>uid!==select.value)];
-  container.hidden=true;dispatch({type:"combat-order",player:"human",uids});
+  container.hidden=true;dispatch({type:"combat-order",player:"human",uids:order});
  };
- container.append(select,confirm);container.hidden=false;
+ renderOrder(order[0]);
+ container.append(select,earlier,later,confirm,hint);container.hidden=false;
 };
 function renderPendingEffects(){
  const pending=state.pendingEffects?.[0]||null;

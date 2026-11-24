@@ -5,7 +5,7 @@ import {chooseRequiredDiscards,mandatoryPlayEffects,playRestrictionText} from ".
 import {processCardEvent,unitBeforeDeath,prepareCardText,payCardText,resolveCardText} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight,empowerEnergy} from "./effect-engine.mjs";
-import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
+import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,clearTurnUnitState,completeDamageOrder,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
@@ -1324,10 +1324,13 @@ export function applyCommand(old, command) {
     const combat=s.pendingCombat;
     if(!combat)throw Error("Aucun combat en cours.");
     checkOwner(p);
-    const valid=participants(combat.battlefield).filter(v=>v.owner!==p).map(v=>v.uid);
+    const targets=participants(combat.battlefield).filter(v=>v.owner!==p);
+    const valid=targets.map(v=>v.uid);
     if(!Array.isArray(c.uids)||c.uids.length!==valid.length||
        new Set(c.uids).size!==valid.length||!c.uids.every(uid=>valid.includes(uid)))
       throw Error("L'ordre d'attribution doit contenir exactement les unités adverses.");
+    if(!completeDamageOrder(targets,c.uids))
+      throw Error("Respecte Tank en premier et Arrière-ligne en dernier. Pour une unité avec les deux, choisis l’un des deux rangs.");
     combat.orders[p]=[...c.uids];summary="Ordre des dégâts de "+p+" modifié.";
   } else if(type==="combat-confirm-effects") {
     if(!s.pendingCombat)throw Error("Aucun combat en cours.");

@@ -308,7 +308,6 @@ try{
   }
   return state.turn>opening.turn&&state.active==="human"&&state;
  });
- // Leave a real ordering choice in the saved game and select it after restart.
  let orderState=after;
  const playFixture=async command=>{
   const result=await call(page,"/api/command",{...command,ifRevision:orderState.revision});
@@ -316,6 +315,38 @@ try{
   orderState=result.body.state;
  };
  const testUnit=(name,text="")=>({name,type:"Unit",energy:0,power:0,might:2,text});
+ const emptyField=after.battlefields.findIndex((field,index)=>field.card&&
+  !after.cards.some(c=>c.zone==="battlefield"&&c.battlefield===index&&c.type==="Unit"));
+ assert.notEqual(emptyField,-1);
+ await playFixture({type:"add",player:"human",zone:"base",card:{...testUnit("Damage Attacker"),might:4}});
+ const attacker=orderState.cards.find(c=>c.name==="Damage Attacker");
+ for(const card of [testUnit("Damage Hybrid","[Tank]\n[Backline]"),testUnit("Damage Guard A"),testUnit("Damage Guard B")]){
+  await playFixture({type:"add",player:"ai",zone:"battlefield",battlefield:emptyField,card});
+ }
+ await playFixture({type:"combat-attack",player:"human",uids:[attacker.uid],battlefield:emptyField});
+ await page.locator("#combat-order-button").click();
+ const later=page.locator("#combat-choices").getByRole("button",{name:"Descendre",exact:true});
+ const confirmOrder=page.locator("#combat-choices").getByRole("button",{name:"Confirmer l’ordre"});
+ await later.click();
+ assert.equal(await confirmOrder.isEnabled(),false);
+ await later.click();
+ assert.equal(await confirmOrder.isEnabled(),true);
+ const hybrid=orderState.cards.find(card=>card.name==="Damage Hybrid");
+ await confirmOrder.click();
+ await waitFor(async()=>{
+  const state=(await call(page,"/api/state")).body.state;
+  return state.pendingCombat?.orders.human.at(-1)===hybrid.uid;
+ });
+ await page.locator("#combat-pass-button").click();
+ orderState=await waitFor(async()=>{
+  const state=(await call(page,"/api/state")).body.state;
+  return !state.pendingCombat&&state.lastCombat?.assignments.some(c=>c.uid===hybrid.uid)&&state;
+ });
+ assert.equal(orderState.lastCombat.assignments.find(c=>c.uid===hybrid.uid).assigned,0);
+ assert.equal(orderState.cards.find(c=>c.uid===hybrid.uid).zone,"battlefield");
+ console.log("PASS: native damage order accepts Tank or Backline for a hybrid and rejects an intermediate rank.");
+
+ // Leave a real ordering choice in the saved game and select it after restart.
  for(const name of ["Order Watcher A","Order Watcher B"]){
   await playFixture({type:"add",player:"human",zone:"base",card:testUnit(name,"When you play a unit, draw 1.")});
  }

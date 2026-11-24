@@ -226,6 +226,10 @@ try{
  await apply({type:"move",uid:state.cards.find(c=>c.code==="VEN-117").uid,zone:"battlefield",battlefield:0});
  await apply({type:"combat-pass",player:"human"});
  await apply({type:"combat-pass",player:"ai"});
+ assert.equal(state.spellChain.items.at(-1).ability,"card-text");
+ assert.equal(state.delayedEnding,undefined);
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
  assert.equal(state.delayedEnding?.length,1);
  assert.deepEqual(state.pendingEffects,[]);
  const end=await request("/api/messages",{text:"Je termine mon tour."});
@@ -436,6 +440,10 @@ try{
  await put("human",witness,"battlefield",1);
  const beforeHold=state.players.human;
  await apply({type:"next-turn"});
+ assert.equal(state.spellChain.items.at(-1).cardName,shenHold.name);
+ assert.equal(state.players.human.handCount,beforeHold.handCount);
+ await apply({type:"chain-pass",player:"human"});
+ await apply({type:"chain-pass",player:"ai"});
  assert.equal(state.players.human.handCount,beforeHold.handCount+2);
  assert.equal(state.players.human.deckCount,beforeHold.deckCount-2);
  const holdRevision=state.revision;

@@ -101,6 +101,7 @@ test("Assault, Shield and stun change damage dealt but not stunned-unit lethalit
  const result=previewCombat(s,0,"ai");
  assert.equal(result.attackingMight,2);
  assert.equal(result.defendingMight,0);
+ assert.equal(result.winner,"human","the defender wins once surviving attackers are recalled");
  assert.equal(result.damageToDefenders[uid(s,"Shielded")],2);
  assert.equal(result.dead.length,0);
  s=pass(s);
@@ -119,6 +120,29 @@ test("Backline last, Tank first, player-selectable damage order within matching 
  result=assignDamage(3,[{...card("First",2),uid:"a"},{...card("Second",2),uid:"b"}],
   "defend",["b","a"]);
  assert.deepEqual(result.assigned,{b:2,a:1});
+});
+test("Tank and Backline conflicts can be decided independently in a spoken damage order",()=>{
+ let s=setup();
+ const attackers=["First Hybrid","Lead Tank","First Guard","Second Guard","Last Hybrid","Last Guard"];
+ for(const [i,name] of attackers.entries()){
+  const text=i===0||i===4?"[Tank]\n[Backline]":i===1?"[Tank]":i===5?"[Backline]":"";
+  s=add(s,name,"ai",2,"base",0,text);
+ }
+ s=add(s,"Defender","human",10,"battlefield",0);
+ s=attack(s,"ai",0,attackers);
+ const ids=attackers.map(name=>uid(s,name));
+ const invalid=[ids[1],ids[2],ids[0],ids[3],ids[4],ids[5]];
+ assert.throws(()=>applyCommand(s,{type:"combat-order",player:"human",uids:invalid}),/Arrière-ligne/);
+ assert.ok(planPlayerSequence(
+  "Ordre des dégâts : Lead Tank, First Guard, First Hybrid, Second Guard, Last Hybrid, Last Guard.",s,[]).error);
+ const plan=planPlayerSequence(
+  "Ordre des dégâts : First Hybrid, Lead Tank, First Guard, Second Guard, Last Hybrid, Last Guard.",s,[]);
+ assert.deepEqual(plan.commands,[{type:"combat-order",player:"human",uids:ids}]);
+ s=plan.commands.reduce(applyCommand,s);
+ const outcome=previewCombat(s,0,"ai",s.pendingCombat.orders);
+ assert.deepEqual(ids.map(id=>outcome.damageToAttackers[id]),[2,2,2,2,2,undefined]);
+ s=pass(s);
+ assert.deepEqual(s.lastCombat.assignments.filter(card=>card.owner==="ai"&&card.dead).map(card=>card.uid),ids.slice(0,5));
 });
 test("when a reaction kills the last defender, combat skips the damage step and attacker conquers",()=>{
  let s=setup();
