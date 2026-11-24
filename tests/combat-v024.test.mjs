@@ -144,7 +144,8 @@ test("Tank and Backline conflicts can be decided independently in a spoken damag
  let s=setup();
  const attackers=["First Hybrid","Lead Tank","First Guard","Second Guard","Last Hybrid","Last Guard"];
  for(const [i,name] of attackers.entries()){
-  const text=i===0||i===4?"[Tank]\n[Backline]":i===1?"[Tank]":i===5?"[Backline]":"";
+  const text=i===0?"[Tank]\nI must be assigned combat damage last.":
+   i===4?"[Tank]\n[Backline]":i===1?"[Tank]":i===5?"[Backline]":"";
   s=add(s,name,"ai",2,"base",0,text);
  }
  s=add(s,"Defender","human",10,"battlefield",0);

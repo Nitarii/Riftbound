@@ -320,7 +320,8 @@ try{
  assert.notEqual(emptyField,-1);
  await playFixture({type:"add",player:"human",zone:"base",card:{...testUnit("Damage Attacker"),might:4}});
  const attacker=orderState.cards.find(c=>c.name==="Damage Attacker");
- for(const card of [testUnit("Damage Hybrid","[Tank]\n[Backline]"),testUnit("Damage Guard A"),testUnit("Damage Guard B")]){
+ for(const card of [testUnit("Damage Hybrid","[Tank]\nI must be assigned combat damage last."),
+  testUnit("Damage Guard A"),testUnit("Damage Guard B")]){
   await playFixture({type:"add",player:"ai",zone:"battlefield",battlefield:emptyField,card});
  }
  await playFixture({type:"combat-attack",player:"human",uids:[attacker.uid],battlefield:emptyField});

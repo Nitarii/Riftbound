@@ -37,8 +37,12 @@ const words=c=>String(c?.text||"")
   /^(?:assault|assaut|shield|bouclier|tank|backline|deathknell)\b/i.test(value.trim())?
    " "+value.trim()+" ":" ")
  .replace(/[–—]/g," ");
+const printedDamagePosition=line=>/^\s*I must be assigned combat damage (first|last)\.\s*$/i
+ .exec(line)?.[1].toLowerCase();
 export function hasKeyword(card,keyword){
  if(keyword==="Tank"&&card.counters?.tempTank)return true;
+ const position=keyword==="Tank"?"first":keyword==="Backline"?"last":null;
+ if(position&&String(card.text||"").split(/\r?\n/).some(line=>printedDamagePosition(line)===position))return true;
  return new RegExp("\\b"+keyword+"\\b","i").test(words(card));
 }
 function keywordValue(card,keyword){
@@ -120,6 +124,7 @@ export function combatWarnings(state,index,attackers,defenders){
    // Assault/Shield/Backline/Deathknell etc can require card-specific
    // timing. Explain which card needs review instead of inventing its effect.
    const special=words(u).replace(/\([^)]*\)/g,"")
+    .split(/\r?\n/).filter(line=>!printedDamagePosition(line)).join("\n")
     .replace(/\b(?:Assault|Assaut|Shield|Bouclier)\s*\d*|\b(?:Tank|Backline)\b/gi,"").trim();
    const compiled=compileCardAbilities(u);
    const handled=compiled.abilities.some(a=>a.supported&&["attack","defend","die"].includes(a.trigger))&&
