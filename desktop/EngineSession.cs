@@ -88,6 +88,7 @@ internal sealed class EngineSession : IDisposable
     {
         http.Dispose();
         job.Dispose();
-        if (File.Exists(readyPath)) File.Delete(readyPath);
+        try { File.Delete(readyPath); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 }

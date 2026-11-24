@@ -50,7 +50,7 @@ try {
     & $Node --build-sea dist/desktop-sea-config.json
     & (Resolve-Path 'dist/desktop-publish/engine/RiftboundEngine.exe').Path --verify-bundle
     Copy-Item -LiteralPath $Catalog -Destination 'dist/desktop-publish/engine/cards.json' -Force
-    & $Dotnet publish desktop/RiftboundCompanion.csproj -c Release -o dist/desktop-publish
+    & $Dotnet publish desktop/RiftboundCompanion.csproj --disable-build-servers -c Release -o dist/desktop-publish
     & $Iscc '/Q' "/DAppVersion=$version" desktop/installer.iss
     $installer = Get-Item "dist/RiftboundCompanion-$version-x64-Setup.exe"
     $hash = (Get-FileHash -LiteralPath $installer.FullName).Hash.ToLowerInvariant()

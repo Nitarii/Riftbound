@@ -9,7 +9,8 @@
     <PlatformTarget>x64</PlatformTarget>
     <SelfContained>true</SelfContained>
     <SatelliteResourceLanguages>en;fr</SatelliteResourceLanguages>
-    <Version>0.44.2</Version>
+    <Version>0.44.3</Version>
+    <UseSharedCompilation>false</UseSharedCompilation>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon Condition="Exists('../dist/companion.ico')">../dist/companion.ico</ApplicationIcon>
   </PropertyGroup>

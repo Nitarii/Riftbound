@@ -194,16 +194,31 @@ internal sealed class BoardWindow : Form
 
     private async void HandleClosing(object? sender, FormClosingEventArgs args)
     {
-        if (stopped || engine is null) return;
-        args.Cancel = true;
-        if (closing) return;
+        if (stopped) return;
+        if (closing)
+        {
+            args.Cancel = true;
+            return;
+        }
         closing = true;
         lifetime.Cancel();
-        manager?.Close();
-        await engine.StopAsync();
-        engine.Dispose();
-        engine = null;
-        stopped = true;
-        Close();
+        if (engine is not { } session) return;
+        args.Cancel = true;
+
+        // Let the original FormClosing event return before closing again.
+        await Task.Yield();
+        try
+        {
+            manager?.Close();
+            board.Dispose();
+            await session.StopAsync();
+        }
+        finally
+        {
+            session.Dispose();
+            engine = null;
+            stopped = true;
+            Close();
+        }
     }
 }

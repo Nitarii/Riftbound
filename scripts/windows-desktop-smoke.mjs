@@ -84,11 +84,19 @@ const call=(page,url,json)=>page.evaluate(async ({url,json})=>{
   "Content-Type":"application/json"},...(json?{method:"POST",body:JSON.stringify(json)}:{})});
  return {status:response.status,body:response.headers.get("content-type")?.includes("json")?await response.json():null};
 },{url,json});
-async function engineStopped(enginePid){
+async function processExited(pid){
  await waitFor(()=>{
-  try{process.kill(enginePid,0);return false;}
+  try{process.kill(pid,0);return false;}
   catch(error){if(error.code==="ESRCH")return true;throw error;}
  });
+}
+async function webViewPids(browser){
+ const session=await browser.newBrowserCDPSession();
+ try{
+  const {processInfo}=await session.send("SystemInfo.getProcessInfo");
+  assert.ok(processInfo.some(process=>process.type==="browser"&&process.id>0));
+  return processInfo.map(process=>process.id);
+ }finally{await session.detach();}
 }
 async function nativeWindow(pid,action){
  const command=`
@@ -358,10 +366,11 @@ try{
  await waitFor(async()=>JSON.parse(await fs.readFile(path.join(data,"desktop-preferences.json"),"utf8"))==="en");
  await fs.mkdir("artifacts",{recursive:true});
  await page.screenshot({path:"artifacts/desktop-board.png"});
+ pids.push(...await webViewPids(browser));
  const killed=once(host,"exit");
  host.kill();
  await killed;
- await Promise.all(pids.map(engineStopped));
+ await Promise.all(pids.map(processExited));
  await browser.close().catch(()=>{});
  // Do not let discovery from the previous WebView2 process satisfy the next
  // launch's readiness check while its debugger is still shutting down.
@@ -388,11 +397,22 @@ try{
  assert.deepEqual(ordered.spellChain.items.map(item=>item.cardName),["Order Watcher B","Order Watcher A"]);
  assert.equal(ordered.players.human.handCount,restored.players.human.handCount);
  console.log("PASS: Windows saves simultaneous trigger choices and restores clickable chain ordering.");
- const secondPid=(await call(page,"/api/manager/processes")).body.companion.pid;
+ if(modelSource&&voiceSample){
+  assert.equal((await call(page,"/api/speech/warm",{})).status,202);
+ }
+ const processes=(await call(page,"/api/manager/processes")).body;
+ const closingPids=[processes.companion.pid,...await webViewPids(browser)];
+ if(modelSource&&voiceSample){
+  const whisper=await waitFor(async()=>{
+   const item=(await call(page,"/api/manager/processes")).body.whisper;
+   return item.active&&item.pid;
+  });
+  closingPids.push(whisper);
+ }
  const exited=once(host,"exit");
  await nativeWindow(host.pid,"close");
  await exited;
- await engineStopped(secondPid);
+ await Promise.all(closingPids.map(processExited));
  await browser.close().catch(()=>{});
  console.log("PASS: embedded WebView2, offline catalog, duel, hidden hand, AI turn, save/resume, language and process shutdown.");
 }finally{

@@ -638,9 +638,9 @@ const speech=createLocalWhisper({userData});
 const piper=createLocalPiper({userData});
 let serverClosing=false;
 function shutdownAll(){
- piper.stop();
  if(serverClosing)return;
  serverClosing=true;
+ try{piper.stop();}catch{}
  try{remoteAccess.stop();}catch{}
  try{localFreeAI.stop();}catch{}
  try{speech.stop();}catch{}
@@ -703,7 +703,7 @@ function startRemoteOpponent(){
   localFreeAI.stop();
   return session;
  },error=>{
-  if(wasLocal){
+  if(wasLocal&&!serverClosing){
    integratedAI.enable();
    resumeLocalOpponent();
   }
