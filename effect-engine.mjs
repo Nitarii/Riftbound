@@ -36,12 +36,25 @@ export function empoweredDefenseLine(line){
   .exec(String(line).replace(/\s*\([^)]*\)\s*$/,"").trim());
  return match?Number(match[1]):null;
 }
-export function empowerEnergy(card){
- for(const line of String(card?.text||"").split(/\r?\n/)){
-  const match=/^\[Empower\]\s*\[(\d{1,2})\]$/i.exec(line.replace(/\s*\([^)]*\)\s*$/,"").trim());
-  if(match)return Number(match[1]);
+export function empowerCost(card){
+ if(!/^unit$/i.test(card?.type||""))return null;
+ for(const line of String(card.text||"").split(/\r?\n/)){
+  const match=/^\[Empower\]\s*(?:-\s*)?(?:\[(\d{1,2})\])?((?:\[[CA]\]){0,5})$/i
+   .exec(normalize(line).replace(/\s*\([^)]*\)\s*$/,"").trim());
+  if(!match||(!match[1]&&!match[2]))continue;
+  const symbols=match[2].match(/\[[CA]\]/gi)||[];
+  if(new Set(symbols.map(symbol=>symbol.toUpperCase())).size>1)continue;
+  return {name:card.name,energy:Number(match[1]||0),power:symbols.length,domains:card.domains,
+   anyPower:symbols[0]?.toUpperCase()==="[A]"};
  }
  return null;
+}
+export function empoweredStats(line){
+ const text=normalize(line).replace(/\s*\([^)]*\)\s*$/,"");
+ const might=/^\[Empowered\](?:\[>\])?\s*I have \+(\d{1,2}) \[[SM]\]( and \[Ganking\])?\.$/i.exec(text);
+ if(might)return {might:Number(might[1]),ganking:Boolean(might[2])};
+ const assault=/^\[Empowered\](?:\[>\])?\s*I have \[Assault (\d{1,2})\]\.$/i.exec(text);
+ return assault?{assault:Number(assault[1])}:null;
 }
 export function migrateLegacyPassivePendingEffects(state){
  if(!state||!Array.isArray(state.pendingEffects))return state;
@@ -238,14 +251,16 @@ export function compileCardAbilities(card){
  if(noxianEmissary(card))return {continuous,abilities:[{trigger:"die",condition:"empowered",supported:true,
   text:"Deathknell si Empowered : deux Recruits de 1 Might en base.",
   steps:[{kind:"create-units",count:2,tokenMight:1,tokenName:"Recruit",destination:"base"}]}],
-  unsupported:[{trigger:"activation",text:"Empower de Noxian Emissary",reason:"Compétence activée non automatisée"}]};
+  unsupported:[]};
  if([verifiedSpell,handHammer,shadowAssassin,mournfulWitness,sacredProtector,bladeTwirler,soulspinner,shadowDisciple,thresholdOfGray,pakaaProtector,shenLegend,goldToken]
     .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){
   const defense=type==="unit"?empoweredDefenseLine(line):null;
   if(defense!==null){continuous.push({kind:"empowered-defense",shield:defense});continue;}
-  if(type==="unit"&&empowerEnergy({text:line})!==null)continue;
+  if(type==="unit"&&empowerCost({...card,text:line}))continue;
+  const empowered=type==="unit"?empoweredStats(line):null;
+  if(empowered){continuous.push({kind:"empowered-stats",...empowered});continue;}
   const levelStats=type==="unit"?levelStatRules(line):[];
   if(levelStats.length){continuous.push(...levelStats);continue;}
   const hunt=type==="unit"&&/^\[Hunt(?: (\d{1,2}))?\](?:\s*\(When I conquer or hold, gain \d{1,2} XP\.\))?\s*$/i.exec(line);

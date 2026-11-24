@@ -1,6 +1,6 @@
 // Riftbound combat arithmetic for the October 9, 2026 Core Rules 466–468.
 // Pure, deterministic. Reactions/triggered effects must be resolved before damage.
-import {conditionalShieldRule,compileCardAbilities,levelStatRules,empoweredDefenseLine} from "./effect-engine.mjs";
+import {conditionalShieldRule,compileCardAbilities,levelStatRules,empoweredDefenseLine,empoweredStats} from "./effect-engine.mjs";
 import {mournfulWitness,sacredProtector,handHammer,printedCode} from "./verified-cards.mjs";
 export const COMBAT_RULES_DATE="2026-10-09";
 export const OPPOSITE={ai:"human",human:"ai"};
@@ -32,7 +32,8 @@ export function clearTurnUnitState(unit){
  for(const key of ["stunned","tempMight","mightThisTurn","preventDamage","tempAssault","tempBaseMight","tempShroud","tempTank","tempNoMoveBy"])
   if(unit.counters)delete unit.counters[key];
 }
-const words=c=>String(c?.text||"")
+const empoweredLines=card=>String(card.text||"").split(/\r?\n/);
+const words=c=>empoweredLines(c).filter(line=>!empoweredStats(line)).join("\n")
  .replace(/\[([^\]]*)\]/g,(_,value)=>
   /^(?:assault|assaut|shield|bouclier|tank|backline|deathknell)\b/i.test(value.trim())?
    " "+value.trim()+" ":" ")
@@ -40,6 +41,8 @@ const words=c=>String(c?.text||"")
 const printedDamagePosition=line=>/^\s*I must be assigned combat damage (first|last)\.\s*$/i
  .exec(line)?.[1].toLowerCase();
 export function hasKeyword(card,keyword){
+ if(keyword==="Ganking")return empoweredLines(card).some(line=>(!/^\s*\[Empowered\]/i.test(line)&&/\[Ganking\]/i.test(line))||
+  card.counters?.empowered&&empoweredStats(line)?.ganking);
  if(keyword==="Tank"&&card.counters?.tempTank)return true;
  const position=keyword==="Tank"?"first":keyword==="Backline"?"last":null;
  if(position&&String(card.text||"").split(/\r?\n/).some(line=>printedDamagePosition(line)===position))return true;
@@ -79,9 +82,12 @@ export function effectiveMight(card,role="none",state=null){
    printedCode(state?.battlefields?.[card.battlefield]?.card)==="VEN-159"?1:0;
  const levelMight=levelStatRules(card).filter(rule=>currentXP(card,state)>=rule.minimumXP)
   .reduce((total,rule)=>total+rule.might,0);
- const stats=Math.max(0,printed+number(counters.might)+number(counters.buff)+
+ const empowered=counters.empowered?empoweredLines(card).map(empoweredStats).filter(Boolean):[];
+ const empoweredMight=empowered.reduce((total,rule)=>total+(rule.might??0),0);
+ const empoweredAssault=empowered.reduce((total,rule)=>total+(rule.assault??0),0);
+ const stats=Math.max(0,printed+empoweredMight+number(counters.might)+number(counters.buff)+
   number(counters.tempMight)+number(counters.mightThisTurn)+number(counters["might bonus"])+
-  (role==="attack"?keywordValue(card,"Assault|Assaut")+number(counters.tempAssault):0)+
+  (role==="attack"?keywordValue(card,"Assault|Assaut")+empoweredAssault+number(counters.tempAssault):0)+
   shieldBonus(card,role,state)+temple+gearMight+levelMight+(mournfulWitness(card)&&counters.empowered?2:0));
  return stats;
 }

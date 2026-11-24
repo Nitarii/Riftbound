@@ -258,6 +258,62 @@ test("Shen–Jinx preserves priority when the player corrects a pass and resolve
  assert.equal(get(s,discarded.name).zone,"trash");
  assert.equal(s.cards.filter(c=>c.name===discarded.name).length,1);
 });
+test("Kinkou Lifeblade gains Might and Ganking only after its spoken Empower resolves",()=>{
+ const lifeblade=card("Kinkou Lifeblade","VEN-093","Unit",4,4,{
+  domains:["Chaos"],text:"[Empower] [2]\n[Empowered][>] I have +1 [S] and [Ganking]."});
+ let s=add(table(),"human",lifeblade,"battlefield",0);
+ for(let i=0;i<2;i++)s=add(s,"human",rune("Chaos"),"runes");
+ const unit=()=>get(s,lifeblade.name);
+ const move={type:"move",uid:unit().uid,zone:"battlefield",battlefield:1};
+ assert.throws(()=>applyCommand(s,move),/Ganking/);
+ const announced=planPlayerSequence("J’amplifie Kinkou Lifeblade",s,[lifeblade]);
+ assert.equal(announced.commands[0]?.type,"activate",announced.error);
+ s=announced.commands.reduce(applyCommand,s);
+ assert.equal(effectiveMight(unit()),4);
+ s=resolveTop(s);
+ assert.equal(effectiveMight(unit()),5);
+ s=applyCommand(s,move);
+ assert.equal(unit().battlefield,1);
+ assert.equal(unit().exhausted,true);
+});
+
+test("Noxian Emissary needs Order Power and can exhaust and recycle the same rune",()=>{
+ const emissary=card("Noxian Emissary","VEN-128","Unit",2,2,{
+  domains:["Order"],text:"[Empower] [1][C]\n[Empowered][>][>>][Deathknell][>] Play two 1 [S] Recruit unit tokens to your base."});
+ let s=add(add(table(),"human",emissary),"human",rune("Calm"),"runes");
+ const activate={type:"activate",player:"human",uid:get(s,emissary.name).uid};
+ assert.throws(()=>applyCommand(s,activate),/Power insuffisant \(Order\)/);
+ assert.equal(s.cards.find(c=>c.zone==="runes").exhausted,false);
+ s=add(s,"human",rune("Order"),"runes");
+ const order=get(s,"Order Rune");
+ s=applyCommand(s,activate);
+ assert.equal(s.cards.some(c=>c.uid===order.uid),false);
+ assert.equal(get(s,"Calm Rune").exhausted,false);
+ assert.equal(get(s,emissary.name).counters.empowered??0,0);
+ s=resolveTop(s);
+ assert.equal(get(s,emissary.name).counters.empowered,1);
+ assert.throws(()=>applyCommand(s,activate),/amplifiée/);
+});
+
+test("AI can pay for Shadow Fiend Empower when Assault makes an attack profitable",()=>{
+ const fiend=card("Shadow Fiend","VEN-014","Unit",2,2,{
+  domains:["Fury"],text:"[Empower] [2][C]\n[Empowered][>] I have [Assault 3]."});
+ let s=add(table("ai"),"ai",fiend);
+ s=add(s,"human",card("Hold 1","T-HOLD-1","Unit",4,4),"battlefield",0);
+ s=add(s,"human",card("Hold 2","T-HOLD-2","Unit",7,7),"battlefield",1);
+ for(const domain of ["Chaos","Fury"])s=add(s,"ai",rune(domain),"runes");
+ const unit=()=>get(s,fiend.name);
+ assert.equal(effectiveMight(unit(),"attack",s),2);
+ const activation=planAutonomousAITurn(s);
+ assert.deepEqual(activation.commands,[{type:"activate",player:"ai",uid:unit().uid}]);
+ s=activation.state;
+ assert.equal(effectiveMight(unit(),"attack",s),2);
+ assert.equal(s.cards.filter(c=>c.owner==="ai"&&c.zone==="runes").length,1);
+ s=resolveTop(s);
+ assert.equal(effectiveMight(unit(),"attack",s),5);
+ assert.equal(effectiveMight(unit(),"defend",s),2);
+ assert.equal(planAutonomousAITurn(s).commands[0]?.type,"combat-attack");
+});
 test("Get Excited! requests only the physical card discarded and accepts it once",()=>{
  let s=table();
  s=add(add(add(s,"human",rune("Fury"),"runes"),"human",rune("Fury"),"runes"),

@@ -7,7 +7,7 @@ import {mandatoryPlayEffects,chooseRequiredDiscards,chooseDamageDiscard} from ".
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight,hasKeyword,clearTurnUnitState} from "./combat-engine.mjs";
 import {hiddenDisciple,shenLegend} from "./verified-cards.mjs";
-import {spellRule,resolvedSpellMight} from "./effect-engine.mjs";
+import {spellRule,resolvedSpellMight,empowerCost} from "./effect-engine.mjs";
 const isUnit=c=>/^unit$/i.test(c?.type||"");
 const isPlayable=c=>/^(unit|gear)$/i.test(c?.type||"");
 const extraRestrictions=c=>!mandatoryPlayEffects(c).supported;
@@ -262,6 +262,26 @@ export function enumerateAIAssaults(view,{limit=5,searchBudget=90}={}){
  }
  return options.sort((a,b)=>b.value-a.value).slice(0,limit);
 }
+function amplifyForAssault(state){
+ if(!emptyBattlefieldTargets(state).some(field=>field.enemy>0))return null;
+ let best=null;
+ for(const unit of own(state,"base").filter(readyToMove)){
+  const cost=empowerCost(unit);
+  if(!cost||unit.counters?.empowered)continue;
+  const empowered={...unit,counters:{...unit.counters,empowered:1}};
+  if(effectiveMight(empowered,"attack",state)<=effectiveMight(unit,"attack",state))continue;
+  const command={type:"activate",player:"ai",uid:unit.uid};
+  try{
+   let preview=applyCommand(state,command);
+   preview=applyCommand(preview,{type:"chain-pass",player:"ai"});
+   preview=applyCommand(preview,{type:"chain-pass",player:"human"});
+   const assault=enumerateAIAssaults(preview,{limit:1})[0];
+   if(assault?.command.uids.includes(unit.uid)&&(!best||assault.value>best.value))
+    best={command,name:unit.name,value:assault.value};
+  }catch{}
+ }
+ return best;
+}
 export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssault=null}={}){
  if(!state?.started||state.active!=="ai")return {commands:[],state,summary:""};
  if(state.finished)return {commands:[],state,summary:"Partie terminée",finished:true};
@@ -342,6 +362,12 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    return true;
   }
   if(attackDefended())return partial();
+  const amplification=amplifyForAssault(view);
+  if(amplification){
+   apply(amplification.command);
+   announce("lancé l'amplification de "+amplification.name,"activated Empower on "+amplification.name);
+   return partial();
+  }
   // Only units with fully known printed costs, including domain-coloured Power,
   // are eligible. Do not guess spells/gear/effects requiring custom timing.
   for(let played=0;played<maxUnits&&!view.finished;played++){

@@ -20,7 +20,7 @@ Préparer Node.js 26, le SDK .NET 10 et Inno Setup 7, puis lancer depuis la raci
 ./scripts/build-desktop.ps1 -Iscc 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe'
 node --test tests/*.test.mjs
 npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
-./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.6-x64-Setup.exe
+./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.7-x64-Setup.exe
 node scripts/build-pages.mjs --preview
 ```
 
@@ -65,3 +65,5 @@ L’aperçu 0.44.5 laisse 900 ms après la transcription d’un passage de prior
 Riot classe le jeu numérique à arbitrage automatique et les clients autonomes dédiés parmi les usages qu’il n’approuve pas dans sa politique publique. [Politique Riftbound](https://developer.riotgames.com/policies/riftbound).
 
 Dans l’aperçu 0.44.6, l’IA vérifie avant de lancer Get Excited! si une carte de sa main peut infliger assez de dégâts. Elle choisit et révèle sa défausse à la résolution en tenant compte des réactions du joueur.
+
+L’aperçu 0.44.7 gère les coûts fixes d’Amplification des unités en énergie et en Power. Les bonus de Force, Assault et Ganking couverts prennent effet à la résolution. L’adversaire peut amplifier Shadow Fiend avant une attaque et attend la réponse du joueur avant de l’annoncer.

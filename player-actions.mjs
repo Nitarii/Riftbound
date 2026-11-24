@@ -3,7 +3,7 @@
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
 import {fieldMusicians,shenLegend,soulspinner,goldToken} from "./verified-cards.mjs";
-import {compileCardAbilities,spellRule,empowerEnergy} from "./effect-engine.mjs";
+import {compileCardAbilities,spellRule,empowerCost} from "./effect-engine.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 
@@ -270,7 +270,7 @@ function targetedPlay(text,state,catalog){
  }
  const empower=text.match(/^(?:j'amplifie|j'empower|je renforce|i empower) (.+)$/);
  if(empower){
-  const unit=spokenPublicTarget(board.filter(c=>c.owner==="human"&&empowerEnergy(c)!==null),empower[1]);
+  const unit=spokenPublicTarget(board.filter(c=>c.owner==="human"&&empowerCost(c)),empower[1]);
   if(!unit)return fail("Quelle unité veux-tu amplifier ?","Which unit are you empowering?");
   return {type:"activate",player:"human",uid:unit.uid};
  }

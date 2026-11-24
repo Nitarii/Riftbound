@@ -4,8 +4,8 @@ import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
 import {chooseRequiredDiscards,chooseDamageDiscard,mandatoryPlayEffects,playRestrictionText} from "./play-effects.mjs";
 import {processCardEvent,unitBeforeDeath,prepareCardText,payCardText,resolveCardText} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
-import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight,empowerEnergy} from "./effect-engine.mjs";
-import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,clearTurnUnitState,completeDamageOrder,OPPOSITE} from "./combat-engine.mjs";
+import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight,empowerCost} from "./effect-engine.mjs";
+import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,hasKeyword,clearTurnUnitState,completeDamageOrder,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
 // Both the browser and the optional local relay use this exact reducer.
@@ -1084,6 +1084,7 @@ export function applyCommand(old, command) {
   } else if(type==="activate"){
     checkOwner(p);
     const source=getCard(s,string(c.uid,80));
+    const amplification=empowerCost(source);
     if(goldToken(source)){
       if(!s.started||s.phase!=="Main"&&!s.spellChain||s.pendingEffects.length||!hasPriority(p))
         throw Error("Attends ta priorité pour dépenser un jeton Gold.");
@@ -1092,12 +1093,12 @@ export function applyCommand(old, command) {
       s.cards=s.cards.filter(card=>card.uid!==source.uid);
       s.powerPool[p]++;
       summary=(p==="ai"?"IA":"Joueur")+" · Gold dépensé · 1 Power ajouté à la réserve";
-    }else if(/^unit$/i.test(source.type)&&empowerEnergy(source)!==null){
+    }else if(amplification){
       if(!s.started||s.active!==p||s.phase!=="Main"||s.spellChain||s.pendingCombat||s.pendingEffects.length)
         throw Error("Utilise Amplification pendant ta phase principale ouverte.");
       if(source.owner!==p||!onBoard(source)||source.faceDown||source.counters?.empowered||c.targetUid!=null)
         throw Error("Choisis une de tes unités en jeu qui n’est pas encore amplifiée.");
-      const paid=pay(p,{name:source.name,energy:empowerEnergy(source),power:0});
+      const paid=pay(p,amplification,c.payment);
       appendChainItem({uid:"activate-"+(s.revision+1),sourceUid:source.uid,
         cardName:source.name,ability:"empower",owner:p});
       summary=source.name+" · Amplification sur la chaîne"+payLabel(paid);
@@ -1380,7 +1381,7 @@ export function applyCommand(old, command) {
      if(origin==="battlefield"&&zone==="battlefield"){
       const fieldText=s.battlefields[v.battlefield]?.card?.text||"";
       const grant=/units (?:at|on|here|there)[^.!]*\[Ganking\]/i.test(fieldText);
-      if(!/\[Ganking\]/i.test(v.text||"")&&!grant)
+      if(!hasKeyword(v,"Ganking")&&!grant)
        throw Error("Ganking est nécessaire pour aller directement d'un champ à un autre.");
      }
     }

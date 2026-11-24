@@ -10,7 +10,7 @@ import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight,completeDamageOrder} from "./combat-engine.mjs";
 import {shenLegend,goldToken} from "./verified-cards.mjs";
 import {publicCardVisible,publicChainDetail,chainIsResolving,chainIsFinalizing} from "./public-table.mjs";
-import {migrateLegacyPassivePendingEffects,empowerEnergy} from "./effect-engine.mjs";
+import {migrateLegacyPassivePendingEffects,empowerCost} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
 const desktop=globalThis.riftboundDesktop;
@@ -679,13 +679,16 @@ function showInstance(c) {
    };
    bar.prepend(spend);
   }
-  const empowerCost=empowerEnergy(c);
-  if(empowerCost!==null&&c.owner==="human"&&/^unit$/i.test(c.type)&&["base","battlefield"].includes(c.zone)&&
+  const amplification=empowerCost(c);
+  if(amplification&&c.owner==="human"&&["base","battlefield"].includes(c.zone)&&
      !c.faceDown&&!c.counters?.empowered&&!state.finished&&!state.pendingCombat&&!state.spellChain&&
      !state.pendingEffects?.length&&state.phase==="Main"&&hasFocus){
    const activate=document.createElement("button");
    activate.type="button";activate.className="primary";
-   activate.textContent=(uiLanguage==="en"?"Empower":"Amplifier")+" ("+empowerCost+")";
+   const cost=[amplification.energy+" "+(uiLanguage==="en"?"Energy":"énergie")];
+   if(amplification.power)cost.push(amplification.power+" Power"+
+    (amplification.anyPower?"":" "+amplification.domains.join("/")));
+   activate.textContent=(uiLanguage==="en"?"Empower":"Amplifier")+" ("+cost.join(" · ")+")";
    activate.onclick=()=>{
     $("card-dialog").close();
     dispatch({type:"activate",player:"human",uid:c.uid});
