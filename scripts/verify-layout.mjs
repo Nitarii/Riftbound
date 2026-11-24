@@ -440,6 +440,30 @@ try{
  await gamePage.waitForURL("http://127.0.0.1:8787/manager.html#access=layout-qa",{timeout:10000});
  console.log("PASS welcome manager navigation returns to the same authenticated tab");
  await gamePage.close();
+
+ const nativePage=await browser.newPage({viewport:{width:1280,height:720}});
+ await nativePage.addInitScript(()=>{
+  Object.defineProperty(window,"riftboundDesktop",{value:{token:"layout-test",language:"fr"}});
+  window.nativeMessages=[];
+  window.chrome.webview=new EventTarget();
+  window.chrome.webview.postMessage=message=>window.nativeMessages.push(message.type);
+ });
+ await nativePage.goto(url,{waitUntil:"domcontentloaded"});
+ await nativePage.waitForFunction(()=>window.nativeMessages.includes("board-ready"));
+ const badge=nativePage.locator("#desktop-update-notice");
+ ensure(await badge.isHidden(),"The desktop welcome shows a badge with no update");
+ const update=version=>nativePage.evaluate(version=>window.chrome.webview.dispatchEvent(
+  new MessageEvent("message",{data:{type:"update-status",version}})),version);
+ await update("0.45.0");
+ ensure(await badge.isVisible(),"The desktop welcome hides a detected application update");
+ ensure((await badge.textContent()).includes("Mise à jour disponible · 0.45.0"),"Update version missing");
+ await badge.click();
+ ensure(await nativePage.evaluate(()=>window.nativeMessages.at(-1))==="manager",
+  "Clicking the desktop update badge did not open the manager");
+ await update(null);
+ ensure(await badge.isHidden(),"The desktop update badge stayed visible after the update cleared");
+ await nativePage.close();
+ console.log("PASS desktop update notice appears next to Manager on the welcome screen");
 }finally{
  await browser.close();
  await new Promise(resolve=>server.close(resolve));
