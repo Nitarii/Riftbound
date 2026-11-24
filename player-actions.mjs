@@ -3,7 +3,7 @@
 import {applyCommand} from "./core.mjs";
 import {rankSpokenCards,matchSpokenCard} from "./card-voice.mjs";
 import {fieldMusicians,shenLegend,soulspinner,goldToken} from "./verified-cards.mjs";
-import {compileCardAbilities,spellRule} from "./effect-engine.mjs";
+import {compileCardAbilities,spellRule,empowerEnergy} from "./effect-engine.mjs";
 import {RUNE_DOMAINS,runeDomain} from "./rune-payment.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 
@@ -80,7 +80,9 @@ function correctToken(token){
  const candidates=[...intentWords,...intentNouns].filter(word=>Math.abs(word.length-token.length)<=1&&distance(token,word,1)<=1);
  return candidates.length===1?candidates[0]:token;
 }
-export const normalizePlayerAnnouncement=message=>clean(message).replace(/[a-z]+/g,correctToken);
+export const normalizePlayerAnnouncement=message=>clean(message)
+ .replace(/\b(je (?:passe|termine|finis) mon) tourant\b/g,"$1 tour")
+ .replace(/[a-z]+/g,correctToken);
 
 export function findAnnouncedCard(catalog,name){
  return matchSpokenCard(catalog,name).card;
@@ -247,6 +249,12 @@ function targetedPlay(text,state,catalog){
   if(!source||!target)return fail("Indique une cible alliée en jeu pour la légende Shen.",
    "Name a friendly unit in play for the Shen legend.");
   return {type:"activate",player:"human",uid:source.uid,targetUid:target.uid};
+ }
+ const empower=text.match(/^(?:j'amplifie|j'empower|je renforce|i empower) (.+)$/);
+ if(empower){
+  const unit=spokenPublicTarget(board.filter(c=>c.owner==="human"&&empowerEnergy(c)!==null),empower[1]);
+  if(!unit)return fail("Quelle unité veux-tu amplifier ?","Which unit are you empowering?");
+  return {type:"activate",player:"human",uid:unit.uid};
  }
  const hide=text.match(/^(?:je cache une carte|i hide a card)\s+(?:au|a|sur|at|on)\s+(.+?)(?:\s+(?:en recyclant|avec|using)\s+(?:une rune |a rune )?([a-z]+))?$/);
  if(hide){
@@ -492,7 +500,10 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  if(namedChampion)return namedChampion;
  const explicit=announcedPayment(text);
  if(explicit.error)return explicit.error;
- const {text:playText,payment}=explicit;
+ const {text:spokenPlay,payment}=explicit;
+ const playText=spokenPlay
+  .replace(/\b(joue|pose|place|mets) (?:en base|dans (?:ma|la) base) /,"$1 ")
+  .replace(/\b(joue|pose|place|mets) (.+?) en base(?= pour | avec |$)/,"$1 $2 dans ma base");
  const chosen=/\b(?:je joue|i play) (?:mon |my )?(?:champion choisi|chosen champion)\b/.test(playText);
  const targeted=targetedPlay(playText,state,catalog);
  if(targeted){

@@ -16,6 +16,9 @@ const data=await fs.mkdtemp(path.resolve("dist/desktop-smoke-"));
 const modelSource=process.env.RIFTBOUND_SMOKE_MODELS_ROOT;
 const voiceSample=process.env.RIFTBOUND_SMOKE_WAV;
 const useRemote=process.env.RIFTBOUND_SMOKE_REMOTE==="1";
+const checkArtwork=process.env.RIFTBOUND_SMOKE_ART==="1";
+const checkPiper=process.env.RIFTBOUND_SMOKE_PIPER==="1";
+const checkNativeUi=process.env.RIFTBOUND_SMOKE_NATIVE_UI==="1";
 const use9B=process.env.RIFTBOUND_SMOKE_QWEN==="9b";
 const model=use9B?ADVANCED_LOCAL_MODEL:DEFAULT_LOCAL_MODEL;
 if(modelSource&&voiceSample){
@@ -50,7 +53,8 @@ async function waitFor(test,timeout=30000){
 function start(){
  return spawn(executable,["--data-dir",data],{stdio:"ignore",
   env:{...process.env,RIFTBOUND_DESKTOP_STARTUP_TRACE:"1",
-   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:"--remote-debugging-port="+new URL(debugURL).port}});
+   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:"--remote-debugging-port="+new URL(debugURL).port+
+    (checkNativeUi?" --use-fake-device-for-media-stream":"")}});
 }
 async function connect(){
  const startupLog=path.join(data,"temp","desktop-startup.log");
@@ -86,7 +90,7 @@ async function engineStopped(enginePid){
   catch(error){if(error.code==="ESRCH")return true;throw error;}
  });
 }
-async function closeWindow(pid){
+async function nativeWindow(pid,action){
  const command=`
 Add-Type @'
 using System;
@@ -98,28 +102,49 @@ public static class RiftboundSmokeWindow {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int size);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wparam, IntPtr lparam);
-  public static bool Close(uint pid) {
-    bool posted = false;
+  [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hwnd, int id);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string name);
+  public static bool Run(uint pid, string action) {
+    bool done = false;
     EnumWindows((hwnd, _) => {
       uint owner;
       GetWindowThreadProcessId(hwnd, out owner);
       if (owner != pid) return true;
       var text = new StringBuilder(256);
       GetWindowText(hwnd, text, text.Capacity);
-      if (!text.ToString().StartsWith("Riftbound Companion", StringComparison.Ordinal)) return true;
-      posted = PostMessage(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
-      return false;
+      if (action == "permit-mic" && text.ToString() == "Riftbound Companion") {
+        var permit = GetDlgItem(hwnd, 6);
+        var label = FindWindowEx(hwnd, IntPtr.Zero, "Static", null);
+        while (label != IntPtr.Zero) {
+          GetWindowText(label, text, text.Capacity);
+          if (permit != IntPtr.Zero && text.ToString().StartsWith("Riftbound Companion souhaite utiliser votre microphone", StringComparison.Ordinal)) {
+            done = PostMessage(hwnd, 0x0111, new IntPtr(6), permit);
+            return false;
+          }
+          label = FindWindowEx(hwnd, label, "Static", null);
+        }
+        return true;
+      }
+      bool manager = action == "manager";
+      var expected = manager ? "Gestionnaire · Riftbound Companion" : "Riftbound Companion";
+      if (text.ToString() != expected) return true;
+      done = action == "close" ? PostMessage(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero) : IsZoomed(hwnd);
+      if (manager && done) PostMessage(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
+      return !done;
     }, IntPtr.Zero);
-    return posted;
+    return done;
   }
 }
 '@
-if (![RiftboundSmokeWindow]::Close(${pid})) { exit 1 }`;
+if (![RiftboundSmokeWindow]::Run(${pid}, '${action}')) { exit 1 }`;
  await promisify(execFile)("powershell.exe",["-NoProfile","-NonInteractive","-Command",command],{windowsHide:true});
 }
 async function pick(page,id,name,choice){
  await page.locator(id).fill(name);
- await page.getByRole("option",{name:choice}).first().click();
+ const match=page.getByRole("option",{name:choice}).first();
+ if(checkArtwork)await waitFor(()=>match.locator("img").evaluate(img=>img.naturalWidth>0,undefined,{timeout:1200}));
+ await match.click();
 }
 let host=start();
 try{
@@ -144,6 +169,19 @@ try{
  await page.locator("#home-ai-deck").selectOption({label:await page.locator("#home-ai-deck option").filter({hasText:"Jinx"}).first().innerText()});
  await page.locator("#home-create-game").click();
  await page.locator("#game-app").waitFor();
+ assert.equal(await page.locator("#mic-device").inputValue(),"");
+ if(checkNativeUi){
+  await nativeWindow(host.pid,"board");
+  await page.locator("#manager-open").click();
+  await waitFor(async()=>{await nativeWindow(host.pid,"manager");return true;});
+  await page.locator("#mic-identify").click();
+  await waitFor(async()=>{await nativeWindow(host.pid,"permit-mic");return true;});
+  await waitFor(async()=> (await page.locator("#mic-device option").count())>1);
+  await page.locator("#mic-device").selectOption({index:1});
+  assert.notEqual(await page.locator("#mic-device").inputValue(),"");
+  console.log("PASS: maximized board and manager, branded native permission and microphone selection.");
+ }
+ assert.doesNotMatch(await page.locator("#welcome-screen").textContent(),/Relais synchronisé|Ne publie jamais ton jeton/);
  const opening=(await call(page,"/api/state")).body.state;
  assert.equal(opening.started,true);
  const invalid=await call(page,"/api/command",{type:"new-duel",ifRevision:opening.revision,
@@ -152,6 +190,31 @@ try{
  assert.equal(invalid.status,400);
  assert.equal((await call(page,"/api/state")).body.state.revision,opening.revision);
  assert.ok(opening.cards.filter(card=>card.owner==="ai"&&card.zone==="hand").every(card=>card.faceDown&&!card.name));
+ if(checkArtwork){
+  for(const name of [/Shen, Eye of Twilight/i,/Shen, Leader of the Kinkou Order/i,/Grove of the God-Willow/i]){
+   const art=page.getByRole("img",{name}).first();
+   await waitFor(()=>art.evaluate(img=>img.complete&&img.naturalWidth>0,undefined,{timeout:1200}));
+  }
+  console.log("PASS: real Riot artwork on the WebView2 board.");
+ }
+ if(checkPiper){
+  assert.equal((await call(page,"/api/speech/synthesis/install",{})).status,202);
+  await waitFor(async()=> {
+   const status=(await call(page,"/api/speech/synthesis")).body;
+   return status.installed&&status.native;
+  },60000);
+  const audio=await page.evaluate(async()=>{
+   const response=await fetch("/api/speech/synthesis",{method:"POST",headers:{
+    Authorization:"Bearer "+window.riftboundDesktop.token,"Content-Type":"application/json"},
+    body:JSON.stringify({text:"Je joue mon unité en base. À toi !"})});
+   const wav=await response.arrayBuffer();
+   return {status:response.status,bytes:wav.byteLength,format:new TextDecoder().decode(wav.slice(0,4))};
+  });
+  assert.equal(audio.status,200);
+  assert.equal(audio.format,"RIFF");
+  assert.ok(audio.bytes>1000);
+  console.log("PASS: native French Piper installed from the app and synthesized a reply.");
+ }
  if(useRemote){
   // Go back to the setup screen and activate the same gateway a player uses.
   await page.locator("#go-home").click();
@@ -225,7 +288,15 @@ try{
   assert.equal((await call(page,"/api/ai/rules/activate",{})).status,200);
   console.log(`PASS: real Whisper WAV to game action and ${model} launched on demand with ${running.backend}.`);
  }
- await call(page,"/api/messages",{text:"Je termine mon tour.",requestId:"desktop-smoke-turn"});
+ await call(page,"/api/messages",{text:"Tu m'entends ?",requestId:"desktop-smoke-hearing"});
+ await waitFor(async()=> (await call(page,"/api/messages?after=0")).body.messages.some(
+  entry=>entry.role==="ai"&&entry.text==="Oui, je t’entends."));
+ const beforeHandoff=(await call(page,"/api/state")).body.state;
+ await call(page,"/api/messages",{text:"Bah vas-y.",requestId:"desktop-smoke-short"});
+ await waitFor(async()=> (await call(page,"/api/messages?after=0")).body.messages.some(
+  entry=>entry.role==="ai"&&entry.text==="À toi."));
+ assert.equal((await call(page,"/api/state")).body.state.revision,beforeHandoff.revision);
+ await call(page,"/api/messages",{text:"C'est tout, je passe mon tourant.",requestId:"desktop-smoke-turn"});
  const after=await waitFor(async()=>{
   const state=(await call(page,"/api/state")).body.state;
   // Act as the physical player passing each newly opened reaction window.
@@ -287,7 +358,7 @@ try{
  console.log("PASS: Windows saves simultaneous trigger choices and restores clickable chain ordering.");
  const secondPid=(await call(page,"/api/manager/processes")).body.companion.pid;
  const exited=once(host,"exit");
- await closeWindow(host.pid);
+ await nativeWindow(host.pid,"close");
  await exited;
  await engineStopped(secondPid);
  await browser.close().catch(()=>{});

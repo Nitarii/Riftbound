@@ -153,7 +153,7 @@ test("local opponent keeps credentials private and rejects unpaid AI plays",asyn
   assert.ok(!JSON.stringify(conf).includes("secret-test-api-key"));
   ai.onHumanMessage("Ton tour.");
   await Promise.race([completed,new Promise((_,reject)=>setTimeout(()=>reject(Error("AI response timed out")),1500))]);
-  assert.match(messages[0],/moteur de paiement|carte/);
+  assert.equal(messages[0],"Je n’ai pas compris. Tu peux répéter ?");
   assert.equal(state.cards.find(c=>c.uid===hand.uid).zone,"hand");
   assert.equal(requests.length,1);
   assert.equal(requests[0].options.headers.Authorization,"Bearer secret-test-api-key");

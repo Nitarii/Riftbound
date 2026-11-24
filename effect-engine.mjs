@@ -31,6 +31,18 @@ export function levelStatRules(value){
  }
  return rules;
 }
+export function empoweredDefenseLine(line){
+ const match=/^\[Empowered\](?:\[>\])?\s*I have \[Deflect\] and \[Shield (\d{1,2})\]\.$/i
+  .exec(String(line).replace(/\s*\([^)]*\)\s*$/,"").trim());
+ return match?Number(match[1]):null;
+}
+export function empowerEnergy(card){
+ for(const line of String(card?.text||"").split(/\r?\n/)){
+  const match=/^\[Empower\]\s*\[(\d{1,2})\]$/i.exec(line.replace(/\s*\([^)]*\)\s*$/,"").trim());
+  if(match)return Number(match[1]);
+ }
+ return null;
+}
 export function migrateLegacyPassivePendingEffects(state){
  if(!state||!Array.isArray(state.pendingEffects))return state;
  const pendingEffects=state.pendingEffects.filter(effect=>
@@ -231,6 +243,9 @@ export function compileCardAbilities(card){
     .some(handler=>handler(card)))return {abilities,unsupported,continuous,verified:true};
  if(!normalize(card?.text))return {abilities,unsupported,continuous};
  for(let line of splitClauses(card.text)){
+  const defense=type==="unit"?empoweredDefenseLine(line):null;
+  if(defense!==null){continuous.push({kind:"empowered-defense",shield:defense});continue;}
+  if(type==="unit"&&empowerEnergy({text:line})!==null)continue;
   const levelStats=type==="unit"?levelStatRules(line):[];
   if(levelStats.length){continuous.push(...levelStats);continue;}
   const hunt=type==="unit"&&/^\[Hunt(?: (\d{1,2}))?\](?:\s*\(When I conquer or hold, gain \d{1,2} XP\.\))?\s*$/i.exec(line);

@@ -1,6 +1,6 @@
 // Riftbound combat arithmetic for the October 9, 2026 Core Rules 466–468.
 // Pure, deterministic. Reactions/triggered effects must be resolved before damage.
-import {conditionalShieldRule,compileCardAbilities,levelStatRules} from "./effect-engine.mjs";
+import {conditionalShieldRule,compileCardAbilities,levelStatRules,empoweredDefenseLine} from "./effect-engine.mjs";
 import {mournfulWitness,sacredProtector,handHammer,printedCode} from "./verified-cards.mjs";
 export const COMBAT_RULES_DATE="2026-10-09";
 export const OPPOSITE={ai:"human",human:"ai"};
@@ -10,6 +10,10 @@ const currentXP=(card,state)=>state?.players?.[card.owner]?.xp??0;
 export function deflectValue(card,state=null){
  let value=0;
  for(const line of String(card?.text||"").split(/\r?\n/)){
+  if(isUnit(card)&&empoweredDefenseLine(line)!==null){
+   if(card.counters?.empowered)value++;
+   continue;
+  }
   const levels=isUnit(card)?levelStatRules(line):[];
   if(levels.length){
    for(const rule of levels)if(currentXP(card,state)>=rule.minimumXP)value+=rule.deflect;
@@ -44,7 +48,9 @@ function keywordValue(card,keyword){
 }
 function shieldBonus(card,role,state){
  if(role!=="defend")return 0;
- const normal=keywordValue(card,"Shield|Bouclier");
+ const lines=String(card.text||"").split(/\r?\n/);
+ const normal=keywordValue({...card,text:lines.filter(line=>empoweredDefenseLine(line)===null).join("\n")},"Shield|Bouclier")+
+  (card.counters?.empowered?lines.reduce((sum,line)=>sum+(empoweredDefenseLine(line)??0),0):0);
  const condition=conditionalShieldRule(card);
  if(!condition)return normal;
  // Without board context, do NOT grant an unverified conditional bonus.

@@ -242,7 +242,7 @@ export const FREE_SYSTEM_PROMPT=[
  "You are a physical Riftbound opponent. Understand French, English, mixed language and typos. Never see or ask for the human's hidden hand.",
  "Board and card reference are facts. gameReference.rulebook.relevant gives relevant numbered rules from RUP5 FR (9 Oct 2026). Apply card-text priority and prohibitions. Never invent a card, UID, ability, payment or resolution. Cite a rule number for any rules explanation and ask if uncertain.",
  "Only the deterministic engine plays the AI turn. Report completed moves from confirmed board facts. A pending spell, confrontation, or announced intention is not a completed result. board.confrontation totals are provisional; board.lastResolvedCombat contains actual damage assignments. Never claim a new move has been applied.",
- "Return only a JSON object with reply (short, natural text in preferredReplyLanguage) and commands (array). For a timing question, say who can act, what the passes or choices trigger, and what happens next. Use up to three short sentences when the order matters. No surrounding text or examples.",
+ "Return only a JSON object with reply (short, natural text in preferredReplyLanguage) and commands (array). Speak as the opponent in first person, one sentence by default. Never list the player's options or cite rules unless asked. For a timing question, say who can act and what happens next. No surrounding text or examples.",
  "Most actions are already handled by deterministic rules. Only if the human explicitly says to move, ready or exhaust a PUBLIC human card, you may propose one matching command with an existing UID. The message must name that card and a move must name the battlefield. Do not suggest scores, draws, resource payments or new cards. Be concise."
 ].join("\n");
 export function modelHTTPError(status,provider){
@@ -340,7 +340,9 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
     if(action){
      const updated=await applyBatch([action],game.revision);
      committed=true;
-     if(config===own&&getMessages(0).session===session)sendMessage(updated?.message??getState().message);
+     if(config===own&&getMessages(0).session===session)
+      sendMessage(action.type==="chain-pass"&&!game.spellChain?.lastPass?
+       "Je passe.":updated?.message??getState().message);
     }
     return;
    }
@@ -407,8 +409,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    }
    if(game.pendingCombat&&!question){
     if(stillCurrent()&&!actionApplied)sendMessage(
-     "Confrontation en cours sur "+game.battlefields[game.pendingCombat.battlefield]?.card?.name+
-     ". Utilise la priorité affichée pour annoncer une réaction ou passer."
+     detectMessageLanguage(message)==="en"?"The showdown is still open.":"On est toujours en confrontation."
     );
     return;
    }
@@ -417,7 +418,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    if(game.started&&game.active==="ai"&&advanceTurnIfAI())return;
    if(actionApplied&&game.started)return; // Physical action already applied.
    if(own.rulesOnly){
-    if(stillCurrent())sendMessage("Le moteur de jeu est actif. Pour les réponses de conversation, active Qwen depuis le gestionnaire. État : "+game.message);
+    if(stillCurrent())sendMessage(detectMessageLanguage(message)==="en"?"Could you say that again?":"Tu peux répéter ?");
     return;
    }
    let catalog=[];
@@ -513,8 +514,7 @@ export function createIntegratedAI({userData,getState,applyBatch,sendMessage,get
    }
    if(rejected.length){
     // Never claim an invalid movement happened.
-    reply=(english?"Some suggested moves were not executed: ":"Certains déplacements proposés n'ont pas été exécutés : ")+
-     [...new Set(rejected)].slice(0,2).join(". ");
+    reply=english?"I didn't catch that. Can you say it again?":"Je n’ai pas compris. Tu peux répéter ?";
    }
    if(stillCurrent())sendMessage(groundedReply(reply,commands,game,english));
   }catch(e){

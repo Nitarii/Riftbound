@@ -15,6 +15,7 @@ internal sealed class BoardWindow : Form
     private EngineSession? engine;
     private ManagerWindow? manager;
     private bool closing, stopped;
+    private CoreWebView2PermissionState microphonePermission = CoreWebView2PermissionState.Default;
 
     public BoardWindow()
     {
@@ -25,15 +26,11 @@ internal sealed class BoardWindow : Form
         Size = new Size(1360, 890);
         MinimumSize = new Size(560, 510);
         StartPosition = FormStartPosition.CenterScreen;
+        WindowState = FormWindowState.Maximized;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Controls.Add(board);
         Controls.Add(splash);
-        updates.Changed += () =>
-        {
-            if (!IsDisposed && updates.Latest is { } next)
-                Text = "Riftbound Companion  ·  " + next.Version +
-                    (preferences.Language == "en" ? " available" : " disponible");
-        };
+        updates.Changed += PublishUpdateStatus;
         Load += async (_, _) => await StartAsync();
         FormClosing += HandleClosing;
     }
@@ -106,14 +103,30 @@ internal sealed class BoardWindow : Form
         core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All, CoreWebView2WebResourceRequestSourceKinds.All);
         core.WebResourceRequested += (_, args) =>
         {
-            if (!IsLocal(args.Request.Uri, session.Origin) && !args.Request.Uri.StartsWith("blob:", StringComparison.Ordinal))
+            if (!IsLocal(args.Request.Uri, session.Origin) &&
+                !args.Request.Uri.StartsWith("blob:", StringComparison.Ordinal) &&
+                !(args.ResourceContext == CoreWebView2WebResourceContext.Image && IsCardImage(args.Request.Uri)))
                 args.Response = environment.CreateWebResourceResponse(null, 403, "Offline board", "");
         };
         core.PermissionRequested += (_, args) =>
         {
             args.SavesInProfile = false;
             if (!IsLocal(args.Uri, session.Origin) || args.PermissionKind != CoreWebView2PermissionKind.Microphone)
+            {
                 args.State = CoreWebView2PermissionState.Deny;
+                return;
+            }
+            if (microphonePermission != CoreWebView2PermissionState.Allow)
+            {
+                var question = preferences.Language == "en"
+                    ? "Riftbound Companion would like to use your microphone for local speech recognition."
+                    : "Riftbound Companion souhaite utiliser votre microphone pour la reconnaissance vocale locale.";
+                var answer = MessageBox.Show(this, question, "Riftbound Companion",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                microphonePermission = answer == DialogResult.Yes
+                    ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
+            }
+            args.State = microphonePermission;
         };
         core.WebMessageReceived += (_, args) =>
         {
@@ -123,6 +136,7 @@ internal sealed class BoardWindow : Form
             if (message.ValueKind != JsonValueKind.Object || !message.TryGetProperty("type", out var type)) return;
             if (type.ValueKind != JsonValueKind.String) return;
             if (type.GetString() == "manager") OpenManager();
+            if (type.GetString() == "board-ready") PublishUpdateStatus();
             if (type.GetString() == "language" && message.TryGetProperty("language", out var value) &&
                 value.ValueKind == JsonValueKind.String && value.GetString() is ("fr" or "en") and var language)
                 preferences.SetLanguage(language);
@@ -148,6 +162,18 @@ internal sealed class BoardWindow : Form
     private static bool IsLocal(string address, Uri origin) =>
         Uri.TryCreate(address, UriKind.Absolute, out var uri) &&
         uri.Scheme == origin.Scheme && uri.Host == origin.Host && uri.Port == origin.Port;
+
+    private static bool IsCardImage(string address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var uri) &&
+        uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && uri.UserInfo.Length == 0 &&
+        uri.Host is ("cmsassets.rgpub.io" or "cdn.rgpub.io" or "cdn.sanity.io" or "cdn.piltoverarchive.com");
+
+    private void PublishUpdateStatus()
+    {
+        if (closing || IsDisposed || board.CoreWebView2 is not { } core) return;
+        core.PostWebMessageAsJson(JsonSerializer.Serialize(new
+        { type = "update-status", version = updates.Latest?.Version.ToString() }));
+    }
 
     private void OpenManager()
     {

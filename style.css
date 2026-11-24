@@ -2280,3 +2280,7 @@ body:not(.home-visible) #game-app{position:relative}
   }
   .desktop-app .board .card-tile { transition: opacity 140ms ease, filter 140ms ease; }
 }
+.header-actions #desktop-update-notice{font-size:.78rem;padding:.3rem .5rem;color:#f5d88d}
+#desktop-update-notice[hidden],#voice-install-natural[hidden],.mic-settings[hidden]{display:none!important}
+.mic-settings{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;font-size:.78rem}
+.mic-settings select{flex:1 1 9rem;min-width:0;width:auto}

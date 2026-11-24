@@ -27,7 +27,7 @@ export const isNonSpeechTranscript=text=>/^\s*(?:\([^)]{1,50}\)|\[[^\]]{1,50}\])
 export const audioRms=samples=>Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/Math.max(1,samples.length));
 export function createLocalVoiceConversation({
  mediaDevices=navigator.mediaDevices,AudioContextCtor=window.AudioContext||window.webkitAudioContext,
- synthesis=window.speechSynthesis,Utterance=window.SpeechSynthesisUtterance,
+ synthesis=window.speechSynthesis,Utterance=window.SpeechSynthesisUtterance,requireLocalFrench=false,
  onTranscript=()=>{},onPreview=()=>{},onState=()=>{},sendAudio,playLocalVoice=null,
  silenceMs=480,threshold=.012
 }={}){
@@ -121,7 +121,7 @@ export function createLocalVoiceConversation({
    if(preRoll.length>limit)preRoll.shift();
   }
  }
- async function start(){
+ async function start(deviceId){
   if(enabled)return true;
   if(!mediaDevices?.getUserMedia||!AudioContextCtor||typeof sendAudio!=="function"){
    emit("error","Capture locale du microphone indisponible.");
@@ -129,7 +129,7 @@ export function createLocalVoiceConversation({
   }
   try{
    stream=await mediaDevices.getUserMedia({audio:{echoCancellation:true,
-    noiseSuppression:true,autoGainControl:true},video:false});
+    noiseSuppression:true,autoGainControl:true,...(deviceId?{deviceId:{exact:deviceId}}:{})},video:false});
    ctx=new AudioContextCtor({latencyHint:"interactive"});
    source=ctx.createMediaStreamSource(stream);
    processor=ctx.createScriptProcessor(2048,1,1);
@@ -172,6 +172,7 @@ export function createLocalVoiceConversation({
    try{if(await playLocalVoice(text,signal)){done();return;}}
    catch{}
    if(signal.aborted||currentSpeech!==turn)return;
+   if(requireLocalFrench){done();return;}
   }
   if(!synthesis||!Utterance){done();return;}
   const utterance=new Utterance(text);

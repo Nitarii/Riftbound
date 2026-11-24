@@ -1,10 +1,10 @@
 // Shared board reducer for the local companion and the browser.
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
-import {chooseRequiredDiscards,mandatoryPlayEffects} from "./play-effects.mjs";
+import {chooseRequiredDiscards,mandatoryPlayEffects,playRestrictionText} from "./play-effects.mjs";
 import {processCardEvent,unitBeforeDeath,prepareCardText,payCardText,resolveCardText} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
-import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight} from "./effect-engine.mjs";
+import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight,empowerEnergy} from "./effect-engine.mjs";
 import {previewCombat,battleParties,combatWarnings,applyCombatResult,effectiveMight,deflectValue,clearTurnUnitState,OPPOSITE} from "./combat-engine.mjs";
 import {shadowAssassin,mournfulWitness,handHammer,fieldMusicians,bladeTwirler,soulspinner,
  shadowDisciple,shadowClone,zedLegend,thresholdOfGray,hiddenDisciple,hasHidden,pakaaProtector,shenLegend,goldToken} from "./verified-cards.mjs";
@@ -552,6 +552,12 @@ export function applyCommand(old, command) {
       return item.cardName+" · "+runes.length+" rune(s) redressée(s)";
     }
     if(item.ability==="pakaa-reveal")return resolvePakaa(item,physicalCard);
+    if(item.ability==="empower"){
+      const target=s.cards.find(card=>card.uid===item.sourceUid);
+      if(!onBoard(target)||target.owner!==item.owner)return item.cardName+" a quitté le plateau.";
+      target.counters.empowered=1;
+      return target.name+" est amplifié.";
+    }
     if(item.ability==="shen-tank"){
       const target=s.cards.find(v=>v.uid===item.targetUid);
       if(!checkSpellTarget({target:"friendly-unit"},target,item.owner))
@@ -985,7 +991,7 @@ export function applyCommand(old, command) {
   } else if(type==="play-physical"){
     const ambush=c.ambush===true;
     if(!s.started||(!ambush&&(s.active!=="human"||s.pendingCombat))||
-       s.phase!=="Main"||s.pendingEffects.length)
+       s.phase!=="Main"||s.spellChain||s.pendingEffects.length)
       throw Error("Annonce ce jeu pendant ta phase principale ouverte.");
     const chosen=c.uid?getCard(s,string(c.uid,80)):null;
     if(chosen&&(chosen.owner!=="human"||chosen.zone!=="champion"))
@@ -1000,7 +1006,7 @@ export function applyCommand(old, command) {
       throw Error("Embuscade : attends ta priorité et choisis un champ où tu as une unité.");
     if(!ambush&&field!=null&&(gear||!Number.isInteger(field)||battlefieldController(s,field)!=="human"))
       throw Error("Joue cette unité en base ou sur un champ que tu contrôles.");
-    const text=String(card.text||"");
+    const text=playRestrictionText(card);
     if(/\b(?:play only|can't play|cannot play|as an additional cost|must pay)\b/i.test(text))
       throw Error("Coût supplémentaire ou restriction non prise en charge.");
     const paid=pay("human",card,c.payment),zone=field!=null?"battlefield":"base";
@@ -1081,6 +1087,15 @@ export function applyCommand(old, command) {
       s.cards=s.cards.filter(card=>card.uid!==source.uid);
       s.powerPool[p]++;
       summary=(p==="ai"?"IA":"Joueur")+" · Gold dépensé · 1 Power ajouté à la réserve";
+    }else if(/^unit$/i.test(source.type)&&empowerEnergy(source)!==null){
+      if(!s.started||s.active!==p||s.phase!=="Main"||s.spellChain||s.pendingCombat||s.pendingEffects.length)
+        throw Error("Utilise Amplification pendant ta phase principale ouverte.");
+      if(source.owner!==p||!onBoard(source)||source.faceDown||source.counters?.empowered||c.targetUid!=null)
+        throw Error("Choisis une de tes unités en jeu qui n’est pas encore amplifiée.");
+      const paid=pay(p,{name:source.name,energy:empowerEnergy(source),power:0});
+      appendChainItem({uid:"activate-"+(s.revision+1),sourceUid:source.uid,
+        cardName:source.name,ability:"empower",owner:p});
+      summary=source.name+" · Amplification sur la chaîne"+payLabel(paid);
     }else{
       if(!s.started||s.phase!=="Main"||s.spellChain||s.pendingEffects.length||!hasPriority(p))
         throw Error("Cette Action demande la priorité dans un état ouvert.");
@@ -1139,7 +1154,7 @@ export function applyCommand(old, command) {
     if(v.owner!=="ai"||!["hand","champion"].includes(v.zone)||
        !/^(unit|gear)$/i.test(v.type))
      throw Error("La carte ne peut pas être jouée depuis cette zone.");
-    const restrictedText=String(v.text||"").replace(/^\[Accelerate\][^\n]*$/gim,"");
+    const restrictedText=playRestrictionText(v).replace(/^\[Accelerate\][^\n]*$/gim,"");
     if(/\b(?:play only|can't play|cannot play|you may only play|as an additional cost|must pay)\b/i.test(restrictedText))
      throw Error(v.name+" : condition ou coût supplémentaire non vérifiable. La carte reste en main.");
     const onPlay=mandatoryPlayEffects(v,{playedBefore:s.turnActions.played.ai,xp:s.players.ai.xp??0});

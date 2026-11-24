@@ -1,9 +1,11 @@
-import {onPlayInstructions} from "./effect-engine.mjs";
+import {onPlayInstructions,empoweredDefenseLine} from "./effect-engine.mjs";
 // Reports restrictions and expected on-play instructions. A triggered discard
 // is an effect to resolve after responses, not an additional card-play cost.
 const RESTRICTION=/\b(?:play only|can't play|cannot play|additional cost|as an additional cost|must pay|you may only play|ne peut etre jouee que|co[uû]t suppl[ée]mentaire)\b/i;
+export const playRestrictionText=card=>String(card?.text||"").split(/\r?\n/).filter(line=>
+ empoweredDefenseLine(line)===null).join("\n");
 export function mandatoryPlayEffects(card,{playedBefore=0,xp=0}={}){
- const text=String(card?.text||"");
+ const text=playRestrictionText(card);
  if(RESTRICTION.test(text))
   return {supported:false,discard:0,reason:"conditions de jeu supplémentaires"};
  const compiled=onPlayInstructions(card,{playedBefore,xp});

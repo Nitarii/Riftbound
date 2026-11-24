@@ -274,16 +274,17 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
  // Resuming an Ending-phase effect must not reopen Main or allow extra plays.
  if(state.phase==="Ending"){
   const next=applyCommand(state,{type:"next-turn"});
-  return {commands:[{type:"next-turn"}],state:next,enacted:["terminé son tour"],
+  return {commands:[{type:"next-turn"}],state:next,enacted:[],
    refused:[],summary:"fin du tour"};
  }
  const commands=[];let view=state;
- const enacted=[],refused=[];
+ const enacted=[],enactedEN=[],refused=[];
+ const announce=(fr,en)=>{enacted.push(fr);enactedEN.push(en);};
  const apply=command=>{view=applyCommand(view,command);commands.push(command);};
  // A trigger can suspend the turn halfway through channeling, drawing or moving.
  // Preserve already legal actions instead of rolling back the complete batch.
  const interrupted=()=>Boolean(view.finished||view.pendingCombat||view.spellChain||view.pendingEffects?.length);
- const partial=()=>({commands,state:view,enacted,refused,finished:!!view.finished,
+ const partial=()=>({commands,state:view,enacted,enactedEN,refused,finished:!!view.finished,
   summary:enacted.join(", ")});
  try{
   const count=duelOpeningRuneCount(view,"ai");
@@ -293,14 +294,12 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
     apply({type:"phase",phase:"Channel"});
     const n=Math.min(count,left);
     apply({type:"channel",player:"ai",count:n});
-    enacted.push("canalisé "+n+" runes");
     if(interrupted())return partial();
    }
   }
   if(view.phase!=="Main"&&!view.turnActions?.drawn&&!view.turnActions?.drawAttempted){
    apply({type:"phase",phase:"Draw"});
    apply({type:"draw",player:"ai",count:1});
-   enacted.push("pioché 1 carte");
    if(interrupted())return partial();
   }
   if(view.phase!=="Main")apply({type:"phase",phase:"Main"});
@@ -315,7 +314,8 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
     const field=targetForConquest(view)??(reinforce?targetForReinforcement(view):null);
     if(field===null)break; // Opponent controls/contests all fields: combat needs arbitration.
     apply({type:"move",uid:unit.uid,zone:"battlefield",battlefield:field});
-    enacted.push(unit.name+" → "+view.battlefields[field].card.name);
+    const destination=view.battlefields[field].card.name;
+    announce("déplacé "+unit.name+" vers "+destination,"moved "+unit.name+" to "+destination);
     moved++;
     if(interrupted())break;
    }
@@ -328,7 +328,7 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
   const removal=removalSpell(view);
   if(removal){
    apply(removal.command);
-   enacted.push("lancé "+removal.name+" sur "+removal.target);
+   announce("lancé "+removal.name+" sur "+removal.target,"cast "+removal.name+" on "+removal.target);
    return partial();
   }
   // If both fields are occupied, evaluate an actual multi-unit assault. It
@@ -338,8 +338,8 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    const best=options.find(x=>preferredAssault&&JSON.stringify(x.command)===JSON.stringify(preferredAssault))||options[0];
    if(!best)return false;
    apply(best.command);
-   enacted.push("attaqué "+best.battlefield+" avec "+
-    best.units.join(", ")+" ("+best.attack+" contre "+best.defend+" avant réactions)");
+   const units=best.units.join(", ");
+   announce("attaqué "+best.battlefield+" avec "+units,"attacked "+best.battlefield+" with "+units);
    return true;
   }
   if(attackDefended())return partial();
@@ -384,18 +384,17 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
       (a.card.might??0)*2+(a.card.energy??0)-a.payment.power*2)||
     a.payment.power-b.payment.power||
     String(a.card.code).localeCompare(String(b.card.code)));
-   const {card,payment,discardUids,command}=candidates[0];
-   const discarded=discardUids.map(uid=>view.cards.find(c=>c.uid===uid)?.name||"carte");
+   const {card,discardUids,command}=candidates[0];
    apply(command);
    if(view.pendingEffects?.length){
     refused.push("Effet de "+card.name+" à résoudre : "+view.pendingEffects[0].text);
     break;
    }
-   enacted.push("joué "+card.name+(command.zone==="battlefield"?" à "+view.battlefields[command.battlefield].card.name:"")+" ("+payment.energy+" énergie, "+
-    payment.power+" Power / "+payment.recycleUids.length+" rune(s) recyclée(s)"+
-    (payment.goldUids.length?" / "+payment.goldUids.length+" Gold dépensé(s)":"")+
-    (payment.poolPower?" / "+payment.poolPower+" Power de la réserve":"")+")"+
-    (discarded.length?", défausse à résoudre après les réactions":""));
+   const field=command.zone==="battlefield"?view.battlefields[command.battlefield].card.name:null;
+   announce("joué "+card.name+(field?" à "+field:" en base")+
+    (discardUids.length?", défausse à résoudre après les réactions":""),
+    "played "+card.name+(field?" at "+field:" in base")+
+    (discardUids.length?", discard after reactions":""));
    // Accelerate / an explicit enters-ready instruction allows an immediate move.
    moveUncontested();
    if(interrupted())break;
@@ -406,13 +405,13 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    const spell=readyForConquest(view);
    if(spell){
     apply(spell.command);
-    enacted.push("lancé "+spell.name+" sur "+spell.target);
+    announce("lancé "+spell.name+" sur "+spell.target,"cast "+spell.name+" on "+spell.target);
     return partial();
    }
   }
   if(!interrupted())moveUncontested(true);
   const before=state.players.ai.score,after=view.players.ai.score;
-  if(after>before)enacted.push("marqué "+(after-before)+" PV par conquête");
+  if(after>before)announce("marqué "+(after-before)+" PV","scored "+(after-before)+" VP");
   const contested=emptyBattlefieldTargets(view).every(f=>f.enemy>0);
   if(contested&&own(view,"base").some(c=>isUnit(c)&&!c.exhausted)){
    refused.push("Les champs sont défendus : un combat avec réactions doit être résolu avant de compter une conquête.");
@@ -421,18 +420,19 @@ export function planAutonomousAITurn(state,{maxUnits=3,maxMoves=5,preferredAssau
    const refill=drawSpell(view);
    if(refill){
     apply(refill.command);
-    enacted.push("lancé "+refill.name);
+    announce("lancé "+refill.name,"cast "+refill.name);
     return partial();
    }
    const concealed=concealForDefense(view);
    if(concealed){
     apply(concealed);
-    enacted.push("caché une carte à "+view.battlefields[concealed.battlefield].card.name);
+    const field=view.battlefields[concealed.battlefield].card.name;
+    announce("caché une carte à "+field,"hid a card at "+field);
    }
    apply({type:"phase",phase:"Ending"});
    if(!view.pendingEffects?.length&&!view.spellChain)apply({type:"next-turn"});
   }
-  return {commands,state:view,enacted,refused,summary:enacted.join(", ")};
+  return partial();
  }catch(error){
   // Do not return a partial turn: the caller commits the entire batch or none.
   return {commands:[],state,error:String(error.message||error),enacted:[],refused:[]};
@@ -442,31 +442,19 @@ export function planSafeAITurn(state){return planAutonomousAITurn(state).command
 export function describeAITurn(result,{english=false}={}){
  if(result?.finished)return result.state?.winner==="ai"?
   (english?"I have won the game.":"J'ai gagné la partie !"):
-  (english?"The player has won.":"Le joueur a gagné la partie !");
- if(!result?.commands?.length)return english?
-  "I couldn't complete a safe turn; please check the battlefield and card rules.":
-  "Je ne peux pas terminer mon tour de manière sûre : vérifie les cartes et les règles.";
- const actions=result.enacted||[];
- if(result.state?.spellChain)return "J'ai "+actions.join(", ")+". La carte est sur la chaîne, en attente de résolution.";
- const notes=result.refused||[];
- if(result.state?.pendingEffects?.length){
-  const pending=result.state.pendingEffects[0];
-  return english?"I "+(actions.length?actions.join(", "):"started my turn")+
-   ". "+pending.cardName+" triggered: "+pending.text+
-   ". This effect needs resolution before play continues.":
-   "J'ai "+(actions.length?actions.join(", "):"commencé mon tour")+
-   ". Effet déclenché de "+pending.cardName+" : "+pending.text+
-   ". Il doit être résolu avant de poursuivre.";
+  (english?"You win!":"Tu as gagné !");
+ if(!result?.commands?.length)return english?"Hold on, I’m stuck.":"Attends, je suis bloqué.";
+ const actions=(english?result.enactedEN:result.enacted)||[];
+ const announced=actions.length?(english?"I ":"J’ai ")+actions.join(", ")+". ":"";
+ const game=result.state;
+ if(game?.spellChain)return announced+(english?"Any response?":"Tu réponds ?");
+ if(game?.pendingEffects?.length){
+  const pending=game.pendingEffects[0];
+  return announced+(english?`${pending.cardName} has an effect to resolve.`:`On résout l’effet de ${pending.cardName} ?`);
  }
- if(result.state?.pendingCombat?.kind==="conquest")return "J'ai "+actions.join(", ")+
-  ". Confrontation ouverte : le point sera compté après les réactions.";
- if(result.state?.pendingCombat)return english?
-  "I "+(actions.length?actions.join(", "):"declared an attack")+
-   ". Combat showdown is open. You may play a reaction or pass; no damage has been dealt yet.":
-  "J'ai "+(actions.length?actions.join(", "):"déclaré un assaut")+
-   ". Confrontation ouverte : tu peux jouer une réaction ou passer. Les dégâts ne sont pas encore infligés.";
- if(english)return "I "+(actions.length?actions.join(", "):"completed my turn")+
-  ". "+(notes.length?"Combat requires your confirmation. ":"")+"Your turn.";
- return "J'ai "+(actions.length?actions.join(", "):"terminé mon tour")+
-  ". "+(notes.length?notes.join(" ")+" ":"")+"À toi de jouer.";
+ if(game?.pendingCombat?.kind==="conquest"){
+  return announced+(english?"I’ll score after reactions.":"Je marque après les réactions.");
+ }
+ if(game?.pendingCombat)return announced+(english?"Your priority.":"Je te laisse la priorité.");
+ return announced+(english?"Your turn.":"À toi.");
 }

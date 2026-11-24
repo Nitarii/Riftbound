@@ -16,6 +16,7 @@ internal sealed class ManagerWindow : Form
     private readonly ModuleRow small;
     private readonly ModuleRow large;
     private readonly ModuleRow voice;
+    private readonly ModuleRow synthesis;
     private readonly ModuleRow release;
     private readonly RadioButton auto;
     private readonly RadioButton cpu;
@@ -33,6 +34,7 @@ internal sealed class ManagerWindow : Form
         Text = L("Gestionnaire", "Manager") + " · Riftbound Companion";
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(740, 670);
+        WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(575, 560);
         Font = new Font("Segoe UI", 10);
         BackColor = Color.FromArgb(15, 21, 28);
@@ -58,6 +60,14 @@ internal sealed class ManagerWindow : Form
         large = AddModule(content, "Qwen3.5 9B", Large);
         small = AddModule(content, "Qwen3 4B · " + L("léger", "lightweight"), Small);
         voice = AddModule(content, "Whisper Small · " + L("Microphone", "Microphone"), null);
+        synthesis = new ModuleRow(L("Voix française · Piper SIWIS", "French voice · Piper SIWIS"),
+            L("Installer", "Install"), "", "");
+        synthesis.Toggle.Visible = synthesis.Repair.Visible = synthesis.Remove.Visible = false;
+        synthesis.Install.Click += async (_, _) => await RunAsync(async () =>
+        {
+            await engine.PostAsync("api/speech/synthesis/install", new { }, lifetime.Token);
+        });
+        Add(content, synthesis.Panel);
         release = new ModuleRow(L("Application Windows", "Windows app"), L("Vérifier", "Check"), L("Mettre à jour", "Update"), L("Réparer", "Repair"));
         Add(content, release.Panel);
         release.Remove.Visible = false;
@@ -185,6 +195,19 @@ internal sealed class ManagerWindow : Form
             }
             RenderModule(voice, "488 MB", whisper, Bool(whisper, "installed"), Bool(whisper, "enabled"),
                 Bool(whisper, "processActive"), Bool(whisper, "installing"), true, Bool(whisper, "installing"));
+            if (whisper.TryGetProperty("synthesis", out var naturalVoice))
+            {
+                var installingVoice = Bool(naturalVoice, "installing");
+                var nativeVoice = Bool(naturalVoice, "native");
+                var error = String(naturalVoice, "error");
+                synthesis.Install.Enabled = !nativeVoice && !installingVoice;
+                synthesis.Progress.Visible = installingVoice;
+                synthesis.Progress.Style = ProgressBarStyle.Marquee;
+                synthesis.Status.Text = installingVoice ? String(naturalVoice, "message")
+                    : error.Length > 0 ? error
+                    : Bool(naturalVoice, "installed") ? L("Prête · synthèse locale", "Ready · local speech")
+                    : L("Voix neuronale gratuite à installer", "Free neural voice available to install");
+            }
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception error) { if (!IsDisposed) notice.Text = error.Message; }

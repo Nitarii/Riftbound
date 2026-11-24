@@ -1,6 +1,6 @@
 <!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#09121b"/><title>Riftbound • Table Companion</title><link rel="icon" type="image/svg+xml" href="./assets/companion-icon.svg"/><link rel="stylesheet" href="./style.css?v=0.42.0"/></head>
 <body class="home-visible">
-<header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><label class="language-toggle" for="language-select"><select id="language-select" aria-label="Language / Langue"><option value="fr">FR</option><option value="en">EN</option></select></label><button id="manager-open" type="button" class="header-manager" title="Ouvrir le gestionnaire Windows : mises à jour, IA et arrêt des processus">⚙ Gestionnaire</button><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><details class="header-extra"><summary>Plus</summary><div class="header-extra-menu"><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></details></div></header>
+<header><div class="brand"><div class="sigil"><img src="./assets/companion-icon.svg" alt="" width="45" height="45"/></div><div><strong>RIFTBOUND</strong><small>TABLE COMPANION · FAN PROJECT</small></div></div><div class="header-actions"><label class="language-toggle" for="language-select"><select id="language-select" aria-label="Language / Langue"><option value="fr">FR</option><option value="en">EN</option></select></label><button id="manager-open" type="button" class="header-manager" title="Ouvrir le gestionnaire Windows : mises à jour, IA et arrêt des processus">⚙ Gestionnaire</button><button id="desktop-update-notice" type="button" hidden></button><button id="go-home" type="button" class="header-home">Accueil</button><span id="connection">● Mode navigateur</span><button id="undo">↶ Annuler</button><details class="header-extra"><summary>Plus</summary><div class="header-extra-menu"><button id="export">Exporter</button><label class="file-button">Importer partie<input type="file" id="import-state" accept=".json,application/json" hidden></label><button id="reset">Nouvelle partie</button></div></details></div></header>
 
 <section id="welcome-screen" class="welcome-screen" aria-labelledby="welcome-heading">
 
@@ -349,6 +349,12 @@
     <button id="send-note" type="button" class="primary">Envoyer <span aria-hidden="true">↵</span></button>
   </div>
   <p class="voice-provider-choice">Reconnaissance vocale : Whisper Small · local et hors ligne après installation.</p>
+  <div class="mic-settings" id="mic-settings" hidden>
+    <label for="mic-device">Microphone</label>
+    <select id="mic-device"><option value="">Microphone par défaut</option></select>
+    <button type="button" id="mic-identify" hidden>Afficher les noms</button>
+  </div>
+  <button id="voice-install-natural" type="button" hidden>Installer la voix française</button>
   <div class="voice-live" id="voice-live" data-voice-state="off" role="status" aria-live="polite">
     <span class="voice-dot" aria-hidden="true"></span>
     <span id="voice-live-text">Mode vocal éteint. Active-le pour parler librement à l'IA.</span>

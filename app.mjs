@@ -10,12 +10,28 @@ import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight} from "./combat-engine.mjs";
 import {shenLegend,goldToken} from "./verified-cards.mjs";
 import {publicCardVisible,publicChainDetail,chainIsResolving,chainIsFinalizing} from "./public-table.mjs";
-import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
+import {migrateLegacyPassivePendingEffects,empowerEnergy} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
 const desktop=globalThis.riftboundDesktop;
 const nativeMessage=message=>window.chrome.webview.postMessage(message);
-if(desktop)document.body.classList.add("desktop-app");
+let updateVersion=null;
+function renderUpdateNotice(){
+ const notice=$("desktop-update-notice");
+ notice.hidden=!updateVersion;
+ notice.textContent=(uiLanguage==="en"?"Update available":"Mise à jour disponible")+
+  (updateVersion?" · "+updateVersion:"");
+}
+if(desktop){
+ document.body.classList.add("desktop-app");
+ $("desktop-update-notice").onclick=()=>nativeMessage({type:"manager"});
+ window.chrome.webview.addEventListener("message",event=>{
+  if(event.data?.type!=="update-status")return;
+  updateVersion=event.data.version;
+  renderUpdateNotice();
+ });
+ nativeMessage({type:"board-ready"});
+}
 const i18n={
  "Accueil":"Home","Annuler":"Undo","Exporter":"Export","Importer partie":"Import game","Nouvelle partie":"New game",
  "Gestionnaire":"Manager","Ouvrir le gestionnaire":"Open manager",
@@ -135,7 +151,6 @@ const save=()=>{if(!state.decks)return;try{localStorage.setItem(storage,JSON.str
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Thumbnail requests reduce bandwidth; full-resolution art remains available in the detail view.
 function imageForDisplay(url,large=false){
- if(desktop)return "";
  if(!url||typeof url!=="string")return "";
  try{
   const u=new URL(url);
@@ -165,7 +180,7 @@ function cardHTML(c,show=true,large=false){
  if(!c)return '<div class="empty-card">—</div>';
  const faceDown=Boolean(c.faceDown),turned=Boolean(c.exhausted);
  const title=faceDown?(uiLanguage==="en"?"Hidden card":"Carte cachée"):esc(c.name);
- const art=!faceDown&&c.image&&!desktop?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
+ const art=!faceDown&&c.image?'<img loading="lazy" alt="'+title+'" src="'+esc(imageForDisplay(c.image,large))+'" data-fallback="'+esc(imageForDisplay(c.imageFallback,large))+'">':
    '<div class="empty-card">'+title+(desktop&&!faceDown&&Number.isFinite(displayedMight(c))?'<small>'+displayedMight(c)+'</small>':"")+'</div>';
  const label=show&&!faceDown?'<div class="card-label">'+title+'</div>':'';
  const status=faceDown?' data-card-state="hidden" aria-label="'+title+'"':
@@ -637,6 +652,19 @@ function showInstance(c) {
    };
    bar.prepend(spend);
   }
+  const empowerCost=empowerEnergy(c);
+  if(empowerCost!==null&&c.owner==="human"&&/^unit$/i.test(c.type)&&["base","battlefield"].includes(c.zone)&&
+     !c.faceDown&&!c.counters?.empowered&&!state.finished&&!state.pendingCombat&&!state.spellChain&&
+     !state.pendingEffects?.length&&state.phase==="Main"&&hasFocus){
+   const activate=document.createElement("button");
+   activate.type="button";activate.className="primary";
+   activate.textContent=(uiLanguage==="en"?"Empower":"Amplifier")+" ("+empowerCost+")";
+   activate.onclick=()=>{
+    $("card-dialog").close();
+    dispatch({type:"activate",player:"human",uid:c.uid});
+   };
+   bar.prepend(activate);
+  }
   if(c.owner==="human"&&c.zone==="legend"&&shenLegend(c)&&!c.exhausted&&state.phase==="Main"&&
      !state.finished&&!state.spellChain&&!state.pendingEffects?.length&&hasFocus){
    const allies=state.cards.filter(unit=>unit.owner==="human"&&["base","battlefield"].includes(unit.zone)&&
@@ -1035,6 +1063,7 @@ function showVoiceDraft(transcript){
 voiceController=createLocalVoiceConversation({
  onState:voiceUI,onPreview:showVoiceDraft,
  onTranscript:handleVoiceTranscript,
+ requireLocalFrench:Boolean(desktop),
  playLocalVoice:async(text,signal)=>{
   if(!relay)return false;
   const active=AbortSignal.any([signal,AbortSignal.timeout(45000)]);
@@ -1058,7 +1087,7 @@ voiceController=createLocalVoiceConversation({
  },
  sendAudio:async blob=>{
   if(!relay)throw Error("Relais local déconnecté.");
-  const response=await fetch(relay.url+"/api/speech/transcribe",{
+  const response=await fetch(relay.url+"/api/speech/transcribe"+(desktop?"?language="+uiLanguage:""),{
    ...localFetchOptions(relay.url),method:"POST",
    headers:{"Authorization":"Bearer "+relay.token,"Content-Type":"audio/wav"},
    body:blob
@@ -1071,6 +1100,49 @@ voiceController=createLocalVoiceConversation({
 voiceController.setSpeechEnabled(voiceReadReplies.checked);
 voiceController.setLanguage(uiLanguage);
 voiceUI(voiceController.state());
+const micDevice=$("mic-device"),micIdentify=$("mic-identify");
+const naturalVoiceButton=$("voice-install-natural");
+naturalVoiceButton.onclick=()=>nativeMessage({type:"manager"});
+async function updateNaturalVoiceButton(){
+ if(!desktop||uiLanguage!=="fr"||!relay||!voiceReadReplies.checked){naturalVoiceButton.hidden=true;return;}
+ try{
+  const response=await fetch(relay.url+"/api/speech/synthesis",{headers:{Authorization:"Bearer "+relay.token}});
+  if(response.ok)naturalVoiceButton.hidden=(await response.json()).installed;
+ }catch{}
+}
+if(desktop)setInterval(()=>{if(voiceController.state().enabled)void updateNaturalVoiceButton();},4000);
+let preferredMic="";
+try{preferredMic=localStorage.getItem("riftbound-microphone")||"";}catch{}
+async function refreshMicrophones(){
+ const devices=await navigator.mediaDevices.enumerateDevices();
+ const inputs=devices.filter(device=>device.kind==="audioinput"&&device.deviceId&&!["default","communications"].includes(device.deviceId));
+ micDevice.replaceChildren(new Option(uiLanguage==="en"?"Default microphone":"Microphone par défaut",""),
+  ...inputs.map((device,index)=>new Option(device.label||(uiLanguage==="en"?"Microphone ":"Micro ")+(index+1),device.deviceId)));
+ if(inputs.some(device=>device.deviceId===preferredMic))micDevice.value=preferredMic;
+ micIdentify.hidden=inputs.some(device=>Boolean(device.label));
+}
+if(navigator.mediaDevices?.enumerateDevices){
+ $("mic-settings").hidden=false;
+ refreshMicrophones().catch(()=>{});
+ navigator.mediaDevices.addEventListener?.("devicechange",()=>refreshMicrophones().catch(()=>{}));
+ micIdentify.onclick=async()=>{
+  if(voiceController.state().enabled)return;
+  let device;
+  try{
+   device=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+   await refreshMicrophones();
+  }catch(error){notify("Microphone inaccessible · "+error.message,true);}
+  finally{device?.getTracks().forEach(track=>track.stop());}
+ };
+ micDevice.onchange=async()=>{
+  preferredMic=micDevice.value;
+  try{localStorage.setItem("riftbound-microphone",preferredMic);}catch{}
+  if(!voiceController.state().enabled)return;
+  await voiceController.flush();
+  voiceController.stop();
+  voiceUsingWhisper=await voiceController.start(preferredMic);
+ };
+}
 if(!navigator.mediaDevices?.getUserMedia){
  voiceButton.disabled=true;
  voiceStatus.textContent="Reconnaissance vocale indisponible dans ce navigateur.";
@@ -1121,12 +1193,16 @@ voiceButton.onclick=async()=>{
  const useWhisper=true;
  voiceController.setSpeechEnabled(voiceReadReplies.checked);
  voiceController.setLanguage(uiLanguage);
- const started=await voiceController.start();
+ const started=await voiceController.start(micDevice.value);
  voiceUsingWhisper=Boolean(started&&useWhisper);
  if(started){voiceTranscript.hidden=true;voiceHeard.textContent="";}
+ if(started){refreshMicrophones().catch(()=>{});void updateNaturalVoiceButton();}
  if(started)notify("Micro Whisper Small activé · parole transcrite uniquement sur ton PC.");
 };
-voiceReadReplies.onchange=()=>voiceController.setSpeechEnabled(voiceReadReplies.checked);
+voiceReadReplies.onchange=()=>{
+ voiceController.setSpeechEnabled(voiceReadReplies.checked);
+ if(voiceController.state().enabled)void updateNaturalVoiceButton();
+};
 // The manager may disable Whisper while the browser microphone is listening.
 // Close that browser microphone too, rather than silently recording and sending
 // audio to an engine that has already been stopped.
@@ -1155,6 +1231,9 @@ $("language-select").addEventListener("change",event=>{
  if(desktop)nativeMessage({type:"language",language:uiLanguage});
  try{localStorage.setItem("riftbound-language",uiLanguage);}catch{}
  voiceController.setLanguage(uiLanguage);
+ renderUpdateNotice();
+ if(voiceController.state().enabled)void updateNaturalVoiceButton();
+ if(navigator.mediaDevices?.enumerateDevices)refreshMicrophones().catch(()=>{});
  render();renderChat();
  if(desktop){renderDeckChoices();renderWelcome();applyUILanguage();}
 });
@@ -1771,9 +1850,9 @@ async function connectRelay(){
   resetChatView();syncChat();
   signalStatus("● Relais local connecté");
   attachLiveEvents(relay);
-  notify(companionGate?
-   "Mise à jour ou vérification nécessaire. Utilise le gestionnaire.":"Relais synchronisé. Ne publie jamais ton jeton.",
-   Boolean(companionGate));renderWelcome();
+  if(companionGate)notify("Mise à jour ou vérification nécessaire. Utilise le gestionnaire.",true);
+  else notify("");
+  renderWelcome();
   queueMicrotask(()=>{
    checkRemoteSession();
    if(!desktop){pollFreeAI();refreshKnowledgeStatus();}

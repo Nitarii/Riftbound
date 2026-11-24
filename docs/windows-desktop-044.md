@@ -4,7 +4,9 @@ Le programme C# WinForms héberge le plateau dans WebView2. Il lance le moteur e
 
 La fenêtre Windows reprend le moteur de [l’aperçu 0.43](validation-preview-043.md), dont les réactions, la reprise des transactions et les renforts basés sur le plateau public. Une fois Qwen 9B en mémoire, il peut départager des assauts proches et déjà validés pendant une fenêtre bornée à trois secondes par défaut. Le premier tour peut se jouer avec le moteur seul.
 
-Depuis l’accueil, le panneau **Connecter un agent externe** démarre à la demande un tunnel HTTPS temporaire. Le moteur de jeu est partagé avec la fenêtre Windows. L’agent reçoit sa main et l’état public de la partie avec un jeton propre à la session. Le gestionnaire et le jeton local restent réservés au joueur. Couper l’accès rend la partie à l’adversaire local. La synthèse française Piper reste disponible dans la fenêtre si elle est installée dans le profil de l’application avec le [script Piper](../scripts/install-piper.ps1) et Python 3.12 x64.
+Depuis l’accueil, le panneau **Connecter un agent externe** démarre à la demande un tunnel HTTPS temporaire. Le moteur de jeu est partagé avec la fenêtre Windows. L’agent reçoit sa main et l’état public de la partie avec un jeton propre à la session. Le gestionnaire et le jeton local restent réservés au joueur. Couper l’accès rend la partie à l’adversaire local.
+
+Depuis l’aperçu 0.44.1, le plateau et le gestionnaire démarrent maximisés. Le bouton **Mise à jour disponible** apparaît à côté du gestionnaire lorsqu’une version native stable plus récente est détectée. Le client embarque le catalogue de 1 407 entrées. Les visuels des cartes sont chargés depuis les sources référencées dans le catalogue lorsque la connexion est disponible. Le sélecteur de micro et la demande d’accès de Riftbound Companion sont dans la discussion. Le gestionnaire installe la voix française Piper SIWIS et son moteur x64. Après le téléchargement initial, la synthèse fonctionne sur le processeur sans connexion ni installation de Python.
 
 L’installateur Windows x64 est généré dans `dist`. Il permet de choisir le dossier du programme. Le profil par défaut se trouve dans `%LOCALAPPDATA%\Nitarii\Riftbound Companion`. La désinstallation retire les modules et demande une confirmation avant de retirer les parties et réglages personnels. Les installations portables antérieures conservent leur propre profil. Il n’y a pas de migration automatique depuis ce format.
 
@@ -18,7 +20,7 @@ Préparer Node.js 26, le SDK .NET 10 et Inno Setup 7, puis lancer depuis la raci
 ./scripts/build-desktop.ps1 -Iscc 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe'
 node --test tests/*.test.mjs
 npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
-./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.0-x64-Setup.exe
+./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.1-x64-Setup.exe
 node scripts/build-pages.mjs --preview
 ```
 

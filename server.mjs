@@ -465,6 +465,23 @@ const receiveHumanMessage=(text,requestId)=>{
    receiveAgentMessage(publicReply.text,publicReply.view);
    return;
   }
+  if(!remoteAccess.status().active&&/^(?:tu m'entends|est ce que tu m'entends|can you hear me)$/.test(normalized)){
+   outcome="unchanged";
+   receiveAgentMessage(english?"Yes, I can hear you.":"Oui, je t’entends.");
+   return;
+  }
+  if(!remoteAccess.status().active&&/^(?:je piege de runes?|je piege deux runes?)$/.test(normalized)){
+   outcome="clarification";
+   receiveAgentMessage("Tu veux dire que tu canalises deux runes ?");
+   return;
+  }
+  if(!remoteAccess.status().active&&state.started&&!state.spellChain&&!state.pendingCombat&&!state.pendingEffects.length&&
+     /^(?:bah |ben |allez )?(?:vas[- ]y|a toi|go ahead)$/.test(normalized)){
+   outcome="unchanged";
+   if(state.active==="ai")integratedAI.advanceTurnIfAI();
+   else receiveAgentMessage(english?"Your turn.":"À toi.");
+   return;
+  }
   if(/^(?:attends|stop|pause|non[, ]+attends)\b/i.test(normalized)&&state.pendingFollowUp){
    await executeGameCommand({type:"cancel-follow-up",ifRevision:state.revision});
    outcome="applied";
@@ -482,8 +499,7 @@ const receiveHumanMessage=(text,requestId)=>{
    outcome="clarification";
    nextClarification=null;
    pendingSpokenPlay={revision:state.revision,time:Date.now(),prefix:english?"I play ":"Je joue "};
-   receiveAgentMessage(english?"I heard 'I play'. Which card?":
-    "J'ai entendu « je joue ». Dis simplement le nom de la carte.");
+   receiveAgentMessage(english?"Which card are you playing?":"Tu joues quelle carte ?");
    return;
   }
   const pending=conversation.getClarification();
@@ -556,18 +572,18 @@ const receiveHumanMessage=(text,requestId)=>{
   }
   if(plan.recognized&&!plan.commands?.length){
    outcome="unchanged";
-   receiveAgentMessage(english?(plan.summaryEN||"Already reflected on the board."):
-    (plan.summary||"Cette action est déjà prise en compte sur le plateau."));
+   receiveAgentMessage(english?(plan.summaryEN||"Already counted."):
+    (plan.summary||"C’est déjà compté."));
    return;
   }
   if(!plan.recognized&&!remoteAccess.status().active&&
      /\b(?:joue|jouer|pose|mets|play|place|invoque)\b/i.test(normalized)){
    outcome="clarification";
-   receiveAgentMessage(english?"I heard a card play, but the name or target is incomplete. Repeat the card name. No change was made.":
-    "J'ai entendu une annonce de carte, mais je n'ai pas pu identifier une action complète. Répète le nom de la carte. Le plateau n'a pas changé.");
+   receiveAgentMessage(english?"Which card are you playing?":"Tu joues quelle carte ?");
    return;
   }
   if(plan.commands?.length){
+   const previousPlayer=state.active;
    if(receivedRevision!==state.revision){
     outcome="rejected";
     receiveAgentMessage(english?"The board changed before I could apply that announcement. Repeat it in the current window; no action was applied.":
@@ -580,8 +596,15 @@ const receiveHumanMessage=(text,requestId)=>{
     outcome="applied";
     const firstPlay=plan.commands.length>1&&plan.commands[0].type==="play-physical"?
      state.history.find(event=>event.revision===revision+1)?.text:"";
-    receiveAgentMessage([firstPlay,state.message,plan.afterChain?"L’attaque suivra la résolution de la chaîne.":""]
-     .filter(Boolean).join(" · "));
+    const detail=[firstPlay,state.message,plan.afterChain?"L’attaque suivra la résolution de la chaîne.":""]
+     .filter(Boolean).join(" · ");
+    const localTable=desktop&&!remoteAccess.status().active;
+    const openTable=!state.pendingEffects.length&&!state.spellChain&&!state.pendingCombat;
+    const handedOff=localTable&&openTable&&previousPlayer==="human"&&state.active==="ai";
+    if(localTable&&openTable&&plan.commands.length===1&&plan.commands[0].type==="play-physical"){
+     const played=state.cards.find(card=>card.uid===plan.commands[0].uid)?.name||plan.commands[0].card?.name;
+     receiveAgentMessage(played?(english?played+" is down.":played+", c’est posé."):(english?"Alright.":"Ça marche."));
+    }else if(!handedOff)receiveAgentMessage(detail);
    }
    catch(e){
     outcome="rejected";
@@ -758,7 +781,7 @@ const server=http.createServer(async(req,res)=>{
   // Allow reading and maintenance during updates, but never start or mutate a
   // physical game from an unverified or confirmed outdated Windows executable.
   if(req.method==="POST"&&["/api/messages","/api/command",
-      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe","/api/speech/synthesis",
+      "/api/ai/config","/api/speech/install","/api/speech/warm","/api/speech/transcribe","/api/speech/synthesis","/api/speech/synthesis/install",
       "/api/remote/start"].includes(url.pathname)&&
      !manager.status().canLaunch){
    msg(res,409,"Vérifie ou mets à jour Riftbound depuis le gestionnaire avant de jouer.",req);
@@ -939,6 +962,11 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="GET"&&url.pathname==="/api/speech/synthesis"){
    json(res,200,piper.status(),req);return;
   }
+  if(req.method==="POST"&&url.pathname==="/api/speech/synthesis/install"){
+   try{json(res,202,piper.install(),req);}
+   catch(error){msg(res,400,error.message,req);}
+   return;
+  }
   if(req.method==="POST"&&url.pathname==="/api/speech/synthesis"){
    if(!piper.status().installed){msg(res,404,"Voix Piper indisponible.",req);return;}
    try{
@@ -975,7 +1003,7 @@ const server=http.createServer(async(req,res)=>{
       if(cards.length>=28)break;
      }
      const result=await speech.transcribe(Buffer.concat(chunks),{
-      language:"auto",cards
+      language:["fr","en"].includes(url.searchParams.get("language"))?url.searchParams.get("language"):"auto",cards
      });
      // The recognizer prompt is intentionally short; resolve the *entire*
      // locally cached catalogue afterwards, including names not in the prompt.

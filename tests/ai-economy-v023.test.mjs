@@ -96,7 +96,9 @@ test("autonomous AI develops units, pays Power and moves ready units to conquer 
  assert.ok(one.plan.commands.some(c=>c.type==="play-paid"));
  assert.equal(one.state.cards.some(c=>c.name==="Fury Soldier"&&c.zone==="base"),true);
  assert.equal(one.state.decks.ai.runes.length>0,true);
- assert.match(describeAITurn(one.plan),/Power/);
+ assert.match(describeAITurn(one.plan),/joué Fury Soldier en base/);
+ assert.doesNotMatch(describeAITurn(one.plan),/Power|recyclée|pioché/);
+ assert.match(describeAITurn(one.plan,{english:true}),/played Fury Soldier in base.*Your turn/);
  s=applyCommand(one.state,{type:"next-turn"});
  const two=afterPlan(s);
  assert.ok(two.plan.commands.some(c=>c.type==="move"&&c.zone==="battlefield"));
