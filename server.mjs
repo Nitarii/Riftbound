@@ -436,9 +436,10 @@ if(integratedAI.status().enabled&&integratedAI.status().provider!=="free")
 // Pending actions are never executed until a real catalog card and all costs are verified.
 let pendingSpokenPlay=null; // two utterances, e.g. "Je joue." then "Mournful Witness."
 let humanAnnouncements=Promise.resolve();
-const receiveHumanMessage=(text,requestId)=>{
+const receiveHumanMessage=(text,requestId,ifRevision)=>{
  const previous=conversation.findHumanRequest(requestId,text);
  if(previous)return previous;
+ ensureRevision(ifRevision);
  const entry=conversation.post("human",text,{trackTable:true,requestId});
  const receivedRevision=state.revision;
  const receivedSession=conversation.list(0).session;
@@ -794,7 +795,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==="POST"&&url.pathname==="/api/messages"){
     try{
       const message=await body(req);
-      const entry=receiveHumanMessage(message.text,message.requestId);
+      const entry=receiveHumanMessage(message.text,message.requestId,message.ifRevision);
       json(res,200,{ok:true,message:entry},req);
     }catch(e){msg(res,400,e.message,req);}return;
   }

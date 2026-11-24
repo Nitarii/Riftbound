@@ -20,7 +20,7 @@ Préparer Node.js 26, le SDK .NET 10 et Inno Setup 7, puis lancer depuis la raci
 ./scripts/build-desktop.ps1 -Iscc 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe'
 node --test tests/*.test.mjs
 npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.58.2
-./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.4-x64-Setup.exe
+./scripts/windows-installer-smoke.ps1 -Installer dist/RiftboundCompanion-0.44.5-x64-Setup.exe
 node scripts/build-pages.mjs --preview
 ```
 
@@ -59,5 +59,7 @@ Le corpus permet de reproduire 120 duels Shen–Zed avec trois politiques advers
 Depuis l’aperçu 0.44.3, fermer le plateau libère son contrôle WebView2, demande l’arrêt du moteur et ferme son groupe de processus Windows dans tous les cas. Le test vérifie la disparition des processus en cas de fermeture normale et d’arrêt forcé. La compilation de l’installateur désactive les serveurs de build .NET qui pourraient garder le dossier de travail ouvert.
 
 L’aperçu 0.44.4 respecte les domaines annoncés pour payer l’énergie. « J’épuise trois Calm et trois Order, puis je recycle deux Order » vérifie les six runes prêtes avant d’appliquer le paiement. Une rune peut être épuisée puis recyclée dans le même paiement. Lorsque le moteur demande la destination du champion, il conserve le paiement annoncé et le vérifie à la confirmation, y compris après redémarrage.
+
+L’aperçu 0.44.5 laisse 900 ms après la transcription d’un passage de priorité vocal pour se reprendre. Si le joueur a recommencé à parler, le client attend la transcription. « Non, je réagis » peut ainsi corriger le passage avant l’envoi, même en deux segments. Le serveur vérifie la révision du plateau pour empêcher qu’un passage différé ferme une autre fenêtre de réaction.
 
 Riot classe le jeu numérique à arbitrage automatique et les clients autonomes dédiés parmi les usages qu’il n’approuve pas dans sa politique publique. [Politique Riftbound](https://developer.riotgames.com/policies/riftbound).

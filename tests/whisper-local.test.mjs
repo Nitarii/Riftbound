@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {EventEmitter} from "node:events";
-import {audioToWav,audioRms,isNonSpeechTranscript} from "../local-voice.mjs";
+import {audioToWav,audioRms,isNonSpeechTranscript,createReactionPassBuffer} from "../local-voice.mjs";
 import {
  WHISPER_RELEASE,WHISPER_OPTIONS,WHISPER_MODEL,WHISPER_ENGINE_SHA,
  whisperPrompt,whisperArguments,whisperServerArguments,validateWAV,createLocalWhisper
@@ -122,4 +122,30 @@ test("microphone ignores sound effects like (whoosh) but not actual spoken comma
  assert.equal(isNonSpeechTranscript("[Music]"),true);
  assert.equal(isNonSpeechTranscript("Je joue Loyal Poro pour trois runes."),false);
  assert.equal(isNonSpeechTranscript("Shen"),false);
+});
+
+test("a second transcript can replace a held pass while Whisper finishes",async()=>{
+ let timer,busy=false,revision=17;
+ const sent=[];
+ const buffer=createReactionPassBuffer({revision:()=>revision,isTranscribing:()=>busy,
+  send:(...args)=>sent.push(args),setTimer:fn=>{timer=fn;return 1;},clearTimer:()=>{timer=null;}});
+ await buffer.submit("Je passe.");
+ assert.deepEqual(sent,[]);
+ busy=true;
+ timer();
+ assert.deepEqual(sent,[]);
+ await buffer.submit("Non, je réagis. Je joue Discipline sur Shen.");
+ assert.deepEqual(sent,[["Je passe. Non, je réagis. Je joue Discipline sur Shen.",17]]);
+ assert.equal(timer,null);
+ busy=false;
+ await buffer.submit("Je passe.");
+ timer();
+ assert.deepEqual(sent.at(-1),["Je passe.",17]);
+ await buffer.submit("Je passe.");
+ revision=18;
+ timer();
+ assert.equal(sent.length,2);
+ await buffer.submit("Je joue Discipline.");
+ assert.equal(timer,null);
+ assert.deepEqual(sent.at(-1),["Je joue Discipline."]);
 });

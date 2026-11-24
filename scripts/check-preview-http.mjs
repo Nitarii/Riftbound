@@ -85,11 +85,18 @@ try{
  assert.equal(duplicate.value.receipt.status,"duplicate");
  assert.equal(first.value.state.revision,duplicate.value.state.revision);
  const revision=first.value.state.revision;
+ const guardedSpeech={text:"Bonjour.",requestId:crypto.randomUUID(),ifRevision:revision};
+ const speech=await request("/api/messages",guardedSpeech);
+ assert.equal(speech.status,200);
  const race=await Promise.all([cmd({type:"note",text:"A"},revision),cmd({type:"note",text:"B"},revision)]);
  assert.deepEqual(race.map(x=>x.status).sort(),[200,400]);
  const rolled=await cmd({type:"undo"},revision+1);
  assert.equal(rolled.value.state.revision,revision+2);
  assert.equal(rolled.value.state.history[1].text,"test unique");
+ assert.equal((await request("/api/messages",guardedSpeech)).value.message.id,speech.value.message.id);
+ const stalePass=await request("/api/messages",{text:"Je passe.",ifRevision:revision});
+ assert.equal(stalePass.status,400);
+ assert.ok(!(await request("/api/messages")).value.messages.some(message=>message.text==="Je passe."));
  const card=(name,type="Unit")=>({name,type,energy:2,power:0,might:3});
  const zedDeck={type:"setup-ai",legend:card("Zed","Legend"),champion:card("Zed Champion"),
   battlefield:card("Zaun","Battlefield"),main:Array.from({length:12},(_,i)=>card("Secret "+i)),

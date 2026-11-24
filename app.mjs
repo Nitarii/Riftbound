@@ -937,7 +937,7 @@ async function syncChat(){
  }catch{if(relay===session)renderChatStatus();}
  finally{chatBusy=false;}
 }
-async function sendChatMessage(message){
+async function sendChatMessage(message,ifRevision){
  const text=String(message||"").trim();
  if(!text)return false;
  if(!relay){notify("Connecte d'abord le serveur pour transmettre ton message à l'IA.",true);return false;}
@@ -946,7 +946,7 @@ async function sendChatMessage(message){
   const post=()=>fetch(session.url+"/api/messages",{
     ...localFetchOptions(session.url),method:"POST",
     headers:{"Authorization":"Bearer "+session.token,"Content-Type":"application/json"},
-    body:JSON.stringify({text,requestId})
+    body:JSON.stringify({text,requestId,ifRevision})
   });
   const response=await post().catch(error=>{if(relay!==session)throw error;return post();});
   const data=await response.json();
@@ -964,12 +964,12 @@ function isTurnAnnouncement(text){
 }
 // Serialize all voice/text announcements. A slow local model must not cause
 // the next recognized utterance to be silently discarded.
-function enqueuePlayerAnnouncement(value){
+function enqueuePlayerAnnouncement(value,ifRevision){
  const text=String(value||"").trim().slice(0,1200);
  if(!text)return Promise.resolve(false);
  const next=messageQueue.then(async()=>{
   // The local server handles turn changes and checks the rules once.
-  return sendChatMessage(text);
+  return sendChatMessage(text,ifRevision);
  });
  messageQueue=next.catch(()=>false);
  return next;
@@ -1041,15 +1041,16 @@ voiceAutoSend.onchange=()=>{
  try{localStorage.setItem("riftbound-voice-auto-send",String(voiceAutoSend.checked));}catch{}
  notify(voiceAutoSend.checked?"Envoi automatique après une pause activé.":"Envoi automatique désactivé : les phrases restent dans le champ de message.");
 };
-async function handleVoiceTranscript(text){
- displayHeard(text,true);
+async function handleVoiceTranscript(text,ifRevision){
+ displayHeard(text);
  const field=$("notes");
  if(!voiceAutoSend.checked){
   field.value=text;lastVoiceDraft=text;
   notify("Phrase entendue : vérifie-la puis appuie sur Envoyer.");
   return true;
  }
- const ok=await enqueuePlayerAnnouncement(text);
+ const ok=await enqueuePlayerAnnouncement(text,ifRevision);
+ if(ok)displayHeard(text,true);
  if(ok&&field.value.trim()===text.trim()){
   field.value="";lastVoiceDraft="";
  }
@@ -1090,6 +1091,12 @@ function showVoiceDraft(transcript){
 voiceController=createLocalVoiceConversation({
  onState:voiceUI,onPreview:showVoiceDraft,
  onTranscript:handleVoiceTranscript,
+ reactionRevision:()=>{
+  if(!relay||!voiceAutoSend.checked||state.pendingEffects?.length)return null;
+  const priority=state.spellChain?.priority??
+   (state.pendingCombat&&!state.pendingCombat.passes?.human?(state.pendingCombat.focus??"human"):null);
+  return priority==="human"?state.revision:null;
+ },
  requireLocalFrench:Boolean(desktop),
  playLocalVoice:async(text,signal)=>{
   if(!relay)return false;

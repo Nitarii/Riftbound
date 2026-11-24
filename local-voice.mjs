@@ -25,10 +25,51 @@ export function audioToWav(chunks,inputRate=48000){
 }
 export const isNonSpeechTranscript=text=>/^\s*(?:\([^)]{1,50}\)|\[[^\]]{1,50}\])\s*$/i.test(String(text||""));
 export const audioRms=samples=>Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/Math.max(1,samples.length));
+export function createReactionPassBuffer({send,preview=()=>{},revision,isTranscribing,
+ setTimer=setTimeout,clearTimer=clearTimeout,delay=900}){
+ let pending=null,timer=null;
+ function cancel(){
+  if(timer!==null)clearTimer(timer);
+  timer=null;
+  pending=null;
+ }
+ async function flush(){
+  const pass=pending;
+  cancel();
+  if(pass&&pass.revision===revision())await send(pass.text,pass.revision);
+ }
+ function sendWhenQuiet(){
+  if(isTranscribing()){
+   timer=setTimer(sendWhenQuiet,100);
+  }else void flush();
+ }
+ async function submit(text){
+  const current=revision();
+  if(pending){
+   if(/^(?:non[,\s]+je r[ée]agis|no[,\s]+i react)\b/i.test(text)){
+    const pass=pending;
+    cancel();
+    if(current===pass.revision){
+     const corrected=pass.text+" "+text;
+     preview(corrected);
+     await send(corrected,current);
+    }
+    return;
+   }
+   await flush();
+  }
+  if(current!==null&&current===revision()&&
+     /^(?:je passe|i pass)(?: (?:ma |my |la |the )?(?:r[ée]action|priorit[ée]|priority))?[.!…]*$/i.test(text)){
+   pending={text,revision:current};
+   timer=setTimer(sendWhenQuiet,delay);
+  }else await send(text);
+ }
+ return {submit,flush,cancel};
+}
 export function createLocalVoiceConversation({
  mediaDevices=navigator.mediaDevices,AudioContextCtor=window.AudioContext||window.webkitAudioContext,
  synthesis=window.speechSynthesis,Utterance=window.SpeechSynthesisUtterance,requireLocalFrench=false,
- onTranscript=()=>{},onPreview=()=>{},onState=()=>{},sendAudio,playLocalVoice=null,
+ onTranscript=()=>{},onPreview=()=>{},onState=()=>{},reactionRevision=()=>null,sendAudio,playLocalVoice=null,
  silenceMs=480,threshold=.012
 }={}){
  let enabled=false,hidden=false,phase="off",detail="",speaking=false,speechEnabled=true;
@@ -37,6 +78,8 @@ export function createLocalVoiceConversation({
  let queue=[],captureId=0,voicedMs=0,consecutiveVoice=0,noiseFloor=.003;
  let drainPromise=null;
  let speechAbort=null;
+ const reactionPass=createReactionPassBuffer({send:onTranscript,preview:onPreview,
+  revision:reactionRevision,isTranscribing:()=>!!speechStart||consecutiveVoice>0||busy||queue.length>0});
  function cancelSpeech(){
   speechAbort?.abort();speechAbort=null;
   try{synthesis?.cancel();}catch{}
@@ -68,7 +111,7 @@ export function createLocalVoiceConversation({
         "Entendu : "+String(response.rawText||"").slice(0,60)+" → Carte reconnue : "+String(response.card||"").slice(0,55):
         "Entendu : "+text.slice(0,100);
        emit("captured",heard);
-       await onTranscript(text);
+       await reactionPass.submit(text);
       }else emit("listening","Aucune phrase reconnue.");
      }catch(e){
       if(enabled&&session===captureId)emit("error","Whisper : "+String(e?.message||e).slice(0,140));
@@ -145,6 +188,7 @@ export function createLocalVoiceConversation({
   }
  }
  function stop(){
+  reactionPass.cancel();
   enabled=false;captureId++;queue=[];
   if(processor){processor.onaudioprocess=null;try{processor.disconnect();}catch{}}
   try{source?.disconnect();output?.disconnect();}catch{}
@@ -155,7 +199,11 @@ export function createLocalVoiceConversation({
   cancelSpeech();
   speaking=false;emit("off","Micro local désactivé.");
  }
- async function flush(){if(speechStart&&buffer.length)await finalize();if(drainPromise)await drainPromise;}
+ async function flush(){
+  if(speechStart&&buffer.length)await finalize();
+  if(drainPromise)await drainPromise;
+  await reactionPass.flush();
+ }
  async function playNext(){
   if(!enabled||speaking||!utterances.length||!speechEnabled)return;
   const text=utterances.shift();
@@ -199,7 +247,7 @@ export function createLocalVoiceConversation({
  }
  function setHidden(value){
   hidden=Boolean(value);
-  if(hidden)clearBuffers();
+  if(hidden){clearBuffers();reactionPass.cancel();}
   emit(hidden?"waiting":"listening",hidden?"Écoute locale en pause (onglet masqué).":"Écoute locale reprise.");
  }
  function setLanguage(value){locale=value==="en"?"en-US":"fr-FR";}
