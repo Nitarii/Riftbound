@@ -141,6 +141,9 @@ test("Yeti Brawler and Trapping Grounds see actual excess assignment and honor t
  assert.equal(below.spellChain,null);
  s=passShowdown(applyCommand(s,attack));
  assert.equal(s.lastCombat.excessDamage.human,3);
+ assert.equal(s.pendingEffects[0].trigger,"ability-order");
+ const goldFirst=s.pendingEffects[0].options.find(option=>option.cardName==="Yeti Brawler");
+ s=applyCommand(s,{type:"effect-confirm",id:s.pendingEffects[0].id,confirm:true,abilityUid:goldFirst.uid});
  assert.deepEqual(s.spellChain.items.map(i=>i.ability),["create-gold","create-bird"]);
  s=passChain(passChain(s));
  assert.equal(s.pendingEffects[0].trigger,"bird-placement");

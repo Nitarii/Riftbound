@@ -94,6 +94,9 @@ function game(seed,mode,metrics){
  for(let step=0;step<220;step++){
   if(s.finished){metrics.finished++;metrics[s.winner]++;return;}
   const effect=s.pendingEffects[0];
+  if(effect?.trigger==="ability-order"){
+   apply({type:"effect-confirm",confirm:true,id:effect.id,abilityUid:effect.options[0].uid});continue;
+  }
   if(effect?.trigger==="bird-placement"){
    const location=s.battlefields.findIndex((b,i)=>b.card&&battlefieldController(s,i)==="human");
    apply({type:"effect-confirm",confirm:true,id:effect.id,battlefield:location>=0?location:null});continue;

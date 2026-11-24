@@ -21,6 +21,81 @@ function table(){
 }
 const stunner=card("Solari Shieldbearer","Unit",{text:"When you play me, stun a unit."});
 
+test("simultaneous deaths put the turn player's triggered ability on the chain first",()=>{
+ let s=table();
+ const text="When I die, draw 1.";
+ s=add(s,card("Turn Player","Unit",{text}),"ai","base");
+ s=add(s,card("Other Player","Unit",{text}),"human","battlefield",0);
+ s=applyCommand(s,{type:"combat-attack",player:"ai",uids:[get(s,"Turn Player").uid],battlefield:0});
+ for(let i=0;i<2;i++)s=applyCommand(s,{type:"combat-pass",player:s.pendingCombat.focus});
+ assert.deepEqual(s.spellChain.items.map(item=>item.owner),["ai","human"]);
+ assert.equal(s.spellChain.priority,"human");
+ const before=s.players.human.handCount;
+ s=resolve(s);
+ assert.equal(s.players.human.handCount,before+1);
+ assert.equal(s.spellChain.priority,"ai");
+});
+
+test("human ability order and subsequent target selection survive saves and charge in order",()=>{
+ let s=applyCommand(table(),{type:"next-turn"});s=applyCommand(s,{type:"phase",phase:"Main"});
+ s=add(s,card("Protected","Unit",{text:"[Deflect]"}));
+ s=add(s,card("Calm Rune","Rune",{domains:["Calm"]}),"human","runes");
+ s=add(s,card("Study Watcher","Unit",{text:"When you play a unit, draw 1."}),"human");
+ s=applyCommand(s,{type:"play-physical",card:card("Stun Student","Unit",{text:"When you play me, stun an enemy unit."})});
+ assert.equal(s.spellChain,null);
+ assert.equal(s.pendingEffects[0].trigger,"ability-order");
+ assert.throws(()=>applyCommand(s,{type:"phase",phase:"Ending"}),/choix/);
+ const first=s.pendingEffects[0];
+ assert.throws(()=>applyCommand(s,{type:"effect-confirm",id:first.id,confirm:true,abilityUid:"unknown"}),/proposées/);
+ s=JSON.parse(JSON.stringify(s));
+ const spoken=planHumanAnnouncement("Je choisis Stun Student",s);
+ assert.equal(spoken.commands[0]?.abilityUid,first.options.find(item=>item.cardName==="Stun Student").uid);
+ s=spoken.commands.reduce(applyCommand,s);
+ assert.equal(s.pendingEffects[0].trigger,"ability-target");
+ assert.equal(s.spellChain,null);
+ s=JSON.parse(JSON.stringify(s));
+ s=applyCommand(s,{type:"effect-confirm",id:s.pendingEffects[0].id,confirm:true,targetUid:get(s,"Protected").uid});
+ assert.deepEqual(s.spellChain.items.map(item=>item.cardName),["Stun Student","Study Watcher"]);
+ assert.equal(s.cards.filter(c=>c.owner==="human"&&c.zone==="runes").length,0);
+ const before=s.players.human.handCount;
+ s=resolve(s);
+ assert.equal(s.players.human.handCount,before+1);
+ assert.equal(Boolean(get(s,"Protected").stunned),false);
+ s=resolve(s);
+ assert.equal(get(s,"Protected").stunned,true);
+ assert.equal(s.triggerGroups,undefined);
+});
+
+test("an earlier human target uses Protection resources before finalizing the next trigger",()=>{
+ let s=applyCommand(table(),{type:"next-turn"});s=applyCommand(s,{type:"phase",phase:"Main"});
+ s=add(s,card("Protected","Unit",{text:"[Deflect]"}));
+ s=add(s,card("Calm Rune","Rune",{domains:["Calm"]}),"human","runes");
+ const stun="stun an enemy unit.";
+ s=add(s,card("Watcher","Unit",{text:"When you play a unit, "+stun}),"human");
+ s=applyCommand(s,{type:"play-physical",card:card("Student","Unit",{text:"When you play me, "+stun})});
+ const order=planHumanAnnouncement("Capacité 2",s);
+ s=order.commands.reduce(applyCommand,s);
+ assert.equal(s.pendingEffects[0].item.cardName,"Watcher");
+ s=applyCommand(s,{type:"effect-confirm",id:s.pendingEffects[0].id,confirm:true,targetUid:get(s,"Protected").uid});
+ assert.deepEqual(s.spellChain.items.map(item=>item.cardName),["Watcher"]);
+ assert.equal(s.pendingEffects.length,0);
+ assert.match(s.message,/Student.*aucune cible/);
+});
+
+test("lethal marked damage waits until a compound physical ability finishes resolving",()=>{
+ let s=applyCommand(table(),{type:"next-turn"});s=applyCommand(s,{type:"phase",phase:"Main"});
+ s=add(s,card("Victim","Unit",{might:2}));
+ s=applyCommand(s,{type:"play-physical",card:card("Blaster","Unit",{
+  text:"When you play me, deal 2 damage to an enemy unit, then discard 1."
+ }),targetUid:get(s,"Victim").uid});
+ s=resolve(s);
+ assert.equal(s.pendingEffects[0].trigger,"card-text-discard");
+ assert.equal(get(s,"Victim").zone,"base");
+ assert.equal(get(s,"Victim").damage,2);
+ s=applyCommand(JSON.parse(JSON.stringify(s)),{type:"effect-confirm",id:s.pendingEffects[0].id,confirm:true,card:card("Discarded")});
+ assert.equal(get(s,"Victim").zone,"trash");
+});
+
 test("generic stun chooses and pays before responses, then survives its source's death",()=>{
  let s=add(table(),card("Protected","Unit",{text:"[Deflect]"}),"human");
  s=add(s,stunner,"ai","hand");

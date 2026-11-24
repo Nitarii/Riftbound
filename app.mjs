@@ -9,7 +9,7 @@ import {isChatAtBottom,restoredChatPosition} from "./chat-scrolling.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight} from "./combat-engine.mjs";
 import {shenLegend,goldToken} from "./verified-cards.mjs";
-import {publicCardVisible,publicChainDetail,chainIsResolving} from "./public-table.mjs";
+import {publicCardVisible,publicChainDetail,chainIsResolving,chainIsFinalizing} from "./public-table.mjs";
 import {migrateLegacyPassivePendingEffects} from "./effect-engine.mjs";
 import {CURRENT_VERSION,MINIMUM_COMPANION_VERSION,DOWNLOAD_URL,companionNeedsUpdate} from "./release-policy.mjs";
 const $=id=>document.getElementById(id);
@@ -208,7 +208,8 @@ function renderCombatPanel(){
   $("combat-effects-button").hidden=true;
   $("combat-order-button").hidden=true;
   $("combat-title").textContent=uiLanguage==="en"?"CHAIN":"CHAÎNE";
-  $("combat-details").textContent=chainIsResolving(state)?(uiLanguage==="en"?
+  $("combat-details").textContent=chainIsFinalizing(state)?(uiLanguage==="en"?"Choose how to put the abilities on the chain.":
+   "Termine les choix des capacités à placer sur la chaîne."):chainIsResolving(state)?(uiLanguage==="en"?
    "Resolving: answer the pending choice.":"Résolution en cours : réponds au choix demandé."):chain.priority==="human"?
    "À toi : joue une Réaction ou passe la priorité.":"Priorité à l’IA.";
   if(state.queuedAttack){
@@ -351,9 +352,22 @@ function renderPendingEffects(){
  const chooseRunes=pending?.trigger==="ending-ready-runes";
  const chooseBird=pending?.trigger==="bird-placement",chooseCost=pending?.trigger==="token-cost";
  const chooseTarget=pending?.trigger==="ability-target",chooseDetach=pending?.trigger==="gear-detach";
+ const chooseOrder=pending?.trigger==="ability-order";
  const choosePredict=pending?.trigger==="card-text-predict";
  $("pending-bird-choice").hidden=!chooseBird;
  $("pending-target-choice").hidden=!chooseTarget;
+ $("pending-ability-choice").hidden=!chooseOrder;
+ if(chooseOrder){
+  const list=$("pending-ability"),selected=list.dataset.effectId===pending.id?list.value:"";
+  list.dataset.effectId=pending.id;
+  list.replaceChildren(...pending.options.map(({uid,cardName,effectText},index)=>{
+   const option=document.createElement("option");
+   option.value=uid;
+   option.textContent=(index+1)+". "+cardName+(effectText?" · "+effectText:"");
+   option.selected=uid===selected;
+   return option;
+  }));
+ }
  $("pending-effect-decline").hidden=!(chooseCost||chooseTarget&&pending.optional||chooseDetach||choosePredict);
  $("pending-effect-decline").textContent=choosePredict?"Recycler":chooseDetach?"Garder attaché":"Décliner";
  if(chooseTarget){
@@ -405,15 +419,18 @@ function renderPendingEffects(){
  $("pending-effect-description").textContent=pending.text;
  const announce={"hidden-reveal":"Je révèle","pakaa-reveal":"Je révèle","burn":"Je révèle","spell-discard":"Je défausse","card-text-discard":"Je défausse"}[pending.trigger];
  $("pending-effect-confirm").textContent=chooseRunes?"Valider les runes":chooseBird?"Jouer Bird":
-  chooseTarget?"Valider la cible":chooseDetach?"Détacher":
+  chooseOrder?(uiLanguage==="en"?"Add to chain":"Ajouter à la chaîne"):chooseTarget?"Valider la cible":chooseDetach?"Détacher":
   choosePredict?"Conserver":chooseCost?(pending.energy?"Payer et activer":"Activer"):announce?"Indiquer la carte":"Confirmer l’effet";
  $("pending-effect-reason").textContent=pending.reason+(chooseRunes?" Tu peux n’en choisir aucune.":announce?
-  " · Annonce « "+announce+" » suivi du nom de la carte.":chooseBird||chooseCost||chooseTarget||chooseDetach||choosePredict?"":
+  " · Annonce « "+announce+" » suivi du nom de la carte.":chooseOrder||chooseBird||chooseCost||chooseTarget||chooseDetach||choosePredict?"":
   " · Applique l'effet réel et les choix nécessaires avant de confirmer.");
 }
 $("pending-effect-confirm").onclick=()=>{
  const pending=state.pendingEffects?.[0];
  if(!pending)return;
+ if(pending.trigger==="ability-order"){
+  dispatch({type:"effect-confirm",id:pending.id,confirm:true,abilityUid:$("pending-ability").value});return;
+ }
  if(pending.trigger==="card-text-predict"){
   dispatch({type:"effect-confirm",id:pending.id,confirm:true,recycle:false});return;
  }

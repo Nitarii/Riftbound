@@ -251,6 +251,20 @@ test("Hunt awards XP after Conquer and Hold reactions, adding multiple printed H
  assert.equal(passChain(s).players.ai.xp,6);
 });
 
+test("a moved enemy attacks, but the turn player's defending ability goes on the chain first",()=>{
+ let s=setup();
+ s=add(s,c("Iascylla","Unit",{text:"When I hold, at the start of your next Main Phase, you may move an enemy unit to this battlefield."}),"human","battlefield",0);
+ s=add(s,c("Holder","Unit",{text:"When I defend, draw 1."}),"human","battlefield",0);
+ s=add(s,c("Enemy","Unit",{text:"When I attack, draw 1."}),"ai","base");
+ s=main(passChain(applyCommand(s,{type:"next-turn"})));
+ s=applyCommand(s,{type:"effect-confirm",id:s.pendingEffects[0].id,confirm:true,targetUid:byName(s,"Enemy").uid});
+ s=passChain(s);
+ assert.equal(s.active,"human");
+ assert.equal(s.pendingCombat.attacker,"ai");
+ assert.deepEqual(s.spellChain.items.map(item=>item.cardName),["Holder","Enemy"]);
+ assert.equal(s.spellChain.priority,"ai");
+});
+
 test("Wuju Apprentice draws at Level 6 only when that level was active when played",()=>{
  const apprentice=c("Wuju Apprentice","Unit",{text:"[Hunt] (When I conquer or hold, gain 1 XP.)\n[Level 6][>] When you play me, draw 1. (While you have 6+ XP, get the effect.)"});
  for(const xp of [0,5,6]){

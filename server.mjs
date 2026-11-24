@@ -168,7 +168,7 @@ function authorized(req){
 }
 function msg(res,status,text,req){json(res,status,{error:text},req);}
 function sharedState(view=state,{agent=false}={}){
- const {rng,cardSerial,decks,combatRewindId,pendingFollowUp,...publicView}=view;
+ const {rng,cardSerial,decks,combatRewindId,pendingFollowUp,triggerGroups,...publicView}=view;
  const queued=pendingFollowUp?.action;
  const cards=view.cards.flatMap(c=>{
   if(c.zone==="deck"||c.zone==="rune-deck"||c.owner==="human"&&c.zone==="hand")return [];

@@ -371,6 +371,18 @@ export function planHumanAnnouncement(message,startingState,catalog=[]){
  }
  const declaredDiscard=text.match(/^(?:je de fausse|je defausse|i discard)\s+(.+?)(\s+et je pioche|\s+and i draw)?$/);
  const waiting=state.pendingEffects?.[0];
+ if(waiting?.player==="human"&&waiting.trigger==="ability-order"){
+  const match=text.match(/^(?:je choisis (?:la )?(?:capacite |l'effet )?|(?:capacite|effet) |i choose (?:ability )?|ability )(.+)$/);
+  if(match){
+   const query=match[1];
+   const index=num(query);
+   const options=waiting.options;
+   const matches=options.filter(option=>normalizePlayerAnnouncement(option.cardName)===query);
+   const selected=Number.isInteger(index)?options[index-1]:matches.length===1?matches[0]:null;
+   if(!selected)return fail("Indique le numéro de la capacité affichée.","Say the number of the displayed ability.");
+   return {commands:[{type:"effect-confirm",id:waiting.id,confirm:true,abilityUid:selected.uid}],recognized:true};
+  }
+ }
  if(waiting?.player==="human"&&waiting.trigger==="card-text-predict"){
   const recycle=/^(?:je (?:la )?recycle|recycle(?: it)?|oui|yes)$/.test(text);
   const keep=/^(?:je (?:la )?(?:garde|conserve)|keep(?: it)?|non|no)$/.test(text);

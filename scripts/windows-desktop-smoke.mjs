@@ -237,6 +237,20 @@ try{
   }
   return state.turn>opening.turn&&state.active==="human"&&state;
  });
+ // Leave a real ordering choice in the saved game and select it after restart.
+ let orderState=after;
+ const playFixture=async command=>{
+  const result=await call(page,"/api/command",{...command,ifRevision:orderState.revision});
+  assert.equal(result.status,200,JSON.stringify(result.body));
+  orderState=result.body.state;
+ };
+ const testUnit=(name,text="")=>({name,type:"Unit",energy:0,power:0,might:2,text});
+ for(const name of ["Order Watcher A","Order Watcher B"]){
+  await playFixture({type:"add",player:"human",zone:"base",card:testUnit(name,"When you play a unit, draw 1.")});
+ }
+ await playFixture({type:"play-physical",card:testUnit("Order Recruit")});
+ const order=orderState.pendingEffects[0];
+ assert.equal(order.trigger,"ability-order");
  await page.locator("#language-select").selectOption("en");
  await waitFor(async()=>JSON.parse(await fs.readFile(path.join(data,"desktop-preferences.json"),"utf8"))==="en");
  await fs.mkdir("artifacts",{recursive:true});
@@ -258,9 +272,19 @@ try{
  assert.equal(await page.locator("#language-select").inputValue(),"en");
  const restored=(await call(page,"/api/state")).body.state;
  assert.equal(restored.turn,after.turn);
- assert.equal(restored.revision,after.revision);
+ assert.equal(restored.revision,orderState.revision);
+ assert.equal(restored.pendingEffects[0].id,order.id);
  await page.locator("#home-resume").click();
  await page.locator("#game-app").waitFor();
+ await page.locator("#pending-ability").selectOption(order.options.find(option=>option.cardName==="Order Watcher B").uid);
+ await page.locator("#pending-effect-confirm").click();
+ const ordered=await waitFor(async()=>{
+  const state=(await call(page,"/api/state")).body.state;
+  return state.revision>restored.revision&&state;
+ });
+ assert.deepEqual(ordered.spellChain.items.map(item=>item.cardName),["Order Watcher B","Order Watcher A"]);
+ assert.equal(ordered.players.human.handCount,restored.players.human.handCount);
+ console.log("PASS: Windows saves simultaneous trigger choices and restores clickable chain ordering.");
  const secondPid=(await call(page,"/api/manager/processes")).body.companion.pid;
  const exited=once(host,"exit");
  await closeWindow(host.pid);

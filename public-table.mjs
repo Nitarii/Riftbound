@@ -14,6 +14,9 @@ export function chainIsResolving(state){
  return Boolean(top&&state.pendingEffects?.some(effect=>
   (effect.chainUid??effect.resumeCardText??effect.sourceUid)===top.uid));
 }
+export function chainIsFinalizing(state){
+ return Boolean(state.pendingEffects?.some(effect=>["ability-order","ability-target","token-cost"].includes(effect.trigger)));
+}
 
 export function publicChainDetail(state,card,{english=false}={}){
  const item=state.spellChain?.items.find(value=>!value.ability&&value.uid===card.uid);
@@ -45,7 +48,9 @@ function summarizeBoard(state,visible,english){
   }else lines.push(field+" · "+bilingual(english,"Confrontation de conquête en cours.","Conquest showdown in progress."));
   if(fight.focus)lines.push(bilingual(english,"Focalisation "+side(fight.focus)+".","Focus "+side(fight.focus)+"."));
  }
- if(state.spellChain)lines.push(chainIsResolving(state)?bilingual(english,
+ if(chainIsFinalizing(state))lines.push(bilingual(english,
+  "Choix en cours pour placer les capacités sur la chaîne.","Waiting for choices to put abilities on the chain."));
+ else if(state.spellChain)lines.push(chainIsResolving(state)?bilingual(english,
   "Chaîne · résolution en cours, choix en attente.","Chain · resolving, waiting for a choice."):
   bilingual(english,"Chaîne en cours · priorité "+side(state.spellChain.priority)+".",
    "Chain in progress · priority "+side(state.spellChain.priority)+"."));
