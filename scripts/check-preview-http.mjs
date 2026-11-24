@@ -403,7 +403,7 @@ try{
  await announce(payment.replace("six","cinq"),"rejected");
  assert.equal(state.revision,paymentRevision);
  const humanBefore=state.players.human;
- const namedPayment=payment.replace("mon champion choisi",leader.name);
+ const namedPayment="Je joue "+leader.name+", j’épuise trois Calm et trois Order, puis je recycle deux Order.";
  await announce(namedPayment,"clarification");
  assert.equal(state.revision,paymentRevision);
  assert.equal(state.cards.find(c=>c.uid===championUid).zone,"champion");

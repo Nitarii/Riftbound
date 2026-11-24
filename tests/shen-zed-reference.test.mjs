@@ -93,10 +93,15 @@ test("R06 validates the spoken champion cost, recycles two Order and leaves the 
 test("Shen–Jinx resumes the announced champion on a short placement reply",()=>{
  const leader=card("Shen, Leader of the Kinkou Order","VEN-138","Unit",6,7,{power:2,domains:["Order"]});
  let s=table("human",leader);
- for(const domain of ["Calm","Calm","Calm","Order","Order","Order"])s=add(s,"human",rune(domain),"runes");
+ for(const domain of ["Calm","Calm","Calm","Calm","Order","Order","Order","Order"])s=add(s,"human",rune(domain),"runes");
  s=add(s,"human",witness,"battlefield",1);
  s=applyCommand(s,{type:"score",player:"human",set:true,value:5});
- const speech="Je joue Shen, Leader of the Kinkou Order, six runes épuisées et je recycle deux Order.";
+ const speech="Je joue Shen, Leader of the Kinkou Order, j’épuise trois Calm et trois runes d’Ordre et je recycle deux Order.";
+ for(const bad of [speech.replace("trois Calm","deux Calm"),speech.replace("trois Calm","trois Body")]){
+  const result=planPlayerSequence(bad,s);
+  assert.ok(result.error,bad);
+  assert.deepEqual(result.commands,[]);
+ }
  const request=planPlayerSequence(speech,s);
  assert.deepEqual(request.commands,[]);
  assert.equal(request.needsClarification.kind,"champion-placement");
@@ -112,7 +117,12 @@ test("Shen–Jinx resumes the announced champion on a short placement reply",()=
  const result=resolveAnnouncementClarification(pending,"En base.",[],s,{now:102});
  assert.equal(result.status,"confirmed");
  assert.equal(result.plan.commands[0].uid,champion.uid);
- assert.equal(result.plan.commands[0].payment.exhausted,6);
+ const paid=result.plan.commands.reduce(applyCommand,s);
+ const ownRunes=paid.cards.filter(c=>c.owner==="human"&&c.zone==="runes");
+ assert.equal(ownRunes.filter(c=>c.exhausted&&c.domains.includes("Calm")).length,3);
+ assert.equal(ownRunes.filter(c=>c.exhausted&&c.domains.includes("Order")).length,1);
+ assert.deepEqual(ownRunes.filter(c=>!c.exhausted).map(c=>c.domains[0]),["Calm","Order"]);
+ assert.deepEqual(result.plan.commands[0].payment.exhaustDomains,{Calm:3,Order:3});
  const passEnd=resolveAnnouncementClarification(pending,"Je le joue en base, puis je passe mon tour.",[],s,{now:102});
  assert.deepEqual(passEnd.plan.commands.map(c=>c.type),["play-physical","phase","next-turn"]);
  const next=result.plan.commands.reduce(applyCommand,s);

@@ -30,6 +30,18 @@ export function planRunePayment(state,owner,card,announced){
  const ready=all.filter(c=>!c.exhausted);
  const poolEnergy=Math.min(energy,Math.max(0,Number(state?.energyPool?.[owner])||0));
  const fromRunes=energy-poolEnergy;
+ const exhaustDomains=announced?.exhaustDomains;
+ let requestedEnergy=null;
+ if(exhaustDomains!==undefined){
+  if(!exhaustDomains||typeof exhaustDomains!=="object"||Array.isArray(exhaustDomains))
+   return {error:"Répartition des runes à épuiser invalide."};
+  requestedEnergy=Object.entries(exhaustDomains);
+  if(!requestedEnergy.length||requestedEnergy.some(([domain,count])=>
+    !RUNE_DOMAINS.includes(domain)||!Number.isSafeInteger(count)||count<1))
+   return {error:"Répartition des runes à épuiser invalide."};
+  if(requestedEnergy.reduce((sum,[,count])=>sum+count,0)!==fromRunes)
+   return {error:"Pour "+card.name+", il faut épuiser exactement "+fromRunes+" runes."};
+ }
  if(announced?.exhausted!=null&&announced.exhausted!==fromRunes)
   return {error:"Pour "+card.name+", il faut épuiser exactement "+fromRunes+" runes."};
  if(announced?.exhaustAll&&ready.length!==fromRunes)
@@ -64,8 +76,15 @@ export function planRunePayment(state,owner,card,announced){
  // Pick ready Power runes first so they can pay both costs. Then fill Energy
  // with other ready runes. Recycled Power runes can be ready OR exhausted.
  const recycle=[...reserved,...remaining.slice(0,recycleCount-coloredRunes)];
- const forEnergy=[...recycle.filter(c=>!c.exhausted),...ready.filter(c=>!recycle.some(r=>r.uid===c.uid))]
-  .slice(0,fromRunes);
+ const readyInOrder=[...recycle.filter(c=>!c.exhausted),...ready.filter(c=>!recycle.some(r=>r.uid===c.uid))];
+ const forEnergy=[];
+ if(requestedEnergy){
+  for(const [domain,count] of requestedEnergy){
+   const selected=readyInOrder.filter(rune=>runeDomain(rune)===domain).slice(0,count);
+   if(selected.length!==count)return {error:"Il te faut "+count+" rune(s) "+domain+" prêtes pour ce paiement."};
+   forEnergy.push(...selected);
+  }
+ }else forEnergy.push(...readyInOrder.slice(0,fromRunes));
  if(forEnergy.length!==fromRunes)return {error:"Impossible de régler l'énergie exacte."};
  return {energy,poolEnergy,power,poolPower:fromPool,domains,exhaustUids:forEnergy.map(c=>c.uid),
   recycleUids:recycle.map(c=>c.uid),goldUids:gold.map(c=>c.uid)};

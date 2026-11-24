@@ -60,6 +60,8 @@ test("mixed-language Whisper punctuation and a spoken rune cost preserve the car
  const corrected=correctSpokenCardPhrase(cards,raw);
  assert.equal(corrected.rawText,raw);
  assert.equal(corrected.text,"Je joue Disciple of Shen pour De Rune.");
+ const namedPayment=correctSpokenCardPhrase(cards,"Je joue Moundful Witness, j’épuise une Calm et une Order.");
+ assert.equal(namedPayment.text,"Je joue Mournful Witness, j’épuise une Calm et une Order.");
  const plan=planHumanAnnouncement(corrected.text,prepare(),cards);
  assert.ok(plan.commands.some(command=>command.type==="play-physical"&&command.card.name==="Disciple of Shen"));
 });

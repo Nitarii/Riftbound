@@ -105,7 +105,7 @@ function expectedChannel(state){
 }
 function announcedPayment(text){
  if(!/^(?:je (?:vais )?(?:joue|pose|lance)|i (?:will )?(?:play|cast))\b/.test(text))return {text};
- const clause="(?:\\s+(?:et|and))?\\s+";
+ const clause="(?:\\s+(?:et|and|puis|then))?\\s+";
  const recycle=new RegExp(clause+"(?:(?:je recycle|en recyclant|(?:i )?recycle|by recycling) "+number+
   "(?: runes?)?(?: (?:d'|de )?([a-z]+))?|"+number+"(?: runes?)? (?:d'|de )?([a-z]+) recycle(?:e|es|s)?)$");
  const power=text.match(recycle);
@@ -115,7 +115,25 @@ function announcedPayment(text){
  if(!power&&/\b(?:je recycle|en recyclant|i recycle|by recycling)\b/.test(text))return {error:fail(
   "Précise combien de runes tu recycles et leur domaine.","Specify how many runes you recycle and their domain.")};
  if(power)text=text.slice(0,power.index);
- const exhaust=text.match(new RegExp(clause+"(?:(?:j'epuise|je epuise|(?:i )?exhaust|pour|for) "+number+
+ const namedExhaust=text.match(new RegExp(clause+"(?:j'epuise|je epuise|en epuisant|i exhaust|by exhausting) (.+)$"));
+ const groups=namedExhaust?.[1].split(/ (?:et|and) /);
+ if(groups&&!new RegExp("^"+number+" runes?$").test(namedExhaust[1])){
+  const spent=new Map();
+  for(const group of groups){
+   const match=group.match(new RegExp("^"+number+"(?: runes?)? (?:d'|de |of )?([a-z]+)(?: runes?)?$"));
+   const color=match&&Object.hasOwn(domainNames,match[2])?domainNames[match[2]]:null;
+   const count=match&&num(match[1]);
+   if(!color||!Number.isSafeInteger(count)||count<1)return {error:fail(
+    "Précise combien de runes tu épuises dans chaque domaine, par exemple « deux Order et une Calm ».",
+    "Say how many runes you exhaust in each domain, for example “two Order and one Calm”.")};
+   spent.set(color,(spent.get(color)??0)+count);
+  }
+  return {text:text.slice(0,namedExhaust.index),payment:{
+   exhaustDomains:Object.fromEntries(spent),
+   ...(power?{recycled:num(power[1]??power[3]),domain:domainNames[domain]}:{})
+  }};
+ }
+ const exhaust=text.match(new RegExp(clause+"(?:(?:j'epuise|je epuise|en epuisant|(?:i )?exhaust|by exhausting|pour|for) "+number+
   " runes?|"+number+" runes? (?:epuise(?:e|es|s)?|exhausted)|(tout epuis(?:e|ee|ees|es)|exhaust all runes))$"));
  if(exhaust)text=text.slice(0,exhaust.index);
  if(!power&&!exhaust)return {text};
