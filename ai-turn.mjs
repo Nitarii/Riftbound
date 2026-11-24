@@ -3,7 +3,7 @@ import {duelOpeningRuneCount} from "./rules-compendium.mjs";
 // The local language model handles conversation, NOT unchecked game mutations.
 import {applyCommand} from "./core.mjs";
 import {planRunePayment} from "./rune-payment.mjs";
-import {mandatoryPlayEffects,chooseRequiredDiscards} from "./play-effects.mjs";
+import {mandatoryPlayEffects,chooseRequiredDiscards,chooseDamageDiscard} from "./play-effects.mjs";
 import {battlefieldController} from "./battlefield-rules.mjs";
 import {previewCombat,effectiveMight,hasKeyword,clearTurnUnitState} from "./combat-engine.mjs";
 import {hiddenDisciple,shenLegend} from "./verified-cards.mjs";
@@ -164,13 +164,12 @@ function removalSpell(state){
  for(const {card:spell,rule} of availableSpells(state)){
   if(!rule.damage&&!rule.damageFromDiscard&&!rule.returnToBase&&!rule.kill&&rule.killAtMost===undefined)continue;
   const discard=rule.discardDamage?chooseRequiredDiscards(state,spell.uid,1)?.[0]:null;
-  const resolutionDiscard=rule.damageFromDiscard&&
-   state.cards.find(c=>c.uid===chooseRequiredDiscards(state,spell.uid,1)?.[0]);
   for(const unit of state.cards.filter(c=>c.owner==="human"&&c.zone==="battlefield"&&isUnit(c)&&!c.faceDown)){
    const might=effectiveMight(unit,"none",state);
    if(might==null)continue;
-   const need=might-(unit.damage||0)+(unit.counters.preventDamage||0);
-   if(rule.damageFromDiscard&&(!resolutionDiscard||resolutionDiscard.energy<need))continue;
+   const need=Math.max(1,might-(unit.damage||0))+(unit.counters.preventDamage||0);
+   const resolutionDiscard=rule.damageFromDiscard?chooseDamageDiscard(state,spell.uid,need):null;
+   if(rule.damageFromDiscard&&(!resolutionDiscard||(resolutionDiscard.energy??0)<need))continue;
    if(rule.returnToBase&&/vilemaw.s lair|antre de vilemaw/i.test(state.battlefields[unit.battlefield]?.card?.name||""))continue;
    const after=rule.disempower?{...unit,counters:{...unit.counters,
     empowered:Math.max(0,(unit.counters?.empowered||0)-1)}}:unit;

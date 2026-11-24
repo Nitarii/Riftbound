@@ -278,6 +278,39 @@ test("Get Excited! requests only the physical card discarded and accepts it once
  assert.equal(s.spellChain,null);
  assert.throws(()=>applyCommand(s,choice.commands[0]),/Aucun effet/);
 });
+test("the AI chooses a lethal Get Excited discard at resolution, after reactions",()=>{
+ let s=table("ai");
+ for(const domain of ["Fury","Fury"])s=add(s,"ai",rune(domain),"runes");
+ for(const domain of ["Calm","Calm"])s=add(s,"human",rune(domain),"runes");
+ const cheap=card("Cheap unit","T-CHEAP","Unit",1,1);
+ const medium=card("Medium discard","T-MEDIUM","Unit",4,2);
+ const large=card("Large discard","T-LARGE","Unit",6,2);
+ const threat=card("Threat","T-THREAT","Unit",3,4);
+ for(const value of [excited,cheap,medium,large])s=add(s,"ai",value,"hand");
+ s=add(s,"human",threat,"battlefield",0);
+ const cast=planAutonomousAITurn(s).commands[0];
+ assert.equal(cast?.type,"cast");
+ assert.equal(cast.targetUid,get(s,threat.name).uid);
+ assert.equal(cast.discardUid,undefined);
+ const staged=applyCommand(s,cast);
+ for(const value of [cheap,medium,large])assert.equal(get(staged,value.name).zone,"hand");
+
+ const unopposed=resolveTop(staged);
+ assert.equal(get(unopposed,threat.name).zone,"trash");
+ assert.equal(get(unopposed,medium.name).zone,"trash");
+ assert.equal(get(unopposed,large.name).zone,"hand");
+
+ s=pass(staged,"ai");
+ const reaction=planPlayerSequence("Je joue Discipline sur Threat",s,[discipline]);
+ assert.equal(reaction.commands[0]?.type,"cast",reaction.error);
+ s=resolveTop(reaction.commands.reduce(applyCommand,s));
+ assert.equal(effectiveMight(get(s,threat.name),"none",s),6);
+ assert.equal(get(s,large.name).zone,"hand");
+ s=resolveTop(s);
+ assert.equal(get(s,threat.name).zone,"trash");
+ assert.equal(get(s,large.name).zone,"trash");
+ for(const value of [cheap,medium])assert.equal(get(s,value.name).zone,"hand");
+});
 test("Fight or Flight moves the same unit and its gear; the combat log records a skipped damage step",()=>{
  let s=table();
  s=add(s,"human",witness);

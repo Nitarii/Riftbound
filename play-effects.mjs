@@ -16,11 +16,18 @@ export function mandatoryPlayEffects(card,{playedBefore=0,xp=0}={}){
 
 // Discard the least useful remaining AI hand cards; do not see the human hand.
 // The reducer revalidates the current hand at the actual discard instruction.
-export function chooseRequiredDiscards(state,playedUid,count){
+function discardCandidates(state,playedUid){
  const hand=(state?.cards||[]).filter(c=>c.owner==="ai"&&c.zone==="hand"&&c.uid!==playedUid);
- if(hand.length<count)return null;
  const value=c=>(Number(c.might)||0)*2+(Number(c.energy)||0)+
   (Number(c.power)||0)*2+(c.type==="Unit"?2:1);
- hand.sort((a,b)=>value(a)-value(b)||String(a.uid).localeCompare(String(b.uid)));
- return hand.slice(0,count).map(c=>c.uid);
+ return hand.sort((a,b)=>value(a)-value(b)||String(a.uid).localeCompare(String(b.uid)));
+}
+export function chooseRequiredDiscards(state,playedUid,count){
+ const hand=discardCandidates(state,playedUid);
+ return hand.length<count?null:hand.slice(0,count).map(c=>c.uid);
+}
+export function chooseDamageDiscard(state,playedUid,damageNeeded){
+ const hand=discardCandidates(state,playedUid);
+ return hand.find(card=>(card.energy??0)>=damageNeeded)??hand.reduce(
+  (best,card)=>(card.energy??0)>(best?.energy??-1)?card:best,null);
 }

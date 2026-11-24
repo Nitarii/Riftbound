@@ -1,7 +1,7 @@
 // Shared board reducer for the local companion and the browser.
 import {battlefieldController,scoreControlledBattlefield,scoreNewControl} from "./battlefield-rules.mjs";
 import {planRunePayment,RUNE_DOMAINS} from "./rune-payment.mjs";
-import {chooseRequiredDiscards,mandatoryPlayEffects,playRestrictionText} from "./play-effects.mjs";
+import {chooseRequiredDiscards,chooseDamageDiscard,mandatoryPlayEffects,playRestrictionText} from "./play-effects.mjs";
 import {processCardEvent,unitBeforeDeath,prepareCardText,payCardText,resolveCardText} from "./effect-runtime.mjs";
 import {drawMainCards,burnMainCards} from "./draw-rules.mjs";
 import {migrateLegacyPassivePendingEffects,spellRule,resolvedSpellMight,empowerEnergy} from "./effect-engine.mjs";
@@ -212,11 +212,12 @@ export function applyCommand(old, command) {
         logs.push(...processCardEvent(s,{trigger:"die",actor:lastKnown.owner,source:lastKnown},runtime));
     }
   }
-  function discardForSpell(owner,uid,physicalCard){
+  function discardForSpell(owner,uid,physicalCard,damageNeeded=null){
     const player=s.players[owner];
     if(player.handCount===0)return null;
     if(owner==="ai"){
-      const selected=chooseRequiredDiscards(s,uid,1)?.[0];
+      const selected=damageNeeded===null?chooseRequiredDiscards(s,uid,1)?.[0]:
+        chooseDamageDiscard(s,uid,damageNeeded)?.uid;
       if(!selected)return null;
       const card=getCard(s,selected);
       card.zone="trash";player.handCount--;
@@ -576,11 +577,15 @@ export function applyCommand(old, command) {
     if(!rule)throw Error("Effet de sort non pris en charge.");
     const might=resolvedSpellMight(rule,s,source.owner);
     const logs=[],deaths=[];
+    const targetValid=rule.target&&checkSpellTarget(rule,target,source.owner,item.field)&&
+       (item.hiddenField===undefined||target.battlefield===item.hiddenField);
+    const targetMight=rule.damageFromDiscard&&targetValid?effectiveMight(target,combatRole(target),s):null;
+    const damageNeeded=targetMight===null?null:
+      Math.max(1,targetMight-(target.damage||0))+(target.counters.preventDamage||0);
     const mustDiscard=rule.damageFromDiscard||rule.discardThenDraw;
-    const discarded=mustDiscard?discardForSpell(source.owner,source.uid,physicalCard):null;
+    const discarded=mustDiscard?discardForSpell(source.owner,source.uid,physicalCard,damageNeeded):null;
     if(mustDiscard)logs.push(discarded?"défausse "+discarded.name:"aucune carte à défausser");
-    if(rule.target&&checkSpellTarget(rule,target,source.owner,item.field)&&
-       (item.hiddenField===undefined||target.battlefield===item.hiddenField)){
+    if(targetValid){
       if(rule.target==="friendly-transfer"){
         if(canMove(target,source.owner)){
           target.zone="battlefield";target.battlefield=item.field;
